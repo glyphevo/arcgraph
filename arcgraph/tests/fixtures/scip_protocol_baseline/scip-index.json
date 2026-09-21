@@ -1,0 +1,91 @@
+{
+  "metadata": {
+    "projectRoot": ".",
+    "toolInfo": {
+      "name": "synthetic-scip",
+      "version": "0.1"
+    }
+  },
+  "documents": [
+    {
+      "relativePath": "src/server.go",
+      "occurrences": [
+        {
+          "symbol": "local src/server.go Handler#",
+          "range": [2, 5, 7, 1],
+          "symbolRoles": 1
+        },
+        {
+          "symbol": "local src/server.go Handler#Serve().",
+          "range": [4, 5, 7, 1],
+          "symbolRoles": 1
+        },
+        {
+          "symbol": "local src/server.go Helper().",
+          "range": [5, 9, 5, 15],
+          "symbolRoles": 0
+        },
+        {
+          "symbol": "scip-go gomod github.com/acme/lib v1.0.0 lib.go/External().",
+          "range": [6, 9, 6, 17],
+          "symbolRoles": 0
+        },
+        {
+          "symbol": "local src/missing.go Missing().",
+          "range": [7, 9, 7, 16],
+          "symbolRoles": 0
+        }
+      ]
+    },
+    {
+      "relativePath": "src/helper.rs",
+      "occurrences": [
+        {
+          "symbol": "local src/server.go Helper().",
+          "range": [1, 4, 1, 10],
+          "symbolRoles": 1
+        },
+        {
+          "symbol": "local src/server.go Helper().",
+          "range": [2, 4, 2, 10],
+          "symbolRoles": 1
+        }
+      ]
+    },
+    {
+      "relativePath": "src/App.java",
+      "occurrences": [
+        {
+          "symbol": "local src/App.java App#",
+          "range": [1, 13, 5, 1],
+          "symbolRoles": 1
+        },
+        {
+          "symbol": "local src/server.go Handler#Serve().",
+          "range": [3, 8, 3, 13],
+          "symbolRoles": 0
+        }
+      ]
+    },
+    {
+      "relativePath": "src/Client.cs",
+      "occurrences": [
+        {
+          "symbol": "local src/Client.cs Client#",
+          "range": [2, 13, 7, 1],
+          "symbolRoles": 1
+        },
+        {
+          "symbol": "local src/Client.cs Client#Send().",
+          "range": [4, 16, 7, 5],
+          "symbolRoles": 1
+        },
+        {
+          "symbol": "local src/App.java App#",
+          "range": [6, 13, 6, 16],
+          "symbolRoles": 0
+        }
+      ]
+    }
+  ]
+}

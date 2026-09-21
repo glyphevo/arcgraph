@@ -1,0 +1,160 @@
+{
+  "minimum_rates": {
+    "attribute": 0.55,
+    "chain": 0.99,
+    "direct": 0.99,
+    "overall": 0.83
+  },
+  "expected_edges": [
+    {
+      "source": "method:gaps.service.UnitOfWork.__init__",
+      "target": "method:gaps.service.RepoFactory.create",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "class_attribute_method"
+    },
+    {
+      "source": "method:gaps.service.UnitOfWork.from_class_annotation",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:gaps.service.UnitOfWork.from_property",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:gaps.service.UnitOfWork.from_cached_property",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:gaps.service.UnitOfWork.from_local_alias",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:gaps.service.UnitOfWork.from_provider_local",
+      "target": "fn:gaps.service.provide_repository",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "same_module_symbol"
+    },
+    {
+      "source": "method:gaps.service.UnitOfWork.from_provider_local",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.fluent_chain",
+      "target": "method:gaps.service.QueryBuilder.where",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.fluent_chain",
+      "target": "method:gaps.service.QueryBuilder.order_by",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.fluent_chain",
+      "target": "method:gaps.service.QueryBuilder.execute",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.fluent_chain",
+      "target": "method:gaps.service.Repository.load",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.from_cast",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.from_async_context_manager",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.from_sync_context_manager",
+      "target": "method:gaps.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.from_dataclass_constructor",
+      "target": "method:gaps.service.DataclassRepository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.from_pydantic_model_validate",
+      "target": "method:gaps.service.Payload.model_dump",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:gaps.service.from_settings_model_validate",
+      "target": "method:gaps.service.Settings.as_dict",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    }
+  ],
+  "expected_unresolved": [
+    {
+      "raw_expression": "cache.get",
+      "category": "true_dynamic_call",
+      "count": 1,
+      "risk_level": "low",
+      "release_blocking": false
+    },
+    {
+      "raw_expression": "bag.add",
+      "category": "true_dynamic_call",
+      "count": 1,
+      "risk_level": "low",
+      "release_blocking": false
+    },
+    {
+      "raw_expression": "plugin.run",
+      "category": "true_dynamic_call",
+      "count": 1,
+      "risk_level": "low",
+      "release_blocking": false
+    }
+  ],
+  "unresolved_summary": {
+    "total": 3,
+    "release_blocking_count": 0,
+    "category_counts": {
+      "true_dynamic_call": 3
+    }
+  }
+}
+

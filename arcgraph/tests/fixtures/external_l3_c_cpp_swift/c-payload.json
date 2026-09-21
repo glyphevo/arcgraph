@@ -1,0 +1,332 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "c-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "c",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "external_symbol",
+      "field",
+      "function",
+      "global_variable",
+      "macro",
+      "project",
+      "struct",
+      "translation_unit",
+      "typedef"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "contains",
+      "defines",
+      "has_field",
+      "imports",
+      "reads",
+      "references"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "clang",
+        "status": "available",
+        "required": true,
+        "version": "fixture-clang-18"
+      },
+      {
+        "name": "compile_commands.json",
+        "status": "available",
+        "required": true,
+        "version": "fixture"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "clang-or-clangd",
+        "command": "clang",
+        "required": true,
+        "version_args": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "project:c:arcgraph-c-demo",
+      "kind": "project",
+      "name": "arcgraph-c-demo",
+      "qualname": "arcgraph-c-demo",
+      "path": "c/compile_commands.json",
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external",
+        "semantic_source": "clang-compile-commands"
+      }
+    },
+    {
+      "id": "tu:c:c/service.c",
+      "kind": "translation_unit",
+      "name": "service.c",
+      "qualname": "c/service.c",
+      "path": "c/service.c",
+      "start_line": 1,
+      "end_line": 12,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external",
+        "compile_command": "clang -std=c17 -I. -c service.c"
+      }
+    },
+    {
+      "id": "struct:c:Repository",
+      "kind": "struct",
+      "name": "Repository",
+      "qualname": "Repository",
+      "path": "c/service.h",
+      "start_line": 3,
+      "end_line": 5,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external"
+      }
+    },
+    {
+      "id": "field:c:Repository.name",
+      "kind": "field",
+      "name": "name",
+      "qualname": "Repository.name",
+      "path": "c/service.h",
+      "start_line": 4,
+      "end_line": 4,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external",
+        "type": "const char *"
+      }
+    },
+    {
+      "id": "typedef:c:RepositoryHandle",
+      "kind": "typedef",
+      "name": "RepositoryHandle",
+      "qualname": "RepositoryHandle",
+      "path": "c/service.h",
+      "start_line": 7,
+      "end_line": 7,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external",
+        "aliased_type": "Repository *"
+      }
+    },
+    {
+      "id": "macro:c:SERVICE_PREFIX",
+      "kind": "macro",
+      "name": "SERVICE_PREFIX",
+      "qualname": "SERVICE_PREFIX",
+      "path": "c/service.c",
+      "start_line": 3,
+      "end_line": 3,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external"
+      }
+    },
+    {
+      "id": "global:c:default_repository",
+      "kind": "global_variable",
+      "name": "default_repository",
+      "qualname": "default_repository",
+      "path": "c/service.c",
+      "start_line": 5,
+      "end_line": 5,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external",
+        "type": "Repository"
+      }
+    },
+    {
+      "id": "function:c:repository_save",
+      "kind": "function",
+      "name": "repository_save",
+      "qualname": "repository_save",
+      "path": "c/service.c",
+      "start_line": 7,
+      "end_line": 10,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external"
+      }
+    },
+    {
+      "id": "function:c:use_repository",
+      "kind": "function",
+      "name": "use_repository",
+      "qualname": "use_repository",
+      "path": "c/service.c",
+      "start_line": 12,
+      "end_line": 14,
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:c:service.h",
+      "kind": "external_symbol",
+      "name": "service.h",
+      "qualname": "service.h",
+      "properties": {
+        "language": "c",
+        "frontend_name": "c-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "project:c:arcgraph-c-demo",
+      "target": "tu:c:c/service.c",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_compile_database"
+      }
+    },
+    {
+      "source": "tu:c:c/service.c",
+      "target": "extsym:c:service.h",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_include_graph"
+      },
+      "evidence": [
+        {
+          "kind": "clang_include",
+          "path": "c/service.c",
+          "start_line": 1,
+          "end_line": 1,
+          "detail": "#include \"service.h\""
+        }
+      ]
+    },
+    {
+      "source": "tu:c:c/service.c",
+      "target": "struct:c:Repository",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_ast_decl"
+      },
+      "evidence": [
+        {
+          "kind": "clang_ast_decl",
+          "path": "c/service.h",
+          "start_line": 3,
+          "end_line": 5
+        }
+      ]
+    },
+    {
+      "source": "struct:c:Repository",
+      "target": "field:c:Repository.name",
+      "kind": "has_field",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_record_layout"
+      },
+      "evidence": [
+        {
+          "kind": "clang_record_layout",
+          "path": "c/service.h",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "source": "typedef:c:RepositoryHandle",
+      "target": "struct:c:Repository",
+      "kind": "references",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_type_resolution"
+      },
+      "evidence": [
+        {
+          "kind": "clang_typedef_underlying_type",
+          "path": "c/service.h",
+          "start_line": 7,
+          "end_line": 7
+        }
+      ]
+    },
+    {
+      "source": "function:c:use_repository",
+      "target": "function:c:repository_save",
+      "kind": "calls",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_call_expr"
+      },
+      "evidence": [
+        {
+          "kind": "clang_call_expr",
+          "path": "c/service.c",
+          "start_line": 13,
+          "end_line": 13,
+          "detail": "repository_save(&default_repository, payload)"
+        }
+      ]
+    },
+    {
+      "source": "function:c:use_repository",
+      "target": "global:c:default_repository",
+      "kind": "reads",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_decl_ref_expr"
+      },
+      "evidence": [
+        {
+          "kind": "clang_decl_ref_expr",
+          "path": "c/service.c",
+          "start_line": 13,
+          "end_line": 13,
+          "detail": "&default_repository"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "c_external_function_pointer_deferred",
+      "message": "Function pointer calls are deferred by the C L3 fixture policy.",
+      "path": "c/service.c"
+    },
+    {
+      "kind": "c_external_macro_expansion_deferred",
+      "message": "Macro expansion semantics remain warning-only unless extractor evidence resolves a symbol.",
+      "path": "c/service.c"
+    }
+  ],
+  "metrics": {
+    "languages": [
+      "c"
+    ],
+    "semantic_source": "clang-compile-commands",
+    "compile_database": "c/compile_commands.json"
+  }
+}

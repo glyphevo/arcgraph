@@ -1,0 +1,165 @@
+{
+  "expected_nodes": [
+    {"id": "fn:app.runPhaseTwo", "kind": "function"},
+    {"id": "fn:app.dynamicRoute", "kind": "function"},
+    {"id": "class:domain.service.ApiClient", "kind": "class"},
+    {"id": "class:domain.service.ApiService", "kind": "class"},
+    {"id": "method:domain.service.ApiClient.fetchStatus", "kind": "method"},
+    {"id": "method:domain.service.ApiService.loadViaLocalInstance", "kind": "method"},
+    {"id": "method:domain.service.ApiService.loadViaThisProperty", "kind": "method"},
+    {"id": "method:domain.service.ApiService.loadViaThisMethod", "kind": "method"},
+    {"id": "method:domain.service.ApiService.normalize", "kind": "method"},
+    {"id": "class:domain.defaultClient.DefaultClient", "kind": "class"},
+    {"id": "method:domain.defaultClient.DefaultClient.load", "kind": "method"},
+    {"id": "fn:domain.legacy.legacyHelper", "kind": "function"},
+    {"id": "interface:domain.typeOnly.WirePayload", "kind": "interface"},
+    {"id": "type_alias:domain.typeOnly.ResponseMode", "kind": "type_alias"},
+    {"id": "interface:domain.contracts.RemoteContract", "kind": "interface"},
+    {"id": "class:domain.contracts.DeclaredClient", "kind": "class"},
+    {"id": "method:domain.contracts.DeclaredClient.declared", "kind": "method"},
+    {"id": "route:GET:/api/v1/greeting/status", "kind": "route"},
+    {"id": "route:POST:/api/v1/greeting/refresh", "kind": "route"}
+  ],
+  "expected_edges": [
+    {
+      "source": "method:domain.service.ApiService.loadViaLocalInstance",
+      "kind": "calls",
+      "target": "method:domain.service.ApiClient.fetchStatus",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "method:domain.service.ApiService.loadViaThisProperty",
+      "kind": "calls",
+      "target": "method:domain.service.ApiClient.fetchStatus",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "method:domain.service.ApiService.loadViaThisMethod",
+      "kind": "calls",
+      "target": "method:domain.service.ApiClient.fetchStatus",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "method:domain.service.ApiService.loadViaThisMethod",
+      "kind": "calls",
+      "target": "method:domain.service.ApiService.normalize",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "fn:app.runPhaseTwo",
+      "kind": "calls",
+      "target": "method:domain.service.ApiService.loadViaLocalInstance",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "fn:app.runPhaseTwo",
+      "kind": "calls",
+      "target": "method:domain.service.ApiClient.fetchStatus",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "fn:app.runPhaseTwo",
+      "kind": "calls",
+      "target": "method:domain.defaultClient.DefaultClient.load",
+      "confidence": "inferred",
+      "strategy": "typescript_typechecker"
+    },
+    {
+      "source": "fn:app.runPhaseTwo",
+      "kind": "calls",
+      "target": "fn:domain.legacy.legacyHelper",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "fn:app.runPhaseTwo",
+      "kind": "calls",
+      "target": "route:GET:/api/v1/greeting/status",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "fn:app.runPhaseTwo",
+      "kind": "calls",
+      "target": "route:POST:/api/v1/greeting/refresh",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "mod:app",
+      "kind": "imports",
+      "target": "mod:domain.typeOnly",
+      "confidence": "confirmed",
+      "property": {"import_kind": "type"}
+    },
+    {
+      "source": "mod:app",
+      "kind": "imports",
+      "target": "mod:domain.legacy",
+      "confidence": "confirmed",
+      "property": {"import_kind": "commonjs"}
+    },
+    {
+      "source": "mod:app",
+      "kind": "imports",
+      "target": "mod:domain.contracts",
+      "confidence": "confirmed",
+      "property": {"import_kind": "type"}
+    },
+    {
+      "source": "mod:app",
+      "kind": "exports",
+      "target": "interface:domain.typeOnly.WirePayload",
+      "confidence": "confirmed",
+      "property": {"export_kind": "type"}
+    },
+    {
+      "source": "mod:app",
+      "kind": "exports",
+      "target": "interface:domain.contracts.RemoteContract",
+      "confidence": "confirmed",
+      "property": {"export_kind": "type"}
+    },
+    {
+      "source": "mod:domain.legacy",
+      "kind": "exports",
+      "target": "fn:domain.legacy.legacyHelper",
+      "confidence": "confirmed",
+      "property": {"export_kind": "commonjs"}
+    }
+  ],
+  "expected_declaration_file_nodes": [
+    "interface:domain.contracts.RemoteContract",
+    "class:domain.contracts.DeclaredClient",
+    "method:domain.contracts.DeclaredClient.declared"
+  ],
+  "forbidden_edges": [
+    {
+      "source": "fn:app.dynamicRoute",
+      "kind": "calls",
+      "target": "route:GET:/api/v1/greeting/status"
+    },
+    {
+      "source": "fn:app.dynamicRoute",
+      "kind": "calls",
+      "target": "route:POST:/api/v1/greeting/refresh"
+    }
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_route_dynamic",
+      "path": "src/app.ts",
+      "message_contains": ["Dynamic TypeScript fetch URL"]
+    }
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 24,
+    "typescript_edges": 30
+  }
+}

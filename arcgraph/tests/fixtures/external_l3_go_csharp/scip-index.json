@@ -1,0 +1,34 @@
+{
+  "documents": [
+    {
+      "relativePath": "go/service.go",
+      "occurrences": [
+        {
+          "symbol": "local go/service.go Repository#",
+          "range": [
+            8,
+            5,
+            8,
+            15
+          ],
+          "symbolRoles": 1
+        }
+      ]
+    },
+    {
+      "relativePath": "csharp/Service.cs",
+      "occurrences": [
+        {
+          "symbol": "local csharp/Service.cs RepositoryService#",
+          "range": [
+            15,
+            13,
+            15,
+            30
+          ],
+          "symbolRoles": 1
+        }
+      ]
+    }
+  ]
+}

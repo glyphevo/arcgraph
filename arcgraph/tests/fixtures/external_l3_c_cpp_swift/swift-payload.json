@@ -1,0 +1,309 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "swift-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "swift",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "external_symbol",
+      "extension",
+      "function",
+      "method",
+      "module",
+      "project",
+      "property",
+      "protocol",
+      "struct"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "conforms",
+      "contains",
+      "defines",
+      "extends",
+      "imports",
+      "references"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "sourcekit-lsp",
+        "status": "available",
+        "required": true,
+        "version": "fixture-sourcekit-lsp"
+      },
+      {
+        "name": "swiftpm",
+        "status": "available",
+        "required": true,
+        "version": "fixture-swift-5.9"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "sourcekit-or-swift",
+        "command": "swift",
+        "required": true,
+        "version_args": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "project:swift:ArcGraphDemo",
+      "kind": "project",
+      "name": "ArcGraphDemo",
+      "qualname": "ArcGraphDemo",
+      "path": "swift/Package.swift",
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external",
+        "semantic_source": "sourcekit-indexstore"
+      }
+    },
+    {
+      "id": "module:swift:ArcGraphDemo",
+      "kind": "module",
+      "name": "ArcGraphDemo",
+      "qualname": "ArcGraphDemo",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 1,
+      "end_line": 19,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    },
+    {
+      "id": "protocol:swift:ArcGraphDemo.Saver",
+      "kind": "protocol",
+      "name": "Saver",
+      "qualname": "ArcGraphDemo.Saver",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 3,
+      "end_line": 5,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    },
+    {
+      "id": "struct:swift:ArcGraphDemo.Repository",
+      "kind": "struct",
+      "name": "Repository",
+      "qualname": "ArcGraphDemo.Repository",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 7,
+      "end_line": 13,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    },
+    {
+      "id": "property:swift:ArcGraphDemo.Repository.name",
+      "kind": "property",
+      "name": "name",
+      "qualname": "ArcGraphDemo.Repository.name",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 8,
+      "end_line": 8,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external",
+        "type": "String"
+      }
+    },
+    {
+      "id": "method:swift:ArcGraphDemo.Repository.save",
+      "kind": "method",
+      "name": "save",
+      "qualname": "ArcGraphDemo.Repository.save",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 10,
+      "end_line": 12,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    },
+    {
+      "id": "extension:swift:ArcGraphDemo.Repository.Saver",
+      "kind": "extension",
+      "name": "Repository: Saver",
+      "qualname": "ArcGraphDemo.Repository:Saver",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 15,
+      "end_line": 15,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    },
+    {
+      "id": "function:swift:ArcGraphDemo.useSaver",
+      "kind": "function",
+      "name": "useSaver",
+      "qualname": "ArcGraphDemo.useSaver",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift",
+      "start_line": 17,
+      "end_line": 19,
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:swift:Foundation",
+      "kind": "external_symbol",
+      "name": "Foundation",
+      "qualname": "Foundation",
+      "properties": {
+        "language": "swift",
+        "frontend_name": "swift-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "project:swift:ArcGraphDemo",
+      "target": "module:swift:ArcGraphDemo",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "swiftpm_package_graph"
+      }
+    },
+    {
+      "source": "module:swift:ArcGraphDemo",
+      "target": "extsym:swift:Foundation",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "sourcekit_import_resolution"
+      },
+      "evidence": [
+        {
+          "kind": "sourcekit_import",
+          "path": "swift/Sources/ArcGraphDemo/Service.swift",
+          "start_line": 1,
+          "end_line": 1,
+          "detail": "import Foundation"
+        }
+      ]
+    },
+    {
+      "source": "module:swift:ArcGraphDemo",
+      "target": "struct:swift:ArcGraphDemo.Repository",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "sourcekit_symbol_graph"
+      },
+      "evidence": [
+        {
+          "kind": "sourcekit_symbol",
+          "path": "swift/Sources/ArcGraphDemo/Service.swift",
+          "start_line": 7,
+          "end_line": 13
+        }
+      ]
+    },
+    {
+      "source": "struct:swift:ArcGraphDemo.Repository",
+      "target": "property:swift:ArcGraphDemo.Repository.name",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "sourcekit_symbol_graph"
+      }
+    },
+    {
+      "source": "extension:swift:ArcGraphDemo.Repository.Saver",
+      "target": "struct:swift:ArcGraphDemo.Repository",
+      "kind": "extends",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "sourcekit_extension_binding"
+      },
+      "evidence": [
+        {
+          "kind": "sourcekit_extension",
+          "path": "swift/Sources/ArcGraphDemo/Service.swift",
+          "start_line": 15,
+          "end_line": 15
+        }
+      ]
+    },
+    {
+      "source": "struct:swift:ArcGraphDemo.Repository",
+      "target": "protocol:swift:ArcGraphDemo.Saver",
+      "kind": "conforms",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "sourcekit_protocol_conformance"
+      },
+      "evidence": [
+        {
+          "kind": "sourcekit_conformance",
+          "path": "swift/Sources/ArcGraphDemo/Service.swift",
+          "start_line": 15,
+          "end_line": 15,
+          "detail": "extension Repository: Saver"
+        }
+      ]
+    },
+    {
+      "source": "function:swift:ArcGraphDemo.useSaver",
+      "target": "method:swift:ArcGraphDemo.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "sourcekit_call_resolution",
+        "candidate_count": 1
+      },
+      "evidence": [
+        {
+          "kind": "sourcekit_call",
+          "path": "swift/Sources/ArcGraphDemo/Service.swift",
+          "start_line": 18,
+          "end_line": 18,
+          "detail": "Repository(name: \"main\").save(payload)"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "swift_external_result_builder_deferred",
+      "message": "Result-builder expansion is warning-only for this L3 fixture.",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift"
+    },
+    {
+      "kind": "swift_external_platform_condition_deferred",
+      "message": "Conditional platform availability is deferred unless SourceKit evidence emits a resolved symbol.",
+      "path": "swift/Sources/ArcGraphDemo/Service.swift"
+    }
+  ],
+  "metrics": {
+    "languages": [
+      "swift"
+    ],
+    "semantic_source": "sourcekit-indexstore",
+    "package_manifest": "swift/Package.swift"
+  }
+}

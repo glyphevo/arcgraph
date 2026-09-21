@@ -1,0 +1,6 @@
+{
+  "name": "@arcgraph/dupe",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

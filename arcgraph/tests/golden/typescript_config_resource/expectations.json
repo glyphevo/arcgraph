@@ -1,0 +1,132 @@
+{
+  "expected_nodes": [
+    {"id": "fn:config.readEnvConfig", "kind": "function"},
+    {"id": "fn:config.useBrowserStorage", "kind": "function"},
+    {"id": "fn:config.dynamicConfig", "kind": "function"},
+    {"id": "config:env:API_BASE_URL", "kind": "config"},
+    {"id": "config:env:PUBLIC_TOKEN", "kind": "config"},
+    {"id": "config:env:VITE_PUBLIC_FLAG", "kind": "config"},
+    {"id": "config:env:VITE_MODE", "kind": "config"},
+    {"id": "config:browser_storage:localStorage:theme", "kind": "config"},
+    {"id": "config:browser_storage:localStorage:global-theme", "kind": "config"},
+    {"id": "config:browser_storage:sessionStorage:session-id", "kind": "config"},
+    {"id": "config:browser_storage:sessionStorage:global-session", "kind": "config"},
+    {"id": "config:browser_storage:localStorage:legacy-theme", "kind": "config"}
+  ],
+  "expected_edges": [
+    {
+      "source": "fn:config.readEnvConfig",
+      "kind": "configures",
+      "target": "config:env:API_BASE_URL",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_env_access"
+    },
+    {
+      "source": "fn:config.readEnvConfig",
+      "kind": "configures",
+      "target": "config:env:PUBLIC_TOKEN",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_env_access"
+    },
+    {
+      "source": "fn:config.readEnvConfig",
+      "kind": "configures",
+      "target": "config:env:VITE_PUBLIC_FLAG",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_env_access"
+    },
+    {
+      "source": "fn:config.readEnvConfig",
+      "kind": "configures",
+      "target": "config:env:VITE_MODE",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_env_access"
+    },
+    {
+      "source": "fn:config.useBrowserStorage",
+      "kind": "reads",
+      "target": "config:browser_storage:localStorage:theme",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_browser_storage"
+    },
+    {
+      "source": "fn:config.useBrowserStorage",
+      "kind": "reads",
+      "target": "config:browser_storage:localStorage:global-theme",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_browser_storage"
+    },
+    {
+      "source": "fn:config.useBrowserStorage",
+      "kind": "writes",
+      "target": "config:browser_storage:sessionStorage:session-id",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_browser_storage"
+    },
+    {
+      "source": "fn:config.useBrowserStorage",
+      "kind": "writes",
+      "target": "config:browser_storage:sessionStorage:global-session",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_browser_storage"
+    },
+    {
+      "source": "fn:config.useBrowserStorage",
+      "kind": "writes",
+      "target": "config:browser_storage:localStorage:legacy-theme",
+      "confidence": "heuristic",
+      "evidence_kind": "ts_browser_storage"
+    }
+  ],
+  "forbidden_edges": [
+    {
+      "source": "fn:config.dynamicConfig",
+      "kind": "configures",
+      "target": "config:env:envKey"
+    },
+    {
+      "source": "fn:config.dynamicConfig",
+      "kind": "reads",
+      "target": "config:browser_storage:localStorage:storageKey"
+    },
+    {
+      "source": "fn:config.dynamicConfig",
+      "kind": "reads",
+      "target": "config:browser_storage:sessionStorage:storageKey"
+    }
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_config_dynamic",
+      "path": "src/config.ts",
+      "message_contains": [
+        "Dynamic TypeScript environment key",
+        "process.env[]"
+      ]
+    },
+    {
+      "kind": "typescript_config_dynamic",
+      "path": "src/config.ts",
+      "message_contains": [
+        "Dynamic TypeScript environment key",
+        "import.meta.env[]"
+      ]
+    },
+    {
+      "kind": "typescript_config_dynamic",
+      "path": "src/config.ts",
+      "message_contains": [
+        "Dynamic TypeScript browser storage key",
+        "localStorage.getItem"
+      ]
+    },
+    {
+      "kind": "typescript_config_dynamic",
+      "path": "src/config.ts",
+      "message_contains": [
+        "Dynamic TypeScript browser storage key",
+        "sessionStorage.getItem"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+"""Framework adapter matrix fixture."""

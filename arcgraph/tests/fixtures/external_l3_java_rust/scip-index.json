@@ -1,0 +1,24 @@
+{
+  "documents": [
+    {
+      "relativePath": "java/src/main/java/com/example/arcgraph/Service.java",
+      "occurrences": [
+        {
+          "symbol": "local java/src/main/java/com/example/arcgraph/Service.java RepositoryService#",
+          "range": [16, 6, 33, 1],
+          "symbolRoles": 1
+        }
+      ]
+    },
+    {
+      "relativePath": "rust/src/lib.rs",
+      "occurrences": [
+        {
+          "symbol": "local rust/src/lib.rs Repository#",
+          "range": [5, 8, 7, 5],
+          "symbolRoles": 1
+        }
+      ]
+    }
+  ]
+}

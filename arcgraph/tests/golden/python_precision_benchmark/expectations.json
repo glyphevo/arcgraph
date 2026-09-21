@@ -1,0 +1,212 @@
+{
+  "minimum_rates": {
+    "attribute": 0.82,
+    "chain": 0.95,
+    "direct": 0.95,
+    "overall": 0.92
+  },
+  "expected_edges": [
+    {
+      "source": "method:bench.service.WorkService.__init__",
+      "target": "method:bench.db.StoreReader.from_current",
+      "kind": "calls",
+      "confidence": "confirmed",
+      "strategy": "imported_module_attribute"
+    },
+    {
+      "source": "method:bench.service.WorkService.create",
+      "target": "method:bench.service.Repository.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:bench.service.WorkService.open_connection",
+      "target": "method:bench.db.StoreReader.connect",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:bench.service.WorkService.load_internal_count",
+      "target": "method:bench.db.Connection.execute",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "method:bench.service.WorkService.load_internal_count",
+      "target": "method:bench.db.Cursor.fetchone",
+      "kind": "calls",
+      "confidence": "inferred",
+      "strategy": "receiver_type"
+    },
+    {
+      "source": "fn:bench.db.load_external_count",
+      "target": "extsym:dbapi.Connection.execute",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "receiver_name_boundary_method"
+    },
+    {
+      "source": "fn:bench.db.load_external_count",
+      "target": "extsym:dbapi.Cursor.fetchone",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "external_receiver_type"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:sqlalchemy.orm.Session.execute",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "receiver_name_boundary_method"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:sqlalchemy.engine.Result.scalars",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "external_receiver_type"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:sqlalchemy.engine.Result.all",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "external_receiver_type"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:sqlalchemy.sql.Select.where",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "receiver_name_boundary_method"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:sqlalchemy.sql.Select.order_by",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "external_receiver_type"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:prometheus_client.MetricWrapperBase.labels",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "receiver_name_boundary_method"
+    },
+    {
+      "source": "fn:bench.service.sqlalchemy_boundaries",
+      "target": "extsym:prometheus_client.MetricWrapperBase.inc",
+      "kind": "uses",
+      "confidence": "heuristic",
+      "strategy": "external_receiver_type"
+    },
+    {
+      "source": "route:POST:/items",
+      "target": "fn:bench.api.create_item",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:POST:/items",
+      "target": "fn:bench.api.get_service",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "cli:sync",
+      "target": "fn:bench.cli.sync",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:bench.models.Payload",
+      "target": "schema:bench.models.Payload",
+      "kind": "declares",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "class:bench.models.Memory",
+      "target": "table:memories",
+      "kind": "maps_to",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "test:tests.service_cases.test_service_create",
+      "target": "fixture:tests.service_cases.service",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    }
+  ],
+  "expected_unresolved": [
+    {
+      "raw_expression": "cache.get",
+      "category": "true_dynamic_call",
+      "risk_level": "low",
+      "release_blocking": false
+    },
+    {
+      "raw_expression": "bag.add",
+      "category": "true_dynamic_call",
+      "risk_level": "low",
+      "release_blocking": false
+    },
+    {
+      "raw_expression": "plugin.run",
+      "category": "true_dynamic_call",
+      "risk_level": "low",
+      "release_blocking": false
+    }
+  ],
+  "unresolved_summary": {
+    "total": 3,
+    "category_counts": {
+      "true_dynamic_call": 3,
+      "static_candidate": 0,
+      "missing_type_context": 0
+    },
+    "release_blocking_count": 0
+  },
+  "adapter_matrix": {
+    "fastapi": {
+      "status": "available",
+      "discovered_registrations": 1,
+      "resolved_handlers": 2,
+      "unresolved_registrations": 0
+    },
+    "pydantic": {
+      "status": "available",
+      "pydantic_models": 1,
+      "model_fields": 1,
+      "unresolved_registrations": 0
+    },
+    "pytest": {
+      "status": "available",
+      "test_cases": 2,
+      "fixtures": 1,
+      "fixture_injections": 1,
+      "unresolved_fixture_injections": 0
+    },
+    "sqlalchemy": {
+      "status": "available",
+      "discovered_registrations": 1,
+      "resolved_handlers": 3,
+      "unresolved_registrations": 0
+    },
+    "typer_click": {
+      "status": "available",
+      "cli_commands": 1,
+      "cli_options": 1,
+      "unresolved_registrations": 0
+    }
+  }
+}

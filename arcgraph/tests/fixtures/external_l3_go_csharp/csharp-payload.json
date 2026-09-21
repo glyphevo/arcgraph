@@ -1,0 +1,551 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "csharp-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "csharp",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "attribute",
+      "class",
+      "constructor",
+      "external_symbol",
+      "field",
+      "interface",
+      "method",
+      "namespace",
+      "project",
+      "property",
+      "record"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "contains",
+      "defines",
+      "has_attribute",
+      "has_field",
+      "imports",
+      "implements",
+      "inherits",
+      "references"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "dotnet",
+        "status": "available",
+        "required": true,
+        "version": "fixture-net8.0"
+      },
+      {
+        "name": "roslyn",
+        "status": "available",
+        "required": true,
+        "version": "fixture"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "dotnet",
+        "command": "dotnet",
+        "required": true,
+        "version_args": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "project:csharp:Demo",
+      "kind": "project",
+      "name": "Demo",
+      "qualname": "Demo",
+      "path": "csharp/Demo.csproj",
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external",
+        "semantic_source": "roslyn"
+      }
+    },
+    {
+      "id": "namespace:csharp:ArcGraphDemo",
+      "kind": "namespace",
+      "name": "ArcGraphDemo",
+      "qualname": "ArcGraphDemo",
+      "path": "csharp/Service.cs",
+      "start_line": 3,
+      "end_line": 3,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "attribute:csharp:ArcGraphDemo.ServiceAttribute",
+      "kind": "attribute",
+      "name": "ServiceAttribute",
+      "qualname": "ArcGraphDemo.ServiceAttribute",
+      "path": "csharp/Service.cs",
+      "start_line": 6,
+      "end_line": 6,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "interface:csharp:ArcGraphDemo.IRepository",
+      "kind": "interface",
+      "name": "IRepository",
+      "qualname": "ArcGraphDemo.IRepository",
+      "path": "csharp/Service.cs",
+      "start_line": 8,
+      "end_line": 11,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "class:csharp:ArcGraphDemo.BaseService",
+      "kind": "class",
+      "name": "BaseService",
+      "qualname": "ArcGraphDemo.BaseService",
+      "path": "csharp/Service.cs",
+      "start_line": 13,
+      "end_line": 13,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "class:csharp:ArcGraphDemo.RepositoryService",
+      "kind": "class",
+      "name": "RepositoryService",
+      "qualname": "ArcGraphDemo.RepositoryService",
+      "path": "csharp/Service.cs",
+      "start_line": 16,
+      "end_line": 32,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "field:csharp:ArcGraphDemo.RepositoryService.name",
+      "kind": "field",
+      "name": "name",
+      "qualname": "ArcGraphDemo.RepositoryService.name",
+      "path": "csharp/Service.cs",
+      "start_line": 18,
+      "end_line": 18,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external",
+        "type": "string"
+      }
+    },
+    {
+      "id": "constructor:csharp:ArcGraphDemo.RepositoryService.RepositoryService",
+      "kind": "constructor",
+      "name": "RepositoryService",
+      "qualname": "ArcGraphDemo.RepositoryService.RepositoryService",
+      "path": "csharp/Service.cs",
+      "start_line": 20,
+      "end_line": 24,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "property:csharp:ArcGraphDemo.RepositoryService.Name",
+      "kind": "property",
+      "name": "Name",
+      "qualname": "ArcGraphDemo.RepositoryService.Name",
+      "path": "csharp/Service.cs",
+      "start_line": 26,
+      "end_line": 26,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external",
+        "type": "string"
+      }
+    },
+    {
+      "id": "method:csharp:ArcGraphDemo.RepositoryService.Save",
+      "kind": "method",
+      "name": "Save",
+      "qualname": "ArcGraphDemo.RepositoryService.Save",
+      "path": "csharp/Service.cs",
+      "start_line": 28,
+      "end_line": 31,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "record:csharp:ArcGraphDemo.SaveRequest",
+      "kind": "record",
+      "name": "SaveRequest",
+      "qualname": "ArcGraphDemo.SaveRequest",
+      "path": "csharp/Service.cs",
+      "start_line": 34,
+      "end_line": 34,
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:csharp:System",
+      "kind": "external_symbol",
+      "name": "System",
+      "qualname": "System",
+      "properties": {
+        "language": "csharp",
+        "frontend_name": "csharp-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "project:csharp:Demo",
+      "target": "namespace:csharp:ArcGraphDemo",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_project_model"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_project_model",
+          "path": "csharp/Demo.csproj",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "namespace:csharp:ArcGraphDemo",
+      "target": "interface:csharp:ArcGraphDemo.IRepository",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_symbol_definition"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_symbol_definition",
+          "path": "csharp/Service.cs",
+          "start_line": 8,
+          "end_line": 11
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "namespace:csharp:ArcGraphDemo",
+      "target": "class:csharp:ArcGraphDemo.RepositoryService",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_symbol_definition"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_symbol_definition",
+          "path": "csharp/Service.cs",
+          "start_line": 16,
+          "end_line": 32
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "interface:csharp:ArcGraphDemo.IRepository",
+      "kind": "implements",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_interface_implementation"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_interface_implementation",
+          "path": "csharp/Service.cs",
+          "start_line": 16,
+          "end_line": 16
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "class:csharp:ArcGraphDemo.BaseService",
+      "kind": "inherits",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_base_type"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_base_type",
+          "path": "csharp/Service.cs",
+          "start_line": 16,
+          "end_line": 16
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "field:csharp:ArcGraphDemo.RepositoryService.name",
+      "kind": "has_field",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_field_symbol"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_field_symbol",
+          "path": "csharp/Service.cs",
+          "start_line": 18,
+          "end_line": 18
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "constructor:csharp:ArcGraphDemo.RepositoryService.RepositoryService",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_constructor_symbol"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_constructor_symbol",
+          "path": "csharp/Service.cs",
+          "start_line": 20,
+          "end_line": 24
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "property:csharp:ArcGraphDemo.RepositoryService.Name",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_property_symbol"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_property_symbol",
+          "path": "csharp/Service.cs",
+          "start_line": 26,
+          "end_line": 26
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "method:csharp:ArcGraphDemo.RepositoryService.Save",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_method_symbol"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_method_symbol",
+          "path": "csharp/Service.cs",
+          "start_line": 28,
+          "end_line": 31
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "class:csharp:ArcGraphDemo.RepositoryService",
+      "target": "attribute:csharp:ArcGraphDemo.ServiceAttribute",
+      "kind": "has_attribute",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_attribute_symbol"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_attribute_symbol",
+          "path": "csharp/Service.cs",
+          "start_line": 15,
+          "end_line": 15
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "namespace:csharp:ArcGraphDemo",
+      "target": "record:csharp:ArcGraphDemo.SaveRequest",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_record_symbol"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_record_symbol",
+          "path": "csharp/Service.cs",
+          "start_line": 34,
+          "end_line": 34
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "namespace:csharp:ArcGraphDemo",
+      "target": "extsym:csharp:System",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_using_directive"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_using_directive",
+          "path": "csharp/Service.cs",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "property:csharp:ArcGraphDemo.RepositoryService.Name",
+      "target": "field:csharp:ArcGraphDemo.RepositoryService.name",
+      "kind": "references",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_semantic_model"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_semantic_model",
+          "path": "csharp/Service.cs",
+          "start_line": 26,
+          "end_line": 26
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "constructor:csharp:ArcGraphDemo.RepositoryService.RepositoryService",
+      "target": "field:csharp:ArcGraphDemo.RepositoryService.name",
+      "kind": "references",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_semantic_model"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_semantic_model",
+          "path": "csharp/Service.cs",
+          "start_line": 22,
+          "end_line": 22
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    },
+    {
+      "source": "constructor:csharp:ArcGraphDemo.RepositoryService.RepositoryService",
+      "target": "method:csharp:ArcGraphDemo.RepositoryService.Save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "roslyn_symbol_call_resolution"
+      },
+      "evidence": [
+        {
+          "kind": "roslyn_symbol_call_resolution",
+          "path": "csharp/Service.cs",
+          "start_line": 23,
+          "end_line": 23,
+          "detail": "fixture call edge represents Roslyn-resolved method symbol evidence"
+        }
+      ],
+      "properties": {
+        "language": "csharp"
+      }
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "csharp_external_source_generator_deferred",
+      "message": "Source generator output is not represented in this fixture payload.",
+      "path": "csharp/Demo.csproj"
+    }
+  ],
+  "metrics": {
+    "projects_total": 1,
+    "types_total": 5,
+    "members_total": 4,
+    "calls_resolved": 1,
+    "implements_total": 1,
+    "inherits_total": 1
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "expected_nodes": [
+    {"id": "component:components.Button.Button", "kind": "component"},
+    {"id": "component:pages.Dashboard.Dashboard", "kind": "component"},
+    {"id": "fn:lib.math.add", "kind": "function"},
+    {"id": "mod:components.Button", "kind": "module"},
+    {"id": "mod:config", "kind": "module"},
+    {"id": "mod:index", "kind": "module"},
+    {"id": "mod:lib.math", "kind": "module"},
+    {"id": "mod:pages.Dashboard", "kind": "module"},
+    {"id": "mod:theme", "kind": "module"}
+  ],
+  "expected_edges": [
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "mod:index",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "mod:components.Button",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "mod:theme",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "mod:config",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "mod:lib.math",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "unresolved:@arcgraph/widgets/missing",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "unresolved:@arcgraph/widgets/ambiguous",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Dashboard",
+      "kind": "imports",
+      "target": "unresolved:#missing",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "component:pages.Dashboard.Dashboard",
+      "kind": "calls",
+      "target": "fn:lib.math.add",
+      "confidence": "heuristic"
+    },
+    {
+      "source": "component:pages.Dashboard.Dashboard",
+      "kind": "renders",
+      "target": "component:components.Button.Button",
+      "confidence": "heuristic"
+    }
+  ],
+  "forbidden_edges": [
+    {"source": "mod:pages.Dashboard", "kind": "imports", "target": "ext:@arcgraph/widgets"},
+    {"source": "mod:pages.Dashboard", "kind": "imports", "target": "ext:#config"},
+    {"source": "mod:pages.Dashboard", "kind": "imports", "target": "ext:#lib/math"},
+    {"source": "mod:pages.Dashboard", "kind": "imports", "target": "mod:ambiguous.one"},
+    {"source": "mod:pages.Dashboard", "kind": "imports", "target": "mod:ambiguous.two"}
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_import_ambiguous",
+      "path": "src/pages/Dashboard.tsx",
+      "message_contains": [
+        "@arcgraph/widgets/ambiguous",
+        "package exports"
+      ]
+    },
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Dashboard.tsx",
+      "message_contains": ["@arcgraph/widgets/missing"]
+    },
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Dashboard.tsx",
+      "message_contains": ["#missing"]
+    }
+  ],
+  "forbidden_external_packages": [
+    "@arcgraph/widgets",
+    "#config",
+    "#lib/math"
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 11,
+    "typescript_edges": 13
+  }
+}

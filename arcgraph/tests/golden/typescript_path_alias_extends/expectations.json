@@ -1,0 +1,103 @@
+{
+  "expected_nodes": [
+    {"id": "component:components.Button.Button", "kind": "component"},
+    {"id": "component:components.Card.Card", "kind": "component"},
+    {"id": "component:pages.Home.Home", "kind": "component"},
+    {"id": "component:pages.Home.HomeCard", "kind": "component"},
+    {"id": "fn:app.services.api.fetchGreeting", "kind": "function"},
+    {"id": "mod:components.Button", "kind": "module"},
+    {"id": "mod:components.Card", "kind": "module"},
+    {"id": "mod:app.services.api", "kind": "module"},
+    {"id": "mod:config", "kind": "module"}
+  ],
+  "expected_edges": [
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:components.Button",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:app.services.api",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:config",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:components.Card",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "unresolved:@missing/Ghost",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "unresolved:@ambiguous/foo",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "component:pages.Home.Home",
+      "kind": "calls",
+      "target": "fn:app.services.api.fetchGreeting",
+      "confidence": "heuristic"
+    },
+    {
+      "source": "component:pages.Home.Home",
+      "kind": "renders",
+      "target": "component:components.Button.Button",
+      "confidence": "heuristic"
+    },
+    {
+      "source": "component:pages.Home.HomeCard",
+      "kind": "renders",
+      "target": "component:components.Card.Card",
+      "confidence": "heuristic"
+    }
+  ],
+  "forbidden_edges": [
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@/components"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@app/services"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@config"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:components"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "mod:ambiguous.one.foo"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "mod:ambiguous.two.foo"}
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_import_ambiguous",
+      "path": "src/pages/Home.tsx",
+      "message_contains": [
+        "@ambiguous/foo",
+        "mod:ambiguous.one.foo",
+        "mod:ambiguous.two.foo"
+      ]
+    },
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Home.tsx",
+      "message_contains": ["@missing/Ghost"]
+    }
+  ],
+  "forbidden_external_packages": [
+    "@/components",
+    "@app/services",
+    "@config",
+    "components"
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 12,
+    "typescript_edges": 18
+  }
+}

@@ -1,0 +1,500 @@
+{
+  "adapter_matrix": {
+    "arq": {
+      "discovered_registrations": 3,
+      "edges": 5,
+      "nodes": 3,
+      "resolved_handlers": 5,
+      "status": "available",
+      "unresolved_registrations": 0
+    },
+    "celery": {
+      "discovered_registrations": 4,
+      "edges": 7,
+      "nodes": 5,
+      "resolved_handlers": 6,
+      "status": "available",
+      "unresolved_registrations": 1
+    },
+    "django": {
+      "discovered_registrations": 3,
+      "edges": 7,
+      "nodes": 4,
+      "resolved_handlers": 6,
+      "status": "available",
+      "unresolved_registrations": 1
+    },
+    "fastapi": {
+      "discovered_registrations": 3,
+      "edges": 9,
+      "nodes": 3,
+      "resolved_handlers": 8,
+      "status": "available",
+      "unresolved_registrations": 0
+    },
+    "pydantic": {
+      "config_keys": 1,
+      "discovered_registrations": 2,
+      "model_fields": 3,
+      "pydantic_models": 2,
+      "settings_models": 1,
+      "status": "available",
+      "unresolved_registrations": 0
+    },
+    "pytest": {
+      "fixture_injections": 5,
+      "fixtures": 3,
+      "status": "available",
+      "test_cases": 3,
+      "unresolved_fixture_injections": 1,
+      "unresolved_registrations": 0
+    },
+    "sqlalchemy": {
+      "discovered_registrations": 1,
+      "edges": 10,
+      "nodes": 1,
+      "resolved_handlers": 10,
+      "status": "available",
+      "unresolved_registrations": 0
+    },
+    "typer_click": {
+      "cli_commands": 4,
+      "cli_options": 3,
+      "discovered_registrations": 4,
+      "status": "available",
+      "unresolved_registrations": 0
+    }
+  },
+  "expected_nodes": [
+    {
+      "id": "route:POST:/api/items",
+      "kind": "route"
+    },
+    {
+      "id": "route:POST:/v1/api/items",
+      "kind": "route"
+    },
+    {
+      "id": "route:GET:/health",
+      "kind": "route"
+    },
+    {
+      "id": "route:ANY:/articles/",
+      "kind": "route"
+    },
+    {
+      "id": "worker:celery:matrix.tasks.send_email",
+      "kind": "worker_task"
+    },
+    {
+      "id": "worker:celery:matrix_app.celery_tasks.build_report",
+      "kind": "worker_task"
+    },
+    {
+      "id": "worker:arq:matrix:process_job",
+      "kind": "worker_task"
+    },
+    {
+      "id": "worker:arq:matrix:cleanup",
+      "kind": "worker_task"
+    },
+    {
+      "id": "queue:celery:emails",
+      "kind": "queue"
+    },
+    {
+      "id": "queue:celery:reports",
+      "kind": "queue"
+    },
+    {
+      "id": "queue:arq:matrix",
+      "kind": "queue"
+    },
+    {
+      "id": "table:matrix_articles",
+      "kind": "table"
+    },
+    {
+      "id": "table:user_records",
+      "kind": "table"
+    },
+    {
+      "id": "schema:matrix_app.models.Payload",
+      "kind": "pydantic_model"
+    },
+    {
+      "id": "config:env:APP_LOG_LEVEL",
+      "kind": "config"
+    },
+    {
+      "id": "cli:sync-users",
+      "kind": "cli_command"
+    },
+    {
+      "id": "cli:admin%20reindex",
+      "kind": "cli_command"
+    },
+    {
+      "id": "cli:ops",
+      "kind": "cli_command"
+    },
+    {
+      "id": "cli:ops%20repair",
+      "kind": "cli_command"
+    },
+    {
+      "id": "fixture:tests.matrix_cases.sample_payload",
+      "kind": "pytest_fixture"
+    },
+    {
+      "id": "fixture:tests.conftest.authenticated_user",
+      "kind": "pytest_fixture"
+    },
+    {
+      "id": "fixture:tests.conftest.audit_context",
+      "kind": "pytest_fixture"
+    },
+    {
+      "id": "test:tests.matrix_cases.test_create_item",
+      "kind": "test_case"
+    },
+    {
+      "id": "test:tests.matrix_cases.test_parametrized_value",
+      "kind": "test_case"
+    }
+  ],
+  "expected_edges": [
+    {
+      "source": "route:POST:/api/items",
+      "target": "fn:matrix_app.api.create_item",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:POST:/api/items",
+      "target": "fn:matrix_app.api.get_current_user",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:POST:/api/items",
+      "target": "fn:matrix_app.service.get_service",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:POST:/v1/api/items",
+      "target": "fn:matrix_app.api.create_item",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:POST:/v1/api/items",
+      "target": "fn:matrix_app.api.get_current_user",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:POST:/v1/api/items",
+      "target": "fn:matrix_app.service.get_service",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:GET:/health",
+      "target": "fn:matrix_app.app.health_check",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:GET:/health",
+      "target": "fn:matrix_app.service.get_service",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "mod:matrix_app.app",
+      "target": "mod:matrix_app.api",
+      "kind": "includes_router",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "route:ANY:/articles/",
+      "target": "fn:matrix_app.django_views.article_list",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:matrix_app.django_models.Article",
+      "target": "table:matrix_articles",
+      "kind": "maps_to",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:matrix_app.django_admin.ArticleAdmin",
+      "target": "table:matrix_articles",
+      "kind": "reads",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "fn:matrix_app.django_views.article_list",
+      "target": "table:matrix_articles",
+      "kind": "reads",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "fn:matrix_app.django_views.article_create",
+      "target": "table:matrix_articles",
+      "kind": "writes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "worker:celery:matrix.tasks.send_email",
+      "target": "fn:matrix_app.celery_tasks.send_email",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "worker:celery:matrix.tasks.send_email",
+      "target": "queue:celery:emails",
+      "kind": "consumes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "fn:matrix_app.celery_tasks.trigger_email",
+      "target": "worker:celery:matrix.tasks.send_email",
+      "kind": "enqueues",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "fn:matrix_app.celery_tasks.schedule_report",
+      "target": "worker:celery:matrix_app.celery_tasks.build_report",
+      "kind": "enqueues",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "fn:matrix_app.celery_tasks.dispatch_external",
+      "target": "worker:celery:matrix.tasks.external",
+      "kind": "enqueues",
+      "confidence": "unresolved",
+      "strategy": "celery_send_task_literal"
+    },
+    {
+      "source": "worker:arq:matrix:process_job",
+      "target": "fn:matrix_app.arq_worker.process_job",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "worker:arq:matrix:cleanup",
+      "target": "fn:matrix_app.arq_worker.cleanup",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "fn:matrix_app.arq_worker.enqueue",
+      "target": "worker:arq:matrix:process_job",
+      "kind": "enqueues",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:matrix_app.models.UserRecord",
+      "target": "table:user_records",
+      "kind": "maps_to",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "method:matrix_app.repository.UserRepository.fetch_user",
+      "target": "table:user_records",
+      "kind": "reads",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "method:matrix_app.repository.UserRepository.save_user",
+      "target": "table:user_records",
+      "kind": "writes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "method:matrix_app.repository.UserRepository.fetch_user_async",
+      "target": "table:user_records",
+      "kind": "reads",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "method:matrix_app.repository.UserRepository.get_user_async",
+      "target": "table:user_records",
+      "kind": "reads",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "method:matrix_app.repository.UserRepository.save_user_async",
+      "target": "table:user_records",
+      "kind": "writes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "method:matrix_app.repository.UserRepository.construct_and_delete_user_async",
+      "target": "table:user_records",
+      "kind": "writes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:matrix_app.models.Payload",
+      "target": "schema:matrix_app.models.Payload",
+      "kind": "declares",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "class:matrix_app.models.AppSettings",
+      "target": "config:env:APP_LOG_LEVEL",
+      "kind": "configures",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "cli:sync-users",
+      "target": "fn:matrix_app.cli.sync_users",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "cli:admin%20reindex",
+      "target": "fn:matrix_app.cli.reindex",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "cli:ops",
+      "target": "fn:matrix_app.cli.ops",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "cli:ops%20repair",
+      "target": "fn:matrix_app.cli.repair",
+      "kind": "invokes",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "test:tests.matrix_cases.test_create_item",
+      "target": "fixture:tests.matrix_cases.sample_payload",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "test:tests.matrix_cases.test_create_item",
+      "target": "fixture:tests.conftest.authenticated_user",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "test:tests.matrix_cases.test_create_item",
+      "target": "fixture:tests.conftest.audit_context",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "test:tests.matrix_cases.test_missing_fixture",
+      "target": "fixture:tests.conftest.audit_context",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "test:tests.matrix_cases.test_parametrized_value",
+      "target": "fixture:tests.conftest.audit_context",
+      "kind": "injects",
+      "confidence": "confirmed",
+      "strategy": null
+    }
+  ],
+  "expected_unresolved": [
+    {
+      "raw_expression": "redis.enqueue_job",
+      "category": "true_dynamic_call",
+      "count": 2,
+      "release_blocking": false,
+      "risk_level": "low"
+    },
+    {
+      "raw_expression": "app.task",
+      "category": "framework_magic",
+      "count": 1,
+      "release_blocking": false,
+      "risk_level": "medium"
+    },
+    {
+      "raw_expression": "send_email.delay",
+      "category": "true_dynamic_call",
+      "count": 1,
+      "release_blocking": false,
+      "risk_level": "low"
+    },
+    {
+      "raw_expression": "build_report.apply_async",
+      "category": "true_dynamic_call",
+      "count": 1,
+      "release_blocking": false,
+      "risk_level": "low"
+    },
+    {
+      "raw_expression": "app.send_task",
+      "category": "true_dynamic_call",
+      "count": 2,
+      "release_blocking": false,
+      "risk_level": "low"
+    }
+  ],
+  "unresolved_summary": {
+    "total": 7,
+    "release_blocking_count": 0,
+    "category_counts": {
+      "framework_magic": 1,
+      "static_candidate": 0,
+      "true_dynamic_call": 6
+    }
+  },
+  "minimum_rates": {
+    "overall": 0.8,
+    "attribute": 0.6,
+    "chain": 0.95,
+    "direct": 0.95
+  }
+}

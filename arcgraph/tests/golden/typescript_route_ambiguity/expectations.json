@@ -1,0 +1,66 @@
+{
+  "expected_nodes": [
+    {"id": "route:GET:/api/v2/shared/status", "kind": "route"},
+    {"id": "route:GET:/api/v3/shared/status", "kind": "route"},
+    {"id": "route:GET:/api/plain/status", "kind": "route"},
+    {"id": "route:GET:/api/videos/list", "kind": "route"},
+    {"id": "method:services.shared.SharedService.getAmbiguous", "kind": "method"},
+    {"id": "method:services.shared.SharedService.getVersioned", "kind": "method"},
+    {"id": "method:services.shared.SharedService.getPlain", "kind": "method"},
+    {"id": "method:services.shared.SharedService.getVideos", "kind": "method"},
+    {"id": "method:services.shared.SharedService.getDynamic", "kind": "method"}
+  ],
+  "expected_edges": [
+    {
+      "source": "method:services.shared.SharedService.getVersioned",
+      "kind": "calls",
+      "target": "route:GET:/api/v2/shared/status",
+      "confidence": "heuristic"
+    },
+    {
+      "source": "method:services.shared.SharedService.getPlain",
+      "kind": "calls",
+      "target": "route:GET:/api/plain/status",
+      "confidence": "heuristic"
+    },
+    {
+      "source": "method:services.shared.SharedService.getVideos",
+      "kind": "calls",
+      "target": "route:GET:/api/videos/list",
+      "confidence": "heuristic"
+    }
+  ],
+  "forbidden_edges": [
+    {
+      "source": "method:services.shared.SharedService.getAmbiguous",
+      "kind": "calls",
+      "target": "route:GET:/api/v2/shared/status"
+    },
+    {
+      "source": "method:services.shared.SharedService.getAmbiguous",
+      "kind": "calls",
+      "target": "route:GET:/api/v3/shared/status"
+    },
+    {
+      "source": "method:services.shared.SharedService.getDynamic",
+      "kind": "calls",
+      "target": "route:GET:/api/v2/shared/status"
+    },
+    {
+      "source": "method:services.shared.SharedService.getDynamic",
+      "kind": "calls",
+      "target": "route:GET:/api/v3/shared/status"
+    }
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_route_ambiguous",
+      "path": "src/services/shared.ts",
+      "message_contains": [
+        "GET /shared/status",
+        "route:GET:/api/v2/shared/status",
+        "route:GET:/api/v3/shared/status"
+      ]
+    }
+  ]
+}

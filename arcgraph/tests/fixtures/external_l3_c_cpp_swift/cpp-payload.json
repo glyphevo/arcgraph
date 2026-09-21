@@ -1,0 +1,422 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "cpp-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "cpp",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "class",
+      "constructor",
+      "destructor",
+      "external_symbol",
+      "field",
+      "method",
+      "namespace",
+      "project",
+      "struct",
+      "template",
+      "translation_unit"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "contains",
+      "defines",
+      "has_field",
+      "imports",
+      "inherits",
+      "overrides",
+      "references"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "clang++",
+        "status": "available",
+        "required": true,
+        "version": "fixture-clang-18"
+      },
+      {
+        "name": "compile_commands.json",
+        "status": "available",
+        "required": true,
+        "version": "fixture"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "clang-or-clangd",
+        "command": "clang++",
+        "required": true,
+        "version_args": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "project:cpp:arcgraph-cpp-demo",
+      "kind": "project",
+      "name": "arcgraph-cpp-demo",
+      "qualname": "arcgraph-cpp-demo",
+      "path": "cpp/compile_commands.json",
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "semantic_source": "clang-compile-commands"
+      }
+    },
+    {
+      "id": "tu:cpp:cpp/service.cpp",
+      "kind": "translation_unit",
+      "name": "service.cpp",
+      "qualname": "cpp/service.cpp",
+      "path": "cpp/service.cpp",
+      "start_line": 1,
+      "end_line": 16,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "compile_command": "clang++ -std=c++20 -I. -c service.cpp"
+      }
+    },
+    {
+      "id": "namespace:cpp:arcgraph",
+      "kind": "namespace",
+      "name": "arcgraph",
+      "qualname": "arcgraph",
+      "path": "cpp/service.hpp",
+      "start_line": 5,
+      "end_line": 29,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "struct:cpp:arcgraph::SaveRequest",
+      "kind": "struct",
+      "name": "SaveRequest",
+      "qualname": "arcgraph::SaveRequest",
+      "path": "cpp/service.hpp",
+      "start_line": 7,
+      "end_line": 9,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "field:cpp:arcgraph::SaveRequest::payload",
+      "kind": "field",
+      "name": "payload",
+      "qualname": "arcgraph::SaveRequest::payload",
+      "path": "cpp/service.hpp",
+      "start_line": 8,
+      "end_line": 8,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "type": "std::string"
+      }
+    },
+    {
+      "id": "class:cpp:arcgraph::BaseSaver",
+      "kind": "class",
+      "name": "BaseSaver",
+      "qualname": "arcgraph::BaseSaver",
+      "path": "cpp/service.hpp",
+      "start_line": 11,
+      "end_line": 14,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "method:cpp:arcgraph::BaseSaver::save",
+      "kind": "method",
+      "name": "save",
+      "qualname": "arcgraph::BaseSaver::save",
+      "path": "cpp/service.hpp",
+      "start_line": 13,
+      "end_line": 13,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "virtual": true
+      }
+    },
+    {
+      "id": "class:cpp:arcgraph::RepositoryService",
+      "kind": "class",
+      "name": "RepositoryService",
+      "qualname": "arcgraph::RepositoryService",
+      "path": "cpp/service.hpp",
+      "start_line": 16,
+      "end_line": 26,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "field:cpp:arcgraph::RepositoryService::name_",
+      "kind": "field",
+      "name": "name_",
+      "qualname": "arcgraph::RepositoryService::name_",
+      "path": "cpp/service.hpp",
+      "start_line": 25,
+      "end_line": 25,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "type": "std::string"
+      }
+    },
+    {
+      "id": "constructor:cpp:arcgraph::RepositoryService::RepositoryService",
+      "kind": "constructor",
+      "name": "RepositoryService",
+      "qualname": "arcgraph::RepositoryService::RepositoryService",
+      "path": "cpp/service.cpp",
+      "start_line": 5,
+      "end_line": 5,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "destructor:cpp:arcgraph::RepositoryService::~RepositoryService",
+      "kind": "destructor",
+      "name": "~RepositoryService",
+      "qualname": "arcgraph::RepositoryService::~RepositoryService",
+      "path": "cpp/service.cpp",
+      "start_line": 7,
+      "end_line": 7,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "method:cpp:arcgraph::RepositoryService::save",
+      "kind": "method",
+      "name": "save",
+      "qualname": "arcgraph::RepositoryService::save",
+      "path": "cpp/service.cpp",
+      "start_line": 9,
+      "end_line": 11,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "receiver": "const RepositoryService *"
+      }
+    },
+    {
+      "id": "method:cpp:arcgraph::RepositoryService::run",
+      "kind": "method",
+      "name": "run",
+      "qualname": "arcgraph::RepositoryService::run",
+      "path": "cpp/service.cpp",
+      "start_line": 13,
+      "end_line": 15,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external",
+        "receiver": "const RepositoryService *"
+      }
+    },
+    {
+      "id": "template:cpp:arcgraph::Box",
+      "kind": "template",
+      "name": "Box",
+      "qualname": "arcgraph::Box",
+      "path": "cpp/service.hpp",
+      "start_line": 28,
+      "end_line": 31,
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:cpp:std::string",
+      "kind": "external_symbol",
+      "name": "std::string",
+      "qualname": "std::string",
+      "properties": {
+        "language": "cpp",
+        "frontend_name": "cpp-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "project:cpp:arcgraph-cpp-demo",
+      "target": "tu:cpp:cpp/service.cpp",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_compile_database"
+      }
+    },
+    {
+      "source": "tu:cpp:cpp/service.cpp",
+      "target": "extsym:cpp:std::string",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_include_graph"
+      },
+      "evidence": [
+        {
+          "kind": "clang_include",
+          "path": "cpp/service.hpp",
+          "start_line": 3,
+          "end_line": 3,
+          "detail": "#include <string>"
+        }
+      ]
+    },
+    {
+      "source": "namespace:cpp:arcgraph",
+      "target": "class:cpp:arcgraph::RepositoryService",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_ast_decl"
+      },
+      "evidence": [
+        {
+          "kind": "clang_cxx_record_decl",
+          "path": "cpp/service.hpp",
+          "start_line": 16,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "source": "class:cpp:arcgraph::RepositoryService",
+      "target": "class:cpp:arcgraph::BaseSaver",
+      "kind": "inherits",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_base_specifier"
+      },
+      "evidence": [
+        {
+          "kind": "clang_base_specifier",
+          "path": "cpp/service.hpp",
+          "start_line": 16,
+          "end_line": 16,
+          "detail": "public BaseSaver"
+        }
+      ]
+    },
+    {
+      "source": "class:cpp:arcgraph::RepositoryService",
+      "target": "field:cpp:arcgraph::RepositoryService::name_",
+      "kind": "has_field",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_record_layout"
+      },
+      "evidence": [
+        {
+          "kind": "clang_field_decl",
+          "path": "cpp/service.hpp",
+          "start_line": 25,
+          "end_line": 25
+        }
+      ]
+    },
+    {
+      "source": "method:cpp:arcgraph::RepositoryService::save",
+      "target": "method:cpp:arcgraph::BaseSaver::save",
+      "kind": "overrides",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_overridden_methods"
+      },
+      "evidence": [
+        {
+          "kind": "clang_overridden_method",
+          "path": "cpp/service.hpp",
+          "start_line": 20,
+          "end_line": 20,
+          "detail": "override"
+        }
+      ]
+    },
+    {
+      "source": "method:cpp:arcgraph::RepositoryService::run",
+      "target": "method:cpp:arcgraph::RepositoryService::save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_member_call_expr",
+        "candidate_count": 1
+      },
+      "evidence": [
+        {
+          "kind": "clang_member_call_expr",
+          "path": "cpp/service.cpp",
+          "start_line": 14,
+          "end_line": 14,
+          "detail": "save(request)"
+        }
+      ]
+    },
+    {
+      "source": "field:cpp:arcgraph::RepositoryService::name_",
+      "target": "extsym:cpp:std::string",
+      "kind": "references",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "clang_type_resolution"
+      },
+      "evidence": [
+        {
+          "kind": "clang_type_ref",
+          "path": "cpp/service.hpp",
+          "start_line": 25,
+          "end_line": 25
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "cpp_external_virtual_dispatch_deferred",
+      "message": "Virtual dispatch targets beyond the static override set are warning-only.",
+      "path": "cpp/service.hpp"
+    },
+    {
+      "kind": "cpp_external_template_instantiation_deferred",
+      "message": "Template instantiation expansion is deferred unless extractor evidence emits concrete symbols.",
+      "path": "cpp/service.hpp"
+    }
+  ],
+  "metrics": {
+    "languages": [
+      "cpp"
+    ],
+    "semantic_source": "clang-compile-commands",
+    "compile_database": "cpp/compile_commands.json"
+  }
+}

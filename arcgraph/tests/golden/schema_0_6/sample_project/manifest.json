@@ -1,0 +1,12 @@
+{
+  "artifacts": [
+    "semantic_facts.jsonl",
+    "nodes.jsonl",
+    "edges.jsonl",
+    "diagnostics.jsonl",
+    "merge_metrics.json"
+  ],
+  "fixture": "sample_project",
+  "schema_version": "0.6.0",
+  "update_policy": "explicit-reviewer-approved"
+}

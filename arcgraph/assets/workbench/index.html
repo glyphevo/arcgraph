@@ -1,0 +1,2398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcGraph Explorer</title>
+    <script src="vendor/d3.v7.min.js"></script>
+    <style>
+        :root {
+            --bg-body: #1a1b1e;
+            --bg-paper: #25262b;
+            --bg-hover: #2c2e33;
+            --border-color: #373a40;
+            --text-primary: #c1c2c5;
+            --text-secondary: #909296;
+            --text-dimmed: #5c5f66;
+
+            --c-module:     #3b82f6;
+            --c-class:      #8b5cf6;
+            --c-function:   #10b981;
+            --c-method:     #a78bfa;
+            --c-route:      #ef4444;
+            --c-pydantic:   #f59e0b;
+            --c-test:       #64748b;
+            --c-fixture:    #14b8a6;
+            --c-config:     #eab308;
+            --c-interface:  #f97316;
+            --c-component:  #38bdf8;
+            --c-table:      #22c55e;
+            --c-mcp:        #a855f7;
+            --c-worker:     #ec4899;
+            --c-external:   #475569;
+            --c-other:      #6b7280;
+
+            --l-imports:    #3b82f6;
+            --l-calls:      #10b981;
+            --l-uses:       #a78bfa;
+            --l-invokes:    #f97316;
+            --l-constructs: #f59e0b;
+            --l-extends:    #ef4444;
+            --l-injects:    #14b8a6;
+            --l-default:    #475569;
+
+            --mantine-blue: #228be6;
+        }
+
+        * { box-sizing: border-box; }
+
+        html { overflow: hidden; height: 100%; }
+        body {
+            margin: 0;
+            position: relative;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        #viewport { width: 100vw; height: 100vh; position: absolute; z-index: 1; }
+        #viewport svg, #viewport canvas {
+            position: absolute;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        #viewport canvas { display: none; cursor: grab; }
+        #viewport canvas.dragging { cursor: grabbing; }
+        .status-message {
+            position: absolute;
+            z-index: 20;
+            left: 50%;
+            top: 20px;
+            transform: translateX(-50%);
+            padding: 10px 14px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .paper {
+            background: var(--bg-paper);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        /* Control Panel */
+        .control-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            width: 320px;
+            padding: 16px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        .control-panel::-webkit-scrollbar { width: 4px; }
+        .control-panel::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .panel-title { font-size: 18px; font-weight: 600; margin: 0; color: #fff; }
+        .panel-subtitle { font-size: 11px; color: var(--text-dimmed); margin-top: 2px; }
+
+        /* Badges */
+        .badge-group { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .badge { padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-blue { background: rgba(59, 130, 246, 0.15); color: var(--c-module); }
+        .badge-green { background: rgba(16, 185, 129, 0.15); color: var(--c-function); }
+        .badge-purple { background: rgba(139, 92, 246, 0.15); color: var(--c-class); }
+        .status-strip {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+        .status-chip {
+            padding: 6px 8px;
+            border-radius: 5px;
+            background: var(--bg-body);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 11px;
+            line-height: 1.25;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .status-chip strong { color: var(--text-primary); font-weight: 600; }
+        .status-chip.pass { border-color: rgba(16, 185, 129, 0.45); color: #34d399; }
+        .status-chip.warn { border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; }
+        .status-chip.fail, .status-chip.stale { border-color: rgba(239, 68, 68, 0.55); color: #f87171; }
+        .payload-warning-strip {
+            display: none; padding: 8px 10px; margin-bottom: 14px;
+            border-radius: 6px; border: 1px solid rgba(245,158,11,0.28);
+            background: rgba(245,158,11,0.08); color: #fbbf24;
+            font-size: 11px; line-height: 1.35;
+        }
+        .payload-warning-strip.active { display: block; }
+
+        /* View Toggle */
+        .view-toggle { display: flex; gap: 0; margin-bottom: 14px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-color); }
+        .view-btn { flex: 1; padding: 8px 12px; border: none; background: transparent; color: var(--text-secondary); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+        .view-btn:not(:last-child) { border-right: 1px solid var(--border-color); }
+        .view-btn.active { background: var(--mantine-blue); color: #fff; }
+        .view-btn:hover:not(.active) { background: var(--bg-hover); }
+
+        /* Search */
+        .search-wrapper { position: relative; margin-bottom: 12px; }
+        .search-input {
+            width: 100%; padding: 10px 12px 10px 36px;
+            border: 1px solid var(--border-color); border-radius: 6px;
+            background: var(--bg-body); color: var(--text-primary);
+            font-family: inherit; font-size: 13px; outline: none;
+            transition: border-color 0.15s;
+        }
+        .search-input:focus { border-color: var(--mantine-blue); }
+        .search-input::placeholder { color: var(--text-dimmed); }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-dimmed); pointer-events: none; }
+        .search-results { margin-top: 4px; max-height: 140px; overflow-y: auto; }
+        .search-item { padding: 6px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; border-left: 3px solid transparent; }
+        .search-item:hover { background: var(--bg-hover); }
+
+        /* Filter Select */
+        .filter-select {
+            width: 100%; padding: 9px 12px;
+            border: 1px solid var(--border-color); border-radius: 6px;
+            background: var(--bg-body); color: var(--text-primary);
+            font-family: inherit; font-size: 13px; cursor: pointer; margin-bottom: 12px;
+        }
+
+        /* Presets */
+        .preset-group { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+        .preset-btn {
+            padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 4px;
+            background: transparent; color: var(--text-secondary);
+            font-family: inherit; font-size: 11px; cursor: pointer; transition: all 0.15s;
+        }
+        .preset-btn:hover { background: var(--bg-hover); }
+        .preset-btn.active { background: var(--mantine-blue); border-color: var(--mantine-blue); color: #fff; }
+
+        /* Sliders */
+        .slider-group { margin-bottom: 12px; }
+        .slider-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+        .slider-label span:last-child { color: var(--text-primary); font-weight: 500; }
+        input[type="range"].ms {
+            -webkit-appearance: none; width: 100%; height: 6px;
+            background: var(--bg-body); border-radius: 3px; outline: none;
+        }
+        input[type="range"].ms::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            background: var(--mantine-blue); border-radius: 50%; cursor: pointer; border: 2px solid #fff;
+        }
+
+        /* Divider */
+        .divider { height: 1px; background: var(--border-color); margin: 14px 0; }
+
+        /* Legend */
+        .legend-title { font-size: 11px; font-weight: 600; color: var(--text-dimmed); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); cursor: pointer; padding: 2px 4px; border-radius: 3px; transition: opacity 0.15s; }
+        .legend-item:hover { background: var(--bg-hover); }
+        .legend-item.dimmed { opacity: 0.25; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+        /* Zoom Controls */
+        .zoom-controls {
+            position: absolute; bottom: 20px; right: 20px; z-index: 10;
+            padding: 6px; display: flex; flex-direction: column; gap: 6px;
+            transition: right 0.2s ease;
+        }
+        body.drawer-open .zoom-controls { right: 380px; }
+        .zoom-btn {
+            width: 38px; height: 38px; border: 1px solid var(--border-color); border-radius: 6px;
+            background: var(--bg-paper); color: var(--text-secondary);
+            cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+        }
+        .zoom-btn:hover { background: var(--bg-hover); color: #fff; }
+        .zoom-btn svg { width: 18px; height: 18px; }
+
+        /* Drawer */
+        .drawer {
+            position: absolute; top: 0; right: 0; width: 360px; height: 100vh;
+            background: var(--bg-paper); border-left: 1px solid var(--border-color);
+            transform: translateX(100%); transition: transform 0.3s ease, visibility 0s 0.3s;
+            z-index: 20; overflow-y: auto;
+            visibility: hidden; pointer-events: none;
+        }
+        .drawer.open { transform: translateX(0); visibility: visible; pointer-events: auto; transition: transform 0.3s ease, visibility 0s 0s; }
+        .drawer-header {
+            padding: 20px; border-bottom: 1px solid var(--border-color);
+            display: flex; justify-content: space-between; align-items: flex-start;
+        }
+        .drawer-title { font-size: 16px; font-weight: 600; margin: 0; word-break: break-all; }
+        .drawer-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px; flex-shrink: 0; margin-left: 8px; }
+        .drawer-content { padding: 20px; }
+        .detail-section { margin-bottom: 16px; }
+        .detail-label { font-size: 11px; color: var(--text-dimmed); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .detail-value { font-size: 13px; color: var(--text-primary); }
+        .detail-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+        .connection-list { max-height: 250px; overflow-y: auto; }
+        .connection-item {
+            padding: 6px 10px; background: var(--bg-body); border-radius: 4px;
+            margin-bottom: 4px; font-size: 12px; display: flex;
+            justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.1s;
+        }
+        .connection-item:hover { background: var(--bg-hover); }
+        .connection-type { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: rgba(255,255,255,0.08); white-space: nowrap; }
+        .expand-hint { margin-top: 12px; padding: 8px 12px; background: rgba(34,139,230,0.1); border: 1px solid rgba(34,139,230,0.2); border-radius: 6px; font-size: 12px; color: var(--mantine-blue); cursor: pointer; text-align: center; }
+        .expand-hint:hover { background: rgba(34,139,230,0.15); }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute; background: var(--bg-paper); border: 1px solid var(--border-color);
+            border-radius: 6px; padding: 8px 12px; font-size: 12px;
+            pointer-events: none; opacity: 0; transition: opacity 0.15s;
+            z-index: 100; max-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .tooltip.visible { opacity: 1; }
+        .tooltip-title { font-weight: 600; margin-bottom: 2px; }
+        .tooltip-kind { color: var(--text-dimmed); font-size: 11px; }
+        .tooltip-path { color: var(--text-dimmed); font-size: 10px; margin-top: 2px; }
+
+        /* SVG */
+        .node { cursor: pointer; }
+        .node circle { transition: all 0.2s; }
+        .node:hover circle { stroke-width: 3; }
+        .link { fill: none; stroke-linecap: round; }
+
+        /* Dimension section labels */
+        .dim-label {
+            font-size: 10px; font-weight: 600; color: var(--text-dimmed);
+            text-transform: uppercase; letter-spacing: 1px;
+            margin: 12px 0 6px; display: flex; align-items: center; gap: 8px;
+        }
+        .dim-label::after { content: ''; flex: 1; height: 1px; background: var(--border-color); }
+
+        /* View state breadcrumb */
+        .view-state-bar {
+            display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 12px;
+            padding: 7px 10px; background: var(--bg-body); border-radius: 6px;
+            border: 1px solid var(--border-color); align-items: center;
+        }
+        .vs-tag { font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 3px; color: var(--text-secondary); background: rgba(255,255,255,0.06); }
+        .vs-dot { color: var(--text-dimmed); font-size: 8px; line-height: 1; }
+        .focus-controls { display: none; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+        .focus-controls.active { display: flex; }
+        .focus-select {
+            flex: 1; min-width: 110px; padding: 7px 8px;
+            border: 1px solid var(--border-color); border-radius: 5px;
+            background: var(--bg-body); color: var(--text-primary);
+            font-family: inherit; font-size: 12px;
+        }
+        .focus-summary {
+            width: 100%; padding: 7px 9px; border-radius: 5px;
+            background: rgba(34,139,230,0.08); color: var(--text-secondary);
+            border: 1px solid rgba(34,139,230,0.18); font-size: 11px;
+            line-height: 1.35;
+        }
+        .focus-summary.warn {
+            background: rgba(245,158,11,0.08);
+            border-color: rgba(245,158,11,0.25);
+            color: #fbbf24;
+        }
+        .inline-action {
+            margin-top: 8px; padding: 7px 10px; border-radius: 5px;
+            background: rgba(34,139,230,0.1); border: 1px solid rgba(34,139,230,0.2);
+            color: var(--mantine-blue); font-size: 12px; cursor: pointer; text-align: center;
+        }
+        .inline-action:hover { background: rgba(34,139,230,0.15); }
+        .audit-panel {
+            margin-top: 16px; padding-top: 14px;
+            border-top: 1px solid var(--border-color);
+        }
+        .audit-section { margin-bottom: 14px; }
+        .audit-title {
+            font-size: 11px; font-weight: 700; color: var(--text-dimmed);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 7px;
+        }
+        .audit-card {
+            padding: 8px 10px; background: var(--bg-body);
+            border: 1px solid var(--border-color); border-radius: 6px;
+            margin-bottom: 6px; font-size: 12px; line-height: 1.35;
+        }
+        .audit-card.warn {
+            background: rgba(245,158,11,0.08);
+            border-color: rgba(245,158,11,0.25);
+            color: #fbbf24;
+        }
+        .audit-muted { color: var(--text-dimmed); font-size: 11px; }
+        .audit-row { display: flex; gap: 8px; justify-content: space-between; margin-bottom: 4px; }
+        .audit-row span:first-child { color: var(--text-dimmed); }
+        .audit-row span:last-child { color: var(--text-primary); text-align: right; word-break: break-word; }
+        .audit-edge-main { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+        .audit-pill {
+            display: inline-block; padding: 1px 6px; border-radius: 3px;
+            background: rgba(255,255,255,0.08); color: var(--text-secondary);
+            font-size: 10px; margin-right: 4px; margin-top: 3px;
+        }
+        .audit-path { word-break: break-all; }
+
+        /* Quick-start button */
+        .quickstart-btn {
+            width: 100%; padding: 8px 12px; border: 1px dashed var(--border-color);
+            border-radius: 6px; background: rgba(34,139,230,0.05); color: var(--mantine-blue);
+            font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+            transition: all 0.15s; margin-bottom: 6px; text-align: center;
+        }
+        .quickstart-btn:hover { background: rgba(34,139,230,0.12); border-color: var(--mantine-blue); }
+
+        /* Advanced toggle */
+        .advanced-toggle {
+            font-size: 11px; color: var(--text-dimmed); cursor: pointer;
+            padding: 6px 0; display: flex; align-items: center; gap: 6px; user-select: none;
+        }
+        .advanced-toggle:hover { color: var(--text-secondary); }
+        .advanced-toggle .arrow { transition: transform 0.2s; display: inline-block; font-size: 9px; }
+        .advanced-toggle.open .arrow { transform: rotate(90deg); }
+        .advanced-content { display: none; padding-top: 4px; }
+        .advanced-content.open { display: block; }
+
+        /* Lane overlay */
+        .lane-overlay { position: absolute; left: 350px; top: 0; bottom: 0; z-index: 5; pointer-events: none; }
+        .lane-label {
+            position: absolute; left: 0; transform: translateY(-50%);
+            font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+            padding: 3px 10px; border-radius: 4px;
+            background: rgba(0,0,0,0.4); white-space: nowrap; opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+
+<div class="control-panel paper">
+    <div class="panel-header">
+        <div>
+            <h3 class="panel-title">ArcGraph</h3>
+            <div class="panel-subtitle">Semantic Graph Explorer</div>
+        </div>
+    </div>
+
+    <div class="view-state-bar" id="view-state-bar">
+        <span class="vs-tag" id="vs-granularity">Modules</span><span class="vs-dot">·</span>
+        <span class="vs-tag" id="vs-layout">Package</span><span class="vs-dot">·</span>
+        <span class="vs-tag" id="vs-lens">All Edges</span><span class="vs-dot">·</span>
+        <span class="vs-tag" id="vs-confidence">≥Runtime</span>
+    </div>
+
+    <div class="status-strip" id="status-strip" aria-label="ArcGraph status">
+        <div class="status-chip" id="status-mode"><strong>Mode</strong>: static</div>
+        <div class="status-chip" id="status-freshness"><strong>Freshness</strong>: unknown</div>
+        <div class="status-chip" id="status-ci"><strong>CI</strong>: unknown</div>
+        <div class="status-chip" id="status-evidence"><strong>Evidence</strong>: unknown</div>
+        <div class="status-chip" id="status-quality"><strong>Quality</strong>: unknown</div>
+        <div class="status-chip" id="status-payload"><strong>Payload</strong>: ok</div>
+        <div class="status-chip" id="status-rendering"><strong>Render</strong>: SVG 0/0</div>
+    </div>
+    <div class="payload-warning-strip" id="payload-warning-strip"></div>
+
+    <div class="badge-group">
+        <span class="badge badge-blue" id="stat-nodes">Nodes: 0</span>
+        <span class="badge badge-green" id="stat-edges">Links: 0</span>
+        <span class="badge badge-purple" id="stat-pkgs">Packages: 0</span>
+        <span class="badge badge-blue" id="stat-renderer">Renderer: SVG</span>
+        <span class="badge badge-green" id="stat-density">Density: Full</span>
+    </div>
+
+    <div class="dim-label">Mode</div>
+    <div class="view-toggle">
+        <button class="view-btn active" id="btn-overview">Overview</button>
+        <button class="view-btn" id="btn-focus">Focus</button>
+    </div>
+    <div class="focus-controls" id="focus-controls">
+        <select class="focus-select" id="focus-depth">
+            <option value="1">Depth 1</option>
+            <option value="2">Depth 2</option>
+        </select>
+        <select class="focus-select" id="focus-direction">
+            <option value="both">Incoming + outgoing</option>
+            <option value="incoming">Incoming only</option>
+            <option value="outgoing">Outgoing only</option>
+        </select>
+        <button class="preset-btn" id="btn-clear-focus" type="button">Clear focus</button>
+        <div class="focus-summary" id="focus-summary">Search for a symbol to focus its neighborhood.</div>
+    </div>
+
+    <div class="dim-label">Granularity</div>
+    <div class="view-toggle">
+        <button class="view-btn active" id="btn-modules">Modules</button>
+        <button class="view-btn" id="btn-symbols">Symbols</button>
+    </div>
+
+    <div class="dim-label">Layout</div>
+    <div class="view-toggle" style="margin-bottom:8px">
+        <button class="view-btn active" id="btn-layout-pkg">Package</button>
+        <button class="view-btn" id="btn-layout-arch">Architecture</button>
+    </div>
+
+    <div class="dim-label">Renderer</div>
+    <div class="view-toggle" id="renderer-group" style="margin-bottom:8px">
+        <button class="view-btn active" data-renderer="auto">Auto</button>
+        <button class="view-btn" data-renderer="svg">SVG</button>
+        <button class="view-btn" data-renderer="canvas">Canvas</button>
+    </div>
+
+    <div class="dim-label">Density</div>
+    <div class="view-toggle" id="density-group" style="margin-bottom:8px">
+        <button class="view-btn active" data-density="auto">Auto</button>
+        <button class="view-btn" data-density="full">Full</button>
+        <button class="view-btn" data-density="balanced">Balanced</button>
+        <button class="view-btn" data-density="sparse">Sparse</button>
+    </div>
+
+    <div class="dim-label">Labels</div>
+    <div class="view-toggle" id="labels-group" style="margin-bottom:8px">
+        <button class="view-btn active" data-labels="auto">Auto</button>
+        <button class="view-btn" data-labels="key">Key</button>
+        <button class="view-btn" data-labels="all">All</button>
+        <button class="view-btn" data-labels="none">None</button>
+    </div>
+
+    <div class="dim-label">Lens</div>
+    <div class="preset-group" id="lens-group">
+        <button class="preset-btn active" data-lens="all">All</button>
+        <button class="preset-btn" data-lens="call-flow">Call Flow</button>
+        <button class="preset-btn" data-lens="data-flow">Data Flow</button>
+        <button class="preset-btn" data-lens="entry-resource">Entry&#x2192;Resource</button>
+    </div>
+
+    <div class="dim-label">Filters</div>
+    <div class="slider-group">
+        <div class="slider-label"><span>Confidence</span><span id="conf-val">≥Runtime</span></div>
+        <input type="range" class="ms" id="confidence-slider" min="0" max="4" value="3" step="1">
+    </div>
+    <div class="slider-group">
+        <div class="slider-label"><span>Min Strength</span><span id="weight-val">1</span></div>
+        <input type="range" class="ms" id="weight-slider" min="1" max="20" value="1" step="1">
+    </div>
+    <div class="preset-group" id="collapse-controls">
+        <button class="preset-btn" id="btn-collapse-all">Collapse All</button>
+        <button class="preset-btn" id="btn-expand-all">Expand All</button>
+    </div>
+
+    <button class="quickstart-btn" id="btn-quickstart">&#x1f52d; Architecture Overview</button>
+
+    <div class="search-wrapper">
+        <span class="search-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+        <input type="text" class="search-input" id="search-input" placeholder="Search nodes...">
+        <div class="search-results" id="search-results"></div>
+    </div>
+
+    <div class="advanced-toggle" id="advanced-toggle">
+        <span class="arrow">&#x25b8;</span> Advanced
+    </div>
+    <div class="advanced-content" id="advanced-content">
+        <div class="preset-group" id="preset-group">
+            <button class="preset-btn" data-preset="compact">Compact</button>
+            <button class="preset-btn active" data-preset="standard">Standard</button>
+            <button class="preset-btn" data-preset="expanded">Expanded</button>
+            <button class="preset-btn" data-preset="clustered">Clustered</button>
+        </div>
+        <div class="slider-group">
+            <div class="slider-label"><span>Repulsion</span><span id="charge-val">-150</span></div>
+            <input type="range" class="ms" id="charge-slider" min="-500" max="-30" value="-150">
+        </div>
+        <div class="slider-group">
+            <div class="slider-label"><span>Link Distance</span><span id="dist-val">100</span></div>
+            <input type="range" class="ms" id="distance-slider" min="30" max="300" value="100">
+        </div>
+        <div class="slider-group">
+            <div class="slider-label"><span>Package Cohesion</span><span id="cohesion-val">0.30</span></div>
+            <input type="range" class="ms" id="cohesion-slider" min="0" max="100" value="30" step="5">
+        </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+        <div class="legend-title">Node Types</div>
+        <div class="legend-grid" id="legend"></div>
+    </div>
+
+    <div class="divider"></div>
+    <div>
+        <div class="legend-title">Edge Types</div>
+        <div class="legend-grid" id="edge-legend"></div>
+    </div>
+</div>
+
+<!-- Zoom -->
+<div class="zoom-controls paper">
+    <button class="zoom-btn" id="btn-zoom-in" title="Zoom In"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+    <button class="zoom-btn" id="btn-zoom-out" title="Zoom Out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+    <button class="zoom-btn" id="btn-fit" title="Fit View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+</div>
+
+<!-- Drawer -->
+<div id="drawer" class="drawer">
+    <div class="drawer-header">
+        <div>
+            <h4 class="drawer-title" id="drawer-title">-</h4>
+            <div style="margin-top:4px" id="drawer-kind-badge"></div>
+        </div>
+        <button class="drawer-close" id="drawer-close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="drawer-content">
+        <div class="detail-section"><div class="detail-label">Path</div><div class="detail-value" id="detail-path">-</div></div>
+        <div class="detail-section"><div class="detail-label">Package</div><div class="detail-value" id="detail-pkg">-</div></div>
+        <div class="detail-section" id="detail-stats-section"></div>
+        <div class="detail-section">
+            <div class="detail-label">Outgoing (<span id="out-count">0</span>)</div>
+            <div class="connection-list" id="out-list"></div>
+        </div>
+        <div class="detail-section">
+            <div class="detail-label">Incoming (<span id="in-count">0</span>)</div>
+            <div class="connection-list" id="in-list"></div>
+        </div>
+        <div id="expand-container"></div>
+        <div class="audit-panel" id="audit-container"></div>
+    </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip" class="tooltip"><div class="tooltip-title" id="tt-title"></div><div class="tooltip-kind" id="tt-kind"></div><div class="tooltip-path" id="tt-path"></div></div>
+
+<div class="lane-overlay" id="lane-overlay" style="display:none">
+    <div class="lane-label" style="top:15%;color:#ef4444">Entry Points</div>
+    <div class="lane-label" style="top:45%;color:#3b82f6">Logic</div>
+    <div class="lane-label" style="top:55%;color:#f59e0b">Data Models</div>
+    <div class="lane-label" style="top:85%;color:#22c55e">Resources</div>
+</div>
+
+<div id="viewport"></div>
+<div id="load-status" class="status-message paper">Loading graph data...</div>
+
+<script>
+// ─── Colors ─────────────────────────────────────────────────
+const KIND_COLORS = {
+    module:'#3b82f6', class:'#8b5cf6', function:'#10b981', method:'#a78bfa',
+    pydantic_model:'#f59e0b', route:'#ef4444', test_case:'#64748b',
+    pytest_fixture:'#14b8a6', config:'#eab308', interface:'#f97316',
+    component:'#38bdf8', table:'#22c55e', mcp_tool:'#a855f7',
+    worker_task:'#ec4899', model_field:'#6b7280', external_symbol:'#475569',
+    log_sink:'#64748b', cli_command:'#ef4444', cli_option:'#ef4444',
+    type_alias:'#a78bfa', package:'#3b82f6', queue:'#ec4899', _default:'#6b7280',
+};
+const EDGE_COLORS = {
+    imports:'#3b82f6', calls:'#10b981', uses:'#a78bfa', invokes:'#f97316',
+    constructs:'#f59e0b', extends:'#ef4444', injects:'#14b8a6',
+    configures:'#eab308', references:'#64748b', initializes:'#a855f7',
+    renders:'#38bdf8', declares:'#475569', defines:'#374151',
+    contains:'#374151', logs:'#64748b', writes:'#ec4899', reads:'#38bdf8',
+    _default:'#475569',
+};
+const CONF_LEVELS = ['confirmed','inferred','runtime-only','heuristic','unresolved'];
+const CONF_OPACITY = { confirmed:0.6, inferred:0.35, 'runtime-only':0.2, heuristic:0.12, unresolved:0.04 };
+const CONF_NAMES = ['All','Confirmed','≥Inferred','≥Runtime','≥Heuristic'];
+const PRESETS = { compact:{charge:-60,dist:50}, standard:{charge:-150,dist:100}, expanded:{charge:-350,dist:200}, clustered:{charge:-400,dist:55} };
+const RENDERER_AUTO_NODE_THRESHOLD = 600;
+const RENDERER_AUTO_EDGE_THRESHOLD = 1200;
+const DENSITY_AUTO_BALANCED_EDGE_THRESHOLD = 350;
+const DENSITY_AUTO_SPARSE_EDGE_THRESHOLD = 900;
+const DENSITY_AUTO_BALANCED_NODE_THRESHOLD = 180;
+const DENSITY_AUTO_SPARSE_NODE_THRESHOLD = 350;
+
+// ─── Semantic Tiers ────────────────────────────────────────
+const SEMANTIC_TIERS = {
+    entry:    { y: 0.15, label: 'Entry Points',  color: '#ef4444' },
+    logic:    { y: 0.45, label: 'Logic',          color: '#3b82f6' },
+    data:     { y: 0.55, label: 'Data Models',    color: '#f59e0b' },
+    resource: { y: 0.85, label: 'Resources',      color: '#22c55e' },
+};
+
+function semanticTier(node) {
+    if (node.semantic_tier && SEMANTIC_TIERS[node.semantic_tier]) return node.semantic_tier;
+    const kind = node.kind;
+    const contract = visualContract();
+    const entryKinds = new Set(contract.entrypoint_kinds || []);
+    const resourceKinds = new Set(contract.resource_node_kinds || []);
+    if (entryKinds.has(kind)) return 'entry';
+    if (resourceKinds.has(kind)) return 'resource';
+    if (['pydantic_model','interface','type_alias','model_field'].includes(kind)) return 'data';
+    return 'logic';
+}
+
+// ─── Lenses ────────────────────────────────────────────────
+const LENSES = {
+    'all':             { label: 'All Edges',         edgeKinds: null, hideDisconnected: false },
+    'call-flow':       { label: 'Call Flow',          edgeKinds: new Set(['calls','invokes','constructs','initializes']), hideDisconnected: true },
+    'data-flow':       { label: 'Data Flow',          edgeKinds: new Set(['reads','writes','enqueues','consumes','configures','provides']), hideDisconnected: true },
+    'entry-resource':  { label: 'Entry→Resource',     edgeKinds: null, hideDisconnected: true, entryResourceFilter: true },
+};
+
+// ─── State ──────────────────────────────────────────────────
+let graphData=null, statusData=null, currentView='modules', activeNodes=[], activeEdges=[];
+let simulation=null, selectedNode=null, hiddenKinds=new Set();
+let confThreshold=3, minWeight=1, chargeStrength=-150, linkDist=100, cohesion=0.3;
+let layoutMode='package', activeLens='all', collapsedPackages=new Set();
+let graphMode='overview', focusDepth=1, focusDirection='both', focusSeedIds=[];
+let focusNodeById=new Map(), focusEdgeById=new Map(), moduleAutoCollapseApplied=false;
+let remoteMode=false, searchRequestSeq=0;
+let rendererMode='auto', activeRenderer='svg', currentTransform=d3.zoomIdentity;
+let densityMode='auto', activeDensity='full', labelMode='auto';
+let renderStats={renderedNodes:0, inputEdges:0, renderedEdges:0, hiddenEdges:0, aggregatedEdges:0};
+let hoveredCanvasNode=null, canvasDragNode=null, canvasDrawState={nodes:[], edges:[], deg:{}, rScale:null};
+const AUTO_COLLAPSE_MODULE_THRESHOLD = 120;
+
+// ─── D3 Setup ───────────────────────────────────────────────
+const width = window.innerWidth, height = window.innerHeight;
+const viewport = d3.select('#viewport');
+const canvas = viewport.append('canvas')
+    .attr('class','graph-canvas')
+    .attr('width',width * window.devicePixelRatio)
+    .attr('height',height * window.devicePixelRatio)
+    .style('width',`${width}px`)
+    .style('height',`${height}px`);
+const canvasEl = canvas.node();
+const ctx = canvasEl.getContext('2d');
+ctx.setTransform(window.devicePixelRatio,0,0,window.devicePixelRatio,0,0);
+const svg = viewport.append('svg').attr('width',width).attr('height',height);
+const bgRect = svg.append('rect').attr('width',width).attr('height',height).attr('fill','transparent').style('cursor','grab');
+const g = svg.append('g');
+const laneGroup = g.append('g').attr('class','lane-group');
+const linkGroup = g.append('g');
+const nodeGroup = g.append('g');
+
+const zoom = d3.zoom().scaleExtent([0.05,6]).on('zoom', e => {
+    currentTransform = e.transform;
+    g.attr('transform', e.transform);
+    drawCanvas();
+});
+svg.call(zoom);
+canvas.call(zoom);
+installCanvasInteractions();
+// Close drawer on background click.
+// D3 zoom swallows mousedown/mouseup on the SVG, so use a body-level click listener.
+document.body.addEventListener('click', e => {
+    if(e.target.closest('.drawer') || e.target.closest('.control-panel') || e.target.closest('.zoom-controls')) return;
+    const tag = e.target.tagName.toLowerCase();
+    if(tag === 'circle' || tag === 'text') return;
+    if(document.getElementById('drawer').classList.contains('open')) hideDrawer();
+});
+
+// ─── Load ───────────────────────────────────────────────────
+Promise.all([
+    fetchJson('graph_data.json'),
+    fetchJson('status_data.json').catch(() => null),
+])
+    .then(([data, statusPayload]) => {
+        graphData = data;
+        statusData = statusPayload;
+        const filters = graphData.meta?.filters || {};
+        const status = document.getElementById('load-status');
+        status.textContent = filters.include_tests ? 'Loaded with tests included' : 'Loaded production source graph';
+        setTimeout(() => status.style.display='none', 1200);
+        initializeFocusIndex();
+        renderStatusStrip();
+        renderPayloadWarnings();
+        initLegend();
+        applyInitialFocusOrOverview();
+    })
+    .catch(err => {
+        const status = document.getElementById('load-status');
+        status.textContent = `Could not load graph_data.json: ${err.message}`;
+        status.style.color = '#ff8787';
+    });
+
+function fetchJson(path) {
+    return fetch(path).then(r => {
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+    });
+}
+
+function visualContract() {
+    return statusData?.visual_contract || graphData?.meta?.visual_contract || {};
+}
+
+function initializeFocusIndex() {
+    const focus = graphData?.focus_index || {};
+    remoteMode = focus.mode === 'remote' || graphData?.api?.mode === 'remote';
+    focusNodeById = new Map((focus.nodes || []).map(node => [node.id, {...node}]));
+    focusEdgeById = new Map((focus.edges || []).map(edge => [edge.id, {...edge}]));
+    const requestedDepth = graphData?.focus?.depth || 1;
+    const requestedDirection = graphData?.focus?.direction || 'both';
+    focusDepth = [1, 2].includes(+requestedDepth) ? +requestedDepth : 1;
+    focusDirection = ['incoming', 'outgoing', 'both'].includes(requestedDirection) ? requestedDirection : 'both';
+    document.getElementById('focus-depth').value = String(focusDepth);
+    document.getElementById('focus-direction').value = focusDirection;
+}
+
+function applyInitialFocusOrOverview() {
+    const seeds = graphData?.focus?.resolved_seed_ids || [];
+    if (seeds.length) {
+        enterFocus(seeds, {fit: true});
+        return;
+    }
+    switchView('modules');
+    updateFocusSummary();
+}
+
+function renderStatusStrip() {
+    const summary = statusData?.summary || {};
+    const freshness = summary.freshness?.status || graphData?.meta?.freshness?.status || 'unknown';
+    const ciStatus = summary.ci?.status || 'unknown';
+    const evidenceStatus = summary.evidence_health?.status || statusData?.workspace?.evidence_manifest?.status || 'unknown';
+    const qualityStatus = summary.semantic_quality?.status || 'unknown';
+    const payloadWarnings = graphData?.payload_budget?.warnings || [];
+    setStatusChip('status-mode', 'Mode', remoteMode ? 'remote' : 'static');
+    setStatusChip('status-freshness', 'Freshness', freshness);
+    setStatusChip('status-ci', 'CI', ciStatus);
+    setStatusChip('status-evidence', 'Evidence', evidenceStatus);
+    setStatusChip('status-quality', 'Quality', qualityStatus);
+    setStatusChip('status-payload', 'Payload', payloadWarnings.length ? `${payloadWarnings.length} warning` : 'ok');
+    updateRenderingStatusChip();
+}
+
+function setStatusChip(id, label, value) {
+    const el = document.getElementById(id);
+    el.classList.remove('pass', 'warn', 'fail', 'stale');
+    const normalized = String(value || 'unknown').toLowerCase();
+    if (['pass', 'fresh', 'available', 'ok', 'static', 'remote'].includes(normalized)) el.classList.add('pass');
+    else if (normalized.includes('warning') || ['warn', 'partial', 'unknown', 'missing', 'unavailable'].includes(normalized)) el.classList.add('warn');
+    else if (['fail', 'stale', 'out_of_scope', 'invalid'].includes(normalized)) el.classList.add(normalized === 'stale' ? 'stale' : 'fail');
+    el.textContent = '';
+    const strong = document.createElement('strong');
+    strong.textContent = label;
+    el.appendChild(strong);
+    el.appendChild(document.createTextNode(`: ${value || 'unknown'}`));
+}
+
+function renderPayloadWarnings() {
+    const strip = document.getElementById('payload-warning-strip');
+    clearChildren(strip);
+    strip.classList.remove('active');
+    const warnings = graphData?.payload_budget?.warnings || [];
+    if(!warnings.length) return;
+    strip.classList.add('active');
+    const title = document.createElement('strong');
+    title.textContent = 'Static package size warning';
+    strip.appendChild(title);
+    strip.appendChild(document.createTextNode(': '));
+    strip.appendChild(document.createTextNode(warnings.map(w => w.message || w.section || 'payload budget exceeded').join(' ')));
+}
+
+// ─── Views ──────────────────────────────────────────────────
+function switchView(view) {
+    if(!graphData) return;
+    graphMode = 'overview';
+    currentView = view;
+    document.getElementById('btn-modules').classList.toggle('active', view==='modules');
+    document.getElementById('btn-symbols').classList.toggle('active', view==='symbols');
+    document.getElementById('btn-overview').classList.add('active');
+    document.getElementById('btn-focus').classList.remove('active');
+    // Clear collapse state on view switch.
+    collapsedPackages.clear();
+    activeNodes = (view==='modules' ? graphData.module_graph.nodes : graphData.symbol_graph.nodes).map(d=>({...d}));
+    activeEdges = (view==='modules' ? graphData.module_graph.edges : graphData.symbol_graph.edges).map(d=>({...d}));
+    hideDrawer();
+    if (view === 'modules') applyAutomaticModuleCollapse();
+    updateFocusSummary();
+    if (view === 'modules' && collapsedPackages.size > 0) {
+        rebuildWithCollapse();
+        return;
+    }
+    render();
+}
+
+function enterFocus(seedIds, options = {}) {
+    if(remoteMode) {
+        enterRemoteFocus(seedIds, options);
+        return;
+    }
+    const validSeeds = [...new Set(seedIds)].filter(id => focusNodeById.has(id));
+    graphMode = 'focus';
+    currentView = 'symbols';
+    collapsedPackages.clear();
+    activeLens = 'all';
+    document.querySelectorAll('#lens-group .preset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.lens === 'all'));
+    document.getElementById('btn-overview').classList.remove('active');
+    document.getElementById('btn-focus').classList.add('active');
+    document.getElementById('btn-modules').classList.remove('active');
+    document.getElementById('btn-symbols').classList.add('active');
+    focusSeedIds = validSeeds;
+
+    const selection = buildEgoGraph(validSeeds, focusDepth, focusDirection);
+    activeNodes = selection.nodes;
+    activeEdges = selection.edges;
+    hideDrawer();
+    updateFocusSummary(selection);
+    render();
+    if(options.fit !== false) setTimeout(() => fitView(activeNodes), 450);
+}
+
+async function enterRemoteFocus(seedIds, options = {}) {
+    const requestedSeeds = [...new Set(seedIds)].filter(Boolean);
+    graphMode = 'focus';
+    currentView = 'symbols';
+    collapsedPackages.clear();
+    activeLens = 'all';
+    document.querySelectorAll('#lens-group .preset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.lens === 'all'));
+    document.getElementById('btn-overview').classList.remove('active');
+    document.getElementById('btn-focus').classList.add('active');
+    document.getElementById('btn-modules').classList.remove('active');
+    document.getElementById('btn-symbols').classList.add('active');
+    focusSeedIds = requestedSeeds;
+    updateFocusSummary({loading: true});
+    try {
+        const params = new URLSearchParams();
+        requestedSeeds.forEach(id => params.append('target', id));
+        params.set('depth', String(focusDepth));
+        params.set('direction', focusDirection);
+        const payload = await fetchJson(`/api/focus?${params.toString()}`);
+        (payload.nodes || []).forEach(node => focusNodeById.set(node.id, {...node}));
+        (payload.edges || []).forEach(edge => focusEdgeById.set(edge.id, {...edge}));
+        focusSeedIds = payload.focus?.resolved_seed_ids || requestedSeeds;
+        activeNodes = (payload.nodes || []).map(node => ({...node}));
+        activeEdges = (payload.edges || []).map(edge => ({...edge}));
+        hideDrawer();
+        updateFocusSummary({
+            hiddenNodes: payload.counts?.hidden_nodes || 0,
+            hiddenEdges: payload.counts?.hidden_edges || 0,
+            warnings: payload.warnings || [],
+        });
+        render();
+        if(options.fit !== false) setTimeout(() => fitView(activeNodes), 450);
+    } catch (err) {
+        activeNodes = [];
+        activeEdges = [];
+        updateFocusSummary({error: err.message || 'Could not load focus graph.'});
+        render();
+    }
+}
+
+function clearFocus() {
+    focusSeedIds = [];
+    switchView('modules');
+}
+
+function buildEgoGraph(seedIds, depth, direction) {
+    if(!seedIds.length) {
+        return {nodes: [], edges: [], hiddenNodes: focusNodeById.size, hiddenEdges: focusEdgeById.size};
+    }
+    const safeDepth = [1, 2].includes(+depth) ? +depth : 1;
+    const safeDirection = ['incoming', 'outgoing', 'both'].includes(direction) ? direction : 'both';
+    let frontier = new Set(seedIds);
+    const visited = new Set(seedIds);
+    const traversedEdges = new Set();
+    const focusEdges = graphData.focus_index?.edges || [];
+
+    for(let step=0; step<safeDepth; step++) {
+        const next = new Set();
+        focusEdges.forEach(edge => {
+            const source = edge.source?.id || edge.source;
+            const target = edge.target?.id || edge.target;
+            if((safeDirection === 'outgoing' || safeDirection === 'both') && frontier.has(source)) {
+                next.add(target);
+                traversedEdges.add(edge.id);
+            }
+            if((safeDirection === 'incoming' || safeDirection === 'both') && frontier.has(target)) {
+                next.add(source);
+                traversedEdges.add(edge.id);
+            }
+        });
+        [...next].forEach(id => visited.has(id) && next.delete(id));
+        if(next.size === 0) break;
+        next.forEach(id => visited.add(id));
+        frontier = next;
+    }
+
+    const nodes = [...visited].map(id => focusNodeById.get(id)).filter(Boolean).map(node => ({...node}));
+    const edges = focusEdges
+        .filter(edge => visited.has(edge.source) && visited.has(edge.target) && traversedEdges.has(edge.id))
+        .map(edge => ({...edge}));
+    return {
+        nodes,
+        edges,
+        hiddenNodes: Math.max(0, focusNodeById.size - nodes.length),
+        hiddenEdges: Math.max(0, focusEdgeById.size - edges.length),
+    };
+}
+
+function updateFocusSummary(selection = null) {
+    const summary = document.getElementById('focus-summary');
+    summary.classList.remove('warn');
+    if(graphMode !== 'focus') {
+        const warnings = graphData?.focus?.warnings || [];
+        if(warnings.length) {
+            summary.classList.add('warn');
+            summary.textContent = warnings.map(w => w.message || w.target || 'Focus target warning').join(' ');
+        } else {
+            const count = graphData?.focus_index?.counts?.nodes || 0;
+            const mode = remoteMode ? 'on-demand' : 'local';
+            summary.textContent = `${count} focusable symbols available. Search to focus a ${mode} ego-graph.`;
+        }
+        return;
+    }
+    if(selection?.loading) {
+        summary.textContent = 'Loading focus graph...';
+        return;
+    }
+    if(selection?.error) {
+        summary.classList.add('warn');
+        summary.textContent = selection.error;
+        return;
+    }
+    if(selection?.warnings?.length) {
+        summary.classList.add('warn');
+        summary.textContent = selection.warnings.map(w => w.message || w.target || 'Focus warning').join(' ');
+        return;
+    }
+    if(!focusSeedIds.length || !activeNodes.length) {
+        summary.classList.add('warn');
+        summary.textContent = 'No focus target selected. Search for a symbol or clear focus.';
+        return;
+    }
+    const seeds = focusSeedIds.map(id => focusNodeById.get(id)?.name || id).join(', ');
+    const hiddenNodes = selection?.hiddenNodes ?? Math.max(0, focusNodeById.size - activeNodes.length);
+    const hiddenEdges = selection?.hiddenEdges ?? Math.max(0, focusEdgeById.size - activeEdges.length);
+    summary.textContent = `Focus: ${seeds}. Showing ${activeNodes.length} nodes / ${activeEdges.length} edges; hidden ${hiddenNodes} nodes / ${hiddenEdges} edges.`;
+}
+
+// ─── Filtering ──────────────────────────────────────────────
+function filtered() {
+    let edges = activeEdges;
+    // Weight filter
+    if(currentView==='modules' && minWeight>1) edges = edges.filter(e=>edgeWeight(e)>=minWeight);
+    // Confidence filter
+    if(confThreshold>0) {
+        const allowed = CONF_LEVELS.slice(0, confThreshold);
+        edges = edges.filter(e => allowed.includes(e.dominant_confidence||e.confidence));
+    }
+    // Lens edge-kind filter
+    const lens = LENSES[activeLens];
+    if(lens && lens.edgeKinds) edges = edges.filter(e => lens.edgeKinds.has(e.kind));
+    // Node-kind filter
+    let nodes = activeNodes.filter(n => !hiddenKinds.has(n.kind));
+    // Entry→Resource path filter
+    if(lens && lens.entryResourceFilter) {
+        const entryIds = new Set(nodes.filter(n => semanticTier(n)==='entry').map(n => n.id));
+        const resourceIds = new Set(nodes.filter(n => semanticTier(n)==='resource').map(n => n.id));
+        const reachable = bfsReachable(entryIds, resourceIds, edges, nodes);
+        nodes = nodes.filter(n => reachable.has(n.id));
+    }
+    // Hide disconnected nodes when lens requires it
+    if(lens && lens.hideDisconnected) {
+        const nodeIds = new Set(nodes.map(n => n.id));
+        const connected = new Set();
+        edges.forEach(e => {
+            const s=e.source?.id||e.source, t=e.target?.id||e.target;
+            if(nodeIds.has(s) && nodeIds.has(t)) { connected.add(s); connected.add(t); }
+        });
+        if(connected.size>0) nodes = nodes.filter(n => connected.has(n.id));
+    }
+    // Final edge cleanup
+    const ids = new Set(nodes.map(n=>n.id));
+    edges = edges.filter(e => ids.has(e.source?.id||e.source) && ids.has(e.target?.id||e.target));
+    return {nodes, edges};
+}
+
+function prepareRenderableGraph(nodes, edges) {
+    const density = resolveDensityMode(nodes, edges);
+    activeDensity = density;
+    const protectedIds = protectedNodeIds(edges);
+    let visibleEdges = edges.map(edge => ({...edge}));
+    let hiddenEdges = 0;
+    let aggregatedEdges = 0;
+
+    if(density !== 'full') {
+        const beforeDensity = visibleEdges.length;
+        visibleEdges = visibleEdges.filter(edge => shouldKeepEdgeForDensity(edge, density, protectedIds));
+        hiddenEdges = Math.max(0, beforeDensity - visibleEdges.length);
+        const grouped = aggregateVisualEdges(visibleEdges, protectedIds);
+        visibleEdges = grouped.edges;
+        aggregatedEdges = grouped.aggregatedEdges;
+    }
+
+    renderStats = {
+        renderedNodes: nodes.length,
+        inputEdges: edges.length,
+        renderedEdges: visibleEdges.length,
+        hiddenEdges,
+        aggregatedEdges,
+    };
+    return {nodes, edges: visibleEdges};
+}
+
+function resolveDensityMode(nodes, edges) {
+    if(densityMode === 'full' || densityMode === 'balanced' || densityMode === 'sparse') return densityMode;
+    if(edges.length > DENSITY_AUTO_SPARSE_EDGE_THRESHOLD || nodes.length > DENSITY_AUTO_SPARSE_NODE_THRESHOLD) return 'sparse';
+    if(edges.length > DENSITY_AUTO_BALANCED_EDGE_THRESHOLD || nodes.length > DENSITY_AUTO_BALANCED_NODE_THRESHOLD) return 'balanced';
+    return 'full';
+}
+
+function protectedNodeIds(edges) {
+    const ids = new Set(focusSeedIds);
+    if(selectedNode?.id) {
+        selectedNeighborIds(selectedNode.id, edges).forEach(id => ids.add(id));
+    }
+    if(hoveredCanvasNode?.id) ids.add(hoveredCanvasNode.id);
+    return ids;
+}
+
+function shouldKeepEdgeForDensity(edge, density, protectedIds) {
+    if(edgeTouchesProtectedNode(edge, protectedIds)) return true;
+    const weight = edgeWeight(edge);
+    const confidence = confidenceRank(edge.dominant_confidence || edge.confidence);
+    if(density === 'balanced') {
+        return weight >= 2 || confidence >= confidenceRank('runtime-only');
+    }
+    return weight >= 3 || (confidence >= confidenceRank('inferred') && weight >= 1.5);
+}
+
+function aggregateVisualEdges(edges, protectedIds) {
+    const groups = new Map();
+    const output = [];
+    let aggregatedEdges = 0;
+    edges.forEach(edge => {
+        if(edgeTouchesProtectedNode(edge, protectedIds)) {
+            output.push({...edge});
+            return;
+        }
+        const source = edge.source?.id || edge.source;
+        const target = edge.target?.id || edge.target;
+        const key = `${source}|${target}|${edge.kind || ''}`;
+        if(groups.has(key)) {
+            const existing = groups.get(key);
+            existing.weight = (existing.weight || 1) + (edge.weight || 1);
+            existing.layout_weight = (existing.layout_weight || 1) + (edge.layout_weight || 1);
+            existing._edge_count = (existing._edge_count || 1) + 1;
+            existing.dominant_confidence = higherConfidence(existing.dominant_confidence || existing.confidence, edge.dominant_confidence || edge.confidence);
+            aggregatedEdges += 1;
+        } else {
+            const clone = {...edge, source, target, _edge_count: 1};
+            groups.set(key, clone);
+            output.push(clone);
+        }
+    });
+    return {edges: output, aggregatedEdges};
+}
+
+function edgeTouchesProtectedNode(edge, protectedIds) {
+    if(!protectedIds.size) return false;
+    const source = edge.source?.id || edge.source;
+    const target = edge.target?.id || edge.target;
+    return protectedIds.has(source) || protectedIds.has(target);
+}
+
+function confidenceRank(confidence) {
+    const ranks = { unresolved: 0, heuristic: 1, 'runtime-only': 2, inferred: 3, confirmed: 4 };
+    return ranks[confidence] ?? 1;
+}
+
+function higherConfidence(left, right) {
+    return confidenceRank(right) > confidenceRank(left) ? right : left;
+}
+
+// ─── Render ─────────────────────────────────────────────────
+function render() {
+    updateViewState();
+    const rawGraph = filtered();
+    const {nodes, edges} = prepareRenderableGraph(rawGraph.nodes, rawGraph.edges);
+
+    // Empty state guard
+    if(nodes.length===0) {
+        clearSvgGraph();
+        clearCanvas();
+        if(simulation) simulation.stop();
+        document.getElementById('stat-nodes').textContent = 'Nodes: 0';
+        document.getElementById('stat-edges').textContent = 'Links: 0';
+        document.getElementById('stat-pkgs').textContent = 'Packages: 0';
+        updateDensityDisplay(0, 0);
+        updateRendererDisplay(resolveRenderer(nodes, edges), nodes.length, edges.length);
+        return;
+    }
+
+    const pkgs = new Set(nodes.map(n=>n.package));
+    document.getElementById('stat-nodes').textContent = `Nodes: ${nodes.length}`;
+    document.getElementById('stat-edges').textContent = renderStats.inputEdges === edges.length
+        ? `Links: ${edges.length}`
+        : `Links: ${edges.length}/${renderStats.inputEdges}`;
+    document.getElementById('stat-pkgs').textContent = `Packages: ${pkgs.size}`;
+    updateDensityDisplay(renderStats.hiddenEdges, renderStats.aggregatedEdges);
+    const renderer = resolveRenderer(nodes, edges);
+    updateRendererDisplay(renderer, nodes.length, edges.length);
+
+    // Cache semantic tier on each node for archForce performance
+    nodes.forEach(n => { n._tier = semanticTier(n); });
+
+    // Package centers for cohesion
+    const pkgList = [...pkgs];
+    const cols = Math.ceil(Math.sqrt(pkgList.length));
+    const centers = {};
+    pkgList.forEach((p,i) => { centers[p] = { x: (i%cols - cols/2)*250 + width/2, y: (Math.floor(i/cols) - Math.floor(pkgList.length/cols)/2)*250 + height/2 }; });
+
+    // Degree
+    const deg = {};
+    edges.forEach(e => {
+        const s=e.source?.id||e.source, t=e.target?.id||e.target, w=Math.sqrt(edgeWeight(e));
+        deg[s]=(deg[s]||0)+w;
+        deg[t]=(deg[t]||0)+w;
+    });
+    const maxDeg = Math.max(1, ...Object.values(deg));
+    const rScale = d3.scaleSqrt().domain([0,maxDeg]).range([3,16]);
+
+    if(simulation) simulation.stop();
+
+    simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(edges).id(d=>d.id)
+            .distance(d => linkDist / Math.sqrt(edgeWeight(d)))
+            .strength(d => { const c = d.dominant_confidence||d.confidence||'heuristic'; const s={confirmed:0.25,inferred:0.12,heuristic:0.06,'runtime-only':0.04}; return (s[c]||0.04)*Math.min(Math.sqrt(edgeWeight(d)),3); })
+        )
+        .force('charge', d3.forceManyBody().strength(d => chargeStrength - (deg[d.id]||0)*1.5))
+        .force('collide', d3.forceCollide(d => nodeRadius(d, deg, rScale)+2))
+        .velocityDecay(0.4).alphaDecay(0.015);
+
+    // Layout mode: architecture tiers vs package cohesion
+    if(layoutMode==='architecture') {
+        simulation
+            .force('package', null)
+            .force('arch', archForce(cohesion))
+            .force('center', d3.forceCenter(width/2, height/2).strength(0.01));
+    } else {
+        simulation
+            .force('arch', null)
+            .force('package', pkgForce(centers, cohesion))
+            .force('center', d3.forceCenter(width/2, height/2).strength(0.03));
+    }
+
+    if(renderer === 'canvas') {
+        renderCanvasGraph(nodes, edges, deg, rScale);
+    } else {
+        renderSvgGraph(nodes, edges, deg, rScale);
+    }
+
+    setTimeout(() => fitView(nodes), 2000);
+}
+
+function renderSvgGraph(nodes, edges, deg, rScale) {
+    // Lane bands (architecture mode only)
+    laneGroup.selectAll('*').remove();
+    if(layoutMode==='architecture') {
+        Object.entries(SEMANTIC_TIERS).forEach(([key, tier]) => {
+            const yCenter = tier.y * height;
+            const bandHalf = height * 0.12;
+            laneGroup.append('rect')
+                .attr('x', -10000).attr('width', 20000)
+                .attr('y', yCenter - bandHalf).attr('height', bandHalf * 2)
+                .attr('fill', tier.color).attr('fill-opacity', 0.03)
+                .attr('pointer-events', 'none');
+        });
+    }
+
+    // Links — curved for strong edges, straight for weak
+    linkGroup.selectAll('path').remove();
+    const links = linkGroup.selectAll('path').data(edges).join('path')
+        .attr('class','link')
+        .attr('stroke', d => EDGE_COLORS[d.kind]||EDGE_COLORS._default)
+        .attr('stroke-opacity', d => CONF_OPACITY[d.dominant_confidence||d.confidence]||0.1)
+        .attr('stroke-width', d => Math.min(Math.sqrt(edgeWeight(d))*0.8, 3.5));
+
+    // Nodes
+    nodeGroup.selectAll('g').remove();
+    const node = nodeGroup.selectAll('g').data(nodes).join('g').attr('class','node')
+        .call(d3.drag().on('start',(e,d)=>{if(!e.active)simulation.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y;}).on('end',(e,d)=>{if(!e.active)simulation.alphaTarget(0);d.fx=null;d.fy=null;}));
+
+    // Outer ring
+    node.append('circle')
+        .attr('r', d => nodeRadius(d, deg, rScale)+3)
+        .attr('fill','none')
+        .attr('stroke', d => d._collapsed ? '#fff' : (KIND_COLORS[d.kind]||KIND_COLORS._default))
+        .attr('stroke-opacity', d => d._collapsed ? 0.4 : 0.25)
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', d => d._collapsed ? '4 2' : null);
+
+    // Core
+    node.append('circle')
+        .attr('r', d => nodeRadius(d, deg, rScale))
+        .attr('fill', d => KIND_COLORS[d.kind]||KIND_COLORS._default)
+        .attr('fill-opacity', 0.85)
+        .attr('stroke', d => KIND_COLORS[d.kind]||KIND_COLORS._default)
+        .attr('stroke-width', 1)
+        .attr('stroke-opacity', 0.6);
+
+    // Labels
+    node.filter(d => shouldDrawLabel(d, nodes, deg, false, selectedNode?.id === d.id, focusSeedIds.includes(d.id))).append('text')
+        .text(d => d._collapsed ? `${d.name} (${d._memberCount})` : d.name)
+        .attr('font-size', d => d._collapsed ? 11 : Math.min(9 + (deg[d.id]||0)*0.25, 13))
+        .attr('fill', '#c1c2c5')
+        .attr('text-anchor','middle')
+        .attr('dy', d => nodeRadius(d, deg, rScale)+14)
+        .attr('pointer-events','none')
+        .attr('opacity', d => d._collapsed ? 0.9 : 0.7);
+
+    // Events
+    node.on('mouseenter', (e,d) => { const tt=document.getElementById('tooltip'); document.getElementById('tt-title').textContent=d._collapsed?`${d.name} (${d._memberCount} modules)`:d.name; document.getElementById('tt-kind').textContent=d._collapsed?'collapsed package':d.kind; document.getElementById('tt-path').textContent=d.sub_package||d.path||d.qualname||''; tt.classList.add('visible'); })
+        .on('mousemove', e => { const tt=document.getElementById('tooltip'); tt.style.left=(e.clientX+14)+'px'; tt.style.top=(e.clientY-8)+'px'; })
+        .on('mouseleave', () => document.getElementById('tooltip').classList.remove('visible'))
+        .on('click', (e,d) => { e.stopPropagation(); showDrawer(d, edges, nodes); })
+        .on('dblclick', (e,d) => { e.stopPropagation(); expandModule(d); })
+        .on('contextmenu', (e,d) => {
+            e.preventDefault(); e.stopPropagation();
+            if(currentView!=='modules') return;
+            if(d._collapsed) expandPackage(d.sub_package);
+            else if(d.sub_package) collapsePackage(d.sub_package);
+        });
+
+    // Tick
+    simulation.on('tick', () => {
+        links.attr('d', d => {
+            const dx=d.target.x-d.source.x, dy=d.target.y-d.source.y;
+            const dist = Math.sqrt(dx*dx+dy*dy);
+            if(edgeWeight(d)<3) return `M${d.source.x},${d.source.y}L${d.target.x},${d.target.y}`;
+            const curve = 0.2;
+            return `M${d.source.x},${d.source.y} C${d.source.x+dx/2},${d.source.y-dist*curve} ${d.target.x-dx/2},${d.target.y+dist*curve} ${d.target.x},${d.target.y}`;
+        });
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+}
+
+function renderCanvasGraph(nodes, edges, deg, rScale) {
+    clearSvgGraph();
+    canvasDrawState = {nodes, edges, deg, rScale};
+    simulation.on('tick', drawCanvas);
+    drawCanvas();
+}
+
+function clearSvgGraph() {
+    nodeGroup.selectAll('g').remove();
+    linkGroup.selectAll('path').remove();
+    laneGroup.selectAll('*').remove();
+}
+
+function clearCanvas() {
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+    ctx.restore();
+    hoveredCanvasNode = null;
+    canvasDrawState = {nodes:[], edges:[], deg:{}, rScale:null};
+}
+
+function resolveRenderer(nodes, edges) {
+    if(rendererMode === 'svg' || rendererMode === 'canvas') return rendererMode;
+    return nodes.length > RENDERER_AUTO_NODE_THRESHOLD || edges.length > RENDERER_AUTO_EDGE_THRESHOLD
+        ? 'canvas'
+        : 'svg';
+}
+
+function updateRendererDisplay(renderer, nodeCount, edgeCount) {
+    activeRenderer = renderer;
+    renderStats.renderedNodes = nodeCount;
+    renderStats.renderedEdges = edgeCount;
+    svg.style('display', renderer === 'svg' ? 'block' : 'none');
+    canvas.style('display', renderer === 'canvas' ? 'block' : 'none');
+    document.querySelectorAll('#renderer-group .view-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.renderer === rendererMode));
+    const label = rendererMode === 'auto'
+        ? `Auto→${renderer.toUpperCase()}`
+        : renderer.toUpperCase();
+    document.getElementById('stat-renderer').textContent = `Renderer: ${label} (${nodeCount}/${edgeCount})`;
+    updateRenderingStatusChip();
+}
+
+function updateRenderingStatusChip() {
+    const renderer = activeRenderer ? activeRenderer.toUpperCase() : 'SVG';
+    const density = activeDensity || 'full';
+    const parts = [
+        `${renderer} ${renderStats.renderedNodes || 0}/${renderStats.renderedEdges || 0}`,
+        `labels ${labelMode}`,
+        `density ${density}`,
+    ];
+    if(renderStats.hiddenEdges) parts.push(`hidden ${renderStats.hiddenEdges}`);
+    if(renderStats.aggregatedEdges) parts.push(`merged ${renderStats.aggregatedEdges}`);
+    setStatusChip('status-rendering', 'Render', parts.join(' · '));
+}
+
+function zoomTarget() {
+    return activeRenderer === 'canvas' ? canvas : svg;
+}
+
+function drawCanvas() {
+    if(activeRenderer !== 'canvas') return;
+    const {nodes, edges, deg, rScale} = canvasDrawState;
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+    ctx.restore();
+    if(!nodes.length) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.setTransform(
+        dpr * currentTransform.k, 0, 0, dpr * currentTransform.k,
+        dpr * currentTransform.x, dpr * currentTransform.y
+    );
+    drawCanvasLanes();
+    drawCanvasEdges(edges);
+    drawCanvasNodes(nodes, deg, rScale);
+    ctx.restore();
+}
+
+function drawCanvasLanes() {
+    if(layoutMode !== 'architecture') return;
+    Object.values(SEMANTIC_TIERS).forEach(tier => {
+        const yCenter = tier.y * height;
+        const bandHalf = height * 0.12;
+        ctx.save();
+        ctx.globalAlpha = 0.03;
+        ctx.fillStyle = tier.color;
+        ctx.fillRect(-10000, yCenter - bandHalf, 20000, bandHalf * 2);
+        ctx.restore();
+    });
+}
+
+function drawCanvasEdges(edges) {
+    const selectedId = selectedNode?.id;
+    edges.forEach(edge => {
+        const source = edge.source, target = edge.target;
+        if(!source || !target || source.x == null || target.x == null) return;
+        const selectedEdge = selectedId && (source.id === selectedId || target.id === selectedId);
+        const opacity = selectedId
+            ? (selectedEdge ? 0.8 : 0.02)
+            : (CONF_OPACITY[edge.dominant_confidence||edge.confidence]||0.1);
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.strokeStyle = EDGE_COLORS[edge.kind]||EDGE_COLORS._default;
+        ctx.lineWidth = Math.min(Math.sqrt(edgeWeight(edge))*0.8, 3.5);
+        ctx.beginPath();
+        const dx=target.x-source.x, dy=target.y-source.y;
+        const dist = Math.sqrt(dx*dx+dy*dy);
+        ctx.moveTo(source.x, source.y);
+        if(edgeWeight(edge)<3) {
+            ctx.lineTo(target.x, target.y);
+        } else {
+            const curve = 0.2;
+            ctx.bezierCurveTo(
+                source.x+dx/2, source.y-dist*curve,
+                target.x-dx/2, target.y+dist*curve,
+                target.x, target.y
+            );
+        }
+        ctx.stroke();
+        ctx.restore();
+    });
+}
+
+function drawCanvasNodes(nodes, deg, rScale) {
+    const neighborIds = selectedNode ? selectedNeighborIds(selectedNode.id, canvasDrawState.edges) : null;
+    nodes.forEach(node => {
+        const radius = nodeRadius(node, deg, rScale);
+        const color = KIND_COLORS[node.kind]||KIND_COLORS._default;
+        const isHovered = hoveredCanvasNode?.id === node.id;
+        const isSelected = selectedNode?.id === node.id;
+        const isFocusSeed = focusSeedIds.includes(node.id);
+        const dimmed = neighborIds && !neighborIds.has(node.id);
+        ctx.save();
+        ctx.globalAlpha = dimmed ? 0.08 : 1;
+        ctx.lineWidth = isHovered || isSelected ? 2.5 : 1.5;
+        ctx.setLineDash(node._collapsed ? [4,2] : []);
+        ctx.strokeStyle = isSelected ? '#fff' : color;
+        ctx.globalAlpha = dimmed ? 0.08 : (node._collapsed ? 0.4 : 0.25);
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius+3, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.globalAlpha = dimmed ? 0.08 : 0.85;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = dimmed ? 0.08 : 0.6;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+
+        if(shouldDrawLabel(node, nodes, deg, isHovered, isSelected, isFocusSeed)) {
+            ctx.save();
+            ctx.globalAlpha = dimmed ? 0.15 : (node._collapsed || isHovered || isSelected ? 0.9 : 0.7);
+            ctx.fillStyle = '#c1c2c5';
+            ctx.font = `${node._collapsed ? 11 : Math.min(9 + (deg[node.id]||0)*0.25, 13)}px Inter, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(node._collapsed ? `${node.name} (${node._memberCount})` : node.name, node.x, node.y + radius + 10);
+            ctx.restore();
+        }
+    });
+}
+
+function shouldDrawLabel(node, nodes, deg, isHovered=false, isSelected=false, isFocusSeed=false) {
+    if(isHovered || isSelected || isFocusSeed || node._collapsed) return true;
+    if(labelMode === 'none') return false;
+    if(labelMode === 'all') return true;
+    const degThresh = currentView==='modules' ? 4 : 8;
+    if(labelMode === 'key') return (deg[node.id]||0) >= degThresh;
+    if(nodes.length <= 80) return true;
+    if(nodes.length > 180) return false;
+    return (deg[node.id]||0) >= degThresh;
+}
+
+function updateDensityDisplay(hiddenEdges, aggregatedEdges) {
+    document.querySelectorAll('#density-group .view-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.density === densityMode));
+    document.querySelectorAll('#labels-group .view-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.labels === labelMode));
+    const label = densityMode === 'auto'
+        ? `Auto→${activeDensity.charAt(0).toUpperCase()}${activeDensity.slice(1)}`
+        : `${activeDensity.charAt(0).toUpperCase()}${activeDensity.slice(1)}`;
+    const parts = [`Density: ${label}`];
+    if(hiddenEdges) parts.push(`hidden ${hiddenEdges}`);
+    if(aggregatedEdges) parts.push(`merged ${aggregatedEdges}`);
+    document.getElementById('stat-density').textContent = parts.join(' · ');
+    updateRenderingStatusChip();
+}
+
+function selectedNeighborIds(nodeId, edges) {
+    const ids = new Set([nodeId]);
+    edges.forEach(edge => {
+        const source = edge.source?.id || edge.source;
+        const target = edge.target?.id || edge.target;
+        if(source === nodeId) ids.add(target);
+        if(target === nodeId) ids.add(source);
+    });
+    return ids;
+}
+
+function installCanvasInteractions() {
+    canvas
+        .on('mousemove', event => {
+            if(activeRenderer !== 'canvas') return;
+            const node = findCanvasNode(event);
+            if(node?.id !== hoveredCanvasNode?.id) {
+                hoveredCanvasNode = node;
+                drawCanvas();
+            }
+            updateCanvasTooltip(event, node);
+        })
+        .on('mouseleave', () => {
+            hoveredCanvasNode = null;
+            document.getElementById('tooltip').classList.remove('visible');
+            drawCanvas();
+        })
+        .on('click', event => {
+            if(activeRenderer !== 'canvas') return;
+            event.stopPropagation();
+            const node = findCanvasNode(event);
+            if(node) showDrawer(node, canvasDrawState.edges, canvasDrawState.nodes);
+            else hideDrawer();
+        })
+        .on('dblclick', event => {
+            if(activeRenderer !== 'canvas') return;
+            event.preventDefault();
+            event.stopPropagation();
+            const node = findCanvasNode(event);
+            if(node) expandModule(node);
+        })
+        .on('contextmenu', event => {
+            if(activeRenderer !== 'canvas') return;
+            event.preventDefault();
+            const node = findCanvasNode(event);
+            if(!node || currentView!=='modules') return;
+            if(node._collapsed) expandPackage(node.sub_package);
+            else if(node.sub_package) collapsePackage(node.sub_package);
+        })
+        .call(d3.drag()
+            .subject(event => activeRenderer === 'canvas' ? findCanvasNode(event.sourceEvent || event) : null)
+            .on('start', (event, node) => {
+                if(!node) return;
+                canvasDragNode = node;
+                canvas.classed('dragging', true);
+                if(!event.active) simulation.alphaTarget(0.1).restart();
+                node.fx = node.x;
+                node.fy = node.y;
+            })
+            .on('drag', (event, node) => {
+                if(!node) return;
+                const [x,y] = canvasPointerWorld(event.sourceEvent || event);
+                node.fx = x;
+                node.fy = y;
+                drawCanvas();
+            })
+            .on('end', (event, node) => {
+                canvas.classed('dragging', false);
+                canvasDragNode = null;
+                if(!node) return;
+                if(!event.active) simulation.alphaTarget(0);
+                node.fx = null;
+                node.fy = null;
+            })
+        );
+}
+
+function findCanvasNode(event) {
+    const [x, y] = canvasPointerWorld(event);
+    const {nodes, deg, rScale} = canvasDrawState;
+    for(let i=nodes.length-1; i>=0; i--) {
+        const node = nodes[i];
+        if(node.x == null || node.y == null) continue;
+        const radius = nodeRadius(node, deg, rScale) + 8;
+        const dx = x - node.x, dy = y - node.y;
+        if(dx*dx + dy*dy <= radius*radius) return node;
+    }
+    return null;
+}
+
+function canvasPointerWorld(event) {
+    const [px, py] = d3.pointer(event, canvasEl);
+    return currentTransform.invert([px, py]);
+}
+
+function updateCanvasTooltip(event, node) {
+    const tt=document.getElementById('tooltip');
+    if(!node) {
+        tt.classList.remove('visible');
+        return;
+    }
+    document.getElementById('tt-title').textContent=node._collapsed?`${node.name} (${node._memberCount} modules)`:node.name;
+    document.getElementById('tt-kind').textContent=node._collapsed?'collapsed package':node.kind;
+    document.getElementById('tt-path').textContent=node.sub_package||node.path||node.qualname||'';
+    tt.style.left=(event.clientX+14)+'px';
+    tt.style.top=(event.clientY-8)+'px';
+    tt.classList.add('visible');
+}
+
+// ─── Package cohesion ───────────────────────────────────────
+function pkgForce(centers, strength) {
+    let ns;
+    function force(alpha) { for(const n of ns) { const c=centers[n.package]; if(!c)continue; const k=strength*alpha; n.vx+=(c.x-n.x)*k; n.vy+=(c.y-n.y)*k; } }
+    force.initialize = n => { ns=n; };
+    return force;
+}
+
+// ─── Architecture force ────────────────────────────────────
+function archForce(strength) {
+    let ns;
+    function force(alpha) {
+        for (const n of ns) {
+            const tier = SEMANTIC_TIERS[n._tier];
+            if (!tier) continue;
+            n.vy += (tier.y * height - n.y) * strength * alpha;
+        }
+    }
+    force.initialize = n => { ns = n; };
+    return force;
+}
+
+// ─── Layout toggle ─────────────────────────────────────────
+function setLayout(mode) {
+    layoutMode = mode;
+    document.getElementById('btn-layout-pkg').classList.toggle('active', mode === 'package');
+    document.getElementById('btn-layout-arch').classList.toggle('active', mode === 'architecture');
+    document.getElementById('cohesion-slider').parentElement
+        .querySelector('.slider-label span:first-child').textContent =
+        mode === 'architecture' ? 'Tier Cohesion' : 'Package Cohesion';
+    render();
+}
+
+// ─── View State ───────────────────────────────────────────
+function updateViewState() {
+    document.getElementById('vs-granularity').textContent = graphMode === 'focus'
+        ? 'Focus'
+        : (currentView === 'modules' ? 'Modules' : 'Symbols');
+    document.getElementById('vs-layout').textContent = layoutMode === 'package' ? 'Package' : 'Architecture';
+    document.getElementById('vs-lens').textContent = LENSES[activeLens]?.label || 'All Edges';
+    document.getElementById('vs-confidence').textContent = CONF_NAMES[confThreshold];
+    document.getElementById('lane-overlay').style.display = layoutMode === 'architecture' ? '' : 'none';
+    document.getElementById('collapse-controls').style.display = currentView === 'modules' && graphMode === 'overview' ? 'flex' : 'none';
+    document.getElementById('focus-controls').classList.toggle('active', graphMode === 'focus' || (graphData?.focus?.warnings || []).length > 0);
+}
+
+// ─── BFS Reachability (Entry→Resource lens) ────────────────
+function bfsReachable(entryIds, resourceIds, edges, nodes) {
+    const nodeSet = new Set(nodes.map(n => n.id));
+    const adj = {};
+    edges.forEach(e => {
+        const s = e.source?.id || e.source, t = e.target?.id || e.target;
+        if (!nodeSet.has(s) || !nodeSet.has(t)) return;
+        (adj[s] || (adj[s] = [])).push(t);
+    });
+    const reachable = new Set();
+    for (const startId of entryIds) {
+        const visited = new Set([startId]);
+        const parent = {};
+        const queue = [startId];
+        let qi = 0;
+        while (qi < queue.length) {
+            const curr = queue[qi++];
+            for (const next of (adj[curr] || [])) {
+                if (visited.has(next)) continue;
+                visited.add(next);
+                parent[next] = curr;
+                queue.push(next);
+            }
+        }
+        for (const resId of resourceIds) {
+            if (!visited.has(resId)) continue;
+            let curr = resId;
+            while (curr !== undefined) { reachable.add(curr); curr = parent[curr]; }
+        }
+    }
+    return reachable;
+}
+
+// ─── Package Collapse / Expand ─────────────────────────────
+function applyAutomaticModuleCollapse() {
+    if(moduleAutoCollapseApplied || currentView !== 'modules' || graphMode !== 'overview') return;
+    moduleAutoCollapseApplied = true;
+    const modules = graphData.module_graph.nodes || [];
+    if(modules.length <= AUTO_COLLAPSE_MODULE_THRESHOLD) return;
+    const counts = {};
+    modules.forEach(n => {
+        if(n.sub_package) counts[n.sub_package] = (counts[n.sub_package] || 0) + 1;
+    });
+    Object.entries(counts)
+        .filter(([, count]) => count > 1)
+        .forEach(([subPkg]) => collapsedPackages.add(subPkg));
+}
+
+function collapsePackage(subPkg) {
+    if (!subPkg || currentView !== 'modules') return;
+    const memberCount = graphData.module_graph.nodes.filter(n => n.sub_package === subPkg).length;
+    if (memberCount <= 1) return;
+    collapsedPackages.add(subPkg);
+    rebuildWithCollapse();
+}
+
+function expandPackage(subPkg) {
+    if (!subPkg) return;
+    collapsedPackages.delete(subPkg);
+    rebuildWithCollapse();
+}
+
+function rebuildWithCollapse() {
+    const rawNodes = graphData.module_graph.nodes.map(d => ({...d}));
+    const rawEdges = graphData.module_graph.edges.map(d => ({...d}));
+
+    if (collapsedPackages.size === 0) {
+        activeNodes = rawNodes;
+        activeEdges = rawEdges;
+        render();
+        return;
+    }
+
+    const memberMap = {};   // original node id → synthetic node id
+    const syntheticNodes = [];
+
+    for (const subPkg of collapsedPackages) {
+        const members = rawNodes.filter(n => n.sub_package === subPkg);
+        if (members.length <= 1) continue;
+        const synId = `pkg:${subPkg}`;
+        syntheticNodes.push({
+            id: synId,
+            name: subPkg.split('/').pop() || subPkg,
+            kind: 'package',
+            sub_package: subPkg,
+            package: members[0].package,
+            _collapsed: true,
+            _memberCount: members.length,
+            _memberIds: members.map(m => m.id),
+        });
+        members.forEach(m => { memberMap[m.id] = synId; });
+    }
+
+    activeNodes = [...rawNodes.filter(n => !memberMap[n.id]), ...syntheticNodes];
+
+    // Remap edges: redirect collapsed-member endpoints to synthetic node, merge duplicates
+    const edgeDedup = {};
+    rawEdges.forEach(e => {
+        let s = e.source?.id || e.source, t = e.target?.id || e.target;
+        if (memberMap[s]) s = memberMap[s];
+        if (memberMap[t]) t = memberMap[t];
+        if (s === t) return;  // drop self-loops created by collapse
+        const key = `${s}|${t}|${e.kind}`;
+        if (edgeDedup[key]) {
+            edgeDedup[key].weight = (edgeDedup[key].weight || 1) + (e.weight || 1);
+            edgeDedup[key].layout_weight = (edgeDedup[key].layout_weight || 1) + (e.layout_weight || 1);
+        } else {
+            edgeDedup[key] = {...e, source: s, target: t};
+        }
+    });
+    activeEdges = Object.values(edgeDedup);
+    render();
+}
+
+// ─── Drawer ─────────────────────────────────────────────────
+function showDrawer(d, edges, nodes) {
+    selectedNode = d;
+    const nodeMap = {}; nodes.forEach(n => nodeMap[n.id]=n);
+    const color = KIND_COLORS[d.kind]||KIND_COLORS._default;
+
+    document.getElementById('drawer-title').textContent = d.name;
+    const badgeContainer = document.getElementById('drawer-kind-badge');
+    clearChildren(badgeContainer);
+    const badge = document.createElement('span');
+    badge.className = 'detail-badge';
+    badge.style.background = `${color}22`;
+    badge.style.color = color;
+    badge.textContent = d.kind;
+    badgeContainer.appendChild(badge);
+    document.getElementById('detail-path').textContent = d.path || d.sub_package || d.qualname || '-';
+    document.getElementById('detail-pkg').textContent = d.package || '-';
+    if(remoteMode) hydrateRemoteNodeDetail(d.id);
+
+    const statsEl = document.getElementById('detail-stats-section');
+    clearChildren(statsEl);
+    if(d.symbol_count) {
+        const label = document.createElement('div');
+        label.className = 'detail-label';
+        label.textContent = 'Stats';
+        const value = document.createElement('div');
+        value.className = 'detail-value';
+        value.textContent = `${d.symbol_count} symbols · ${d.line_count||'?'} lines`;
+        statsEl.append(label, value);
+    }
+
+    // Edges
+    const outEdges=[], inEdges=[];
+    const neighbors = new Set([d.id]);
+    edges.forEach(e => {
+        const s=e.source?.id||e.source, t=e.target?.id||e.target;
+        if(s===d.id) { outEdges.push(e); neighbors.add(t); }
+        if(t===d.id) { inEdges.push(e); neighbors.add(s); }
+    });
+
+    document.getElementById('out-count').textContent = outEdges.length;
+    document.getElementById('in-count').textContent = inEdges.length;
+
+    const renderConn = (list, items, dir) => {
+        clearChildren(list);
+        items.slice(0,25).forEach(e => {
+            const id = dir==='out' ? (e.target?.id||e.target) : (e.source?.id||e.source);
+            const n = nodeMap[id];
+            const name = n ? n.name : id;
+            const ec = EDGE_COLORS[e.kind]||EDGE_COLORS._default;
+            const item = document.createElement('div');
+            item.className = 'connection-item';
+            item.appendChild(document.createTextNode(`${dir==='out'?'→':'←'} ${name}`));
+            const kind = document.createElement('span');
+            kind.className = 'connection-type';
+            kind.style.color = ec;
+            kind.textContent = e.kind;
+            item.appendChild(kind);
+            item.addEventListener('click', () => focusNode(id));
+            list.appendChild(item);
+        });
+        if(items.length>25) {
+            const more = document.createElement('div');
+            more.style.textAlign = 'center';
+            more.style.color = 'var(--text-dimmed)';
+            more.style.fontSize = '11px';
+            more.style.padding = '6px';
+            more.textContent = `+ ${items.length-25} more`;
+            list.appendChild(more);
+        }
+    };
+    renderConn(document.getElementById('out-list'), outEdges, 'out');
+    renderConn(document.getElementById('in-list'), inEdges, 'in');
+
+    // Expand hint / Collapsed package details
+    const expEl = document.getElementById('expand-container');
+    clearChildren(expEl);
+    if (d._collapsed && d._memberIds) {
+        // Show member list for collapsed packages
+        const memberLabel = document.createElement('div');
+        memberLabel.className = 'detail-label';
+        memberLabel.textContent = `Members (${d._memberIds.length})`;
+        expEl.appendChild(memberLabel);
+        const memberList = document.createElement('div');
+        memberList.className = 'connection-list';
+        d._memberIds.slice(0, 30).forEach(mid => {
+            const orig = graphData.module_graph.nodes.find(n => n.id === mid);
+            const item = document.createElement('div');
+            item.className = 'connection-item';
+            item.textContent = orig ? orig.name : mid;
+            memberList.appendChild(item);
+        });
+        if (d._memberIds.length > 30) {
+            const more = document.createElement('div');
+            more.style.cssText = 'text-align:center;color:var(--text-dimmed);font-size:11px;padding:6px;';
+            more.textContent = `+ ${d._memberIds.length - 30} more`;
+            memberList.appendChild(more);
+        }
+        expEl.appendChild(memberList);
+        const expandBtn = document.createElement('div');
+        expandBtn.className = 'expand-hint';
+        expandBtn.textContent = '⊕ Expand this package (or right-click)';
+        expandBtn.addEventListener('click', () => { expandPackage(d.sub_package); hideDrawer(); });
+        expEl.appendChild(expandBtn);
+    } else if(currentView==='modules' && graphData.module_symbols[d.id]) {
+        const sc = graphData.module_symbols[d.id].nodes.length;
+        const hint = document.createElement('div');
+        hint.className = 'expand-hint';
+        hint.textContent = `⊕ Expand ${sc} symbols (or double-click)`;
+        hint.addEventListener('click', () => expandModule(activeNodes.find(n=>n.id===d.id)));
+        expEl.appendChild(hint);
+    }
+    if(focusNodeById.has(d.id)) {
+        const focusBtn = document.createElement('div');
+        focusBtn.className = 'inline-action';
+        focusBtn.textContent = 'Focus this symbol';
+        focusBtn.addEventListener('click', () => enterFocus([d.id]));
+        expEl.appendChild(focusBtn);
+    }
+
+    renderAuditDrawer(d);
+    document.getElementById('drawer').classList.add('open');
+    document.body.classList.add('drawer-open');
+
+    // Highlight
+    if(activeRenderer === 'canvas') {
+        drawCanvas();
+    } else {
+        nodeGroup.selectAll('g').style('opacity', n => neighbors.has(n.id)?1:0.08);
+        linkGroup.selectAll('path').attr('stroke-opacity', e => { const s=e.source?.id||e.source, t=e.target?.id||e.target; return (s===d.id||t===d.id)?0.8:0.02; });
+    }
+}
+
+function renderAuditDrawer(node) {
+    const container = document.getElementById('audit-container');
+    clearChildren(container);
+    if(remoteMode) {
+        appendAuditNotice(container, 'Loading on-demand audit summary...');
+        loadRemoteAudit(node.id, container);
+        return;
+    }
+    const auditIndex = graphData?.audit_index || {};
+    const audit = auditIndex.nodes?.[node.id];
+    if(!auditIndex.enabled) {
+        appendAuditNotice(container, 'Static audit index was not included in this workbench export.');
+        return;
+    }
+    if(!audit) {
+        const maxNodes = auditIndex.max_nodes ?? 0;
+        appendAuditNotice(
+            container,
+            `No audit summary for this node. Regenerate with a higher --audit-max-nodes value (current ${maxNodes}) or use a future on-demand serve workflow.`
+        );
+        return;
+    }
+
+    appendAuditProvenance(container, audit.provenance || {});
+    appendAuditImpact(container, audit.impact || {});
+    appendAuditTests(container, audit.tests || {});
+    appendAuditUnresolved(container, audit.unresolved || {});
+    appendAuditReads(container, audit.recommended_next_reads || []);
+}
+
+async function hydrateRemoteNodeDetail(nodeId) {
+    try {
+        const payload = await fetchJson(`/api/node?id=${encodeURIComponent(nodeId)}`);
+        const node = payload.node || {};
+        if(node.path) document.getElementById('detail-path').textContent = node.path;
+        if(node.package) document.getElementById('detail-pkg').textContent = node.package;
+    } catch (_err) {
+        // Keep the already-rendered node summary; audit loading has its own visible state.
+    }
+}
+
+async function loadRemoteAudit(nodeId, container) {
+    try {
+        const payload = await fetchJson(`/api/audit?id=${encodeURIComponent(nodeId)}&detail_level=summary`);
+        clearChildren(container);
+        if(!payload.audit) {
+            const message = (payload.warnings || [])[0] || 'No audit summary for this node.';
+            appendAuditNotice(container, typeof message === 'string' ? message : (message.message || 'No audit summary for this node.'));
+            return;
+        }
+        const audit = payload.audit;
+        appendAuditProvenance(container, audit.provenance || {});
+        appendAuditImpact(container, audit.impact || {});
+        appendAuditTests(container, audit.tests || {});
+        appendAuditUnresolved(container, audit.unresolved || {});
+        appendAuditReads(container, audit.recommended_next_reads || []);
+    } catch (err) {
+        clearChildren(container);
+        appendAuditNotice(container, `Could not load audit summary: ${err.message || err}`);
+    }
+}
+
+function appendAuditNotice(parent, message) {
+    const card = document.createElement('div');
+    card.className = 'audit-card warn';
+    card.textContent = message;
+    parent.appendChild(card);
+}
+
+function appendAuditSection(parent, title) {
+    const section = document.createElement('div');
+    section.className = 'audit-section';
+    const label = document.createElement('div');
+    label.className = 'audit-title';
+    label.textContent = title;
+    section.appendChild(label);
+    parent.appendChild(section);
+    return section;
+}
+
+function appendAuditRow(parent, label, value) {
+    const row = document.createElement('div');
+    row.className = 'audit-row';
+    const key = document.createElement('span');
+    key.textContent = label;
+    const val = document.createElement('span');
+    val.textContent = value == null || value === '' ? '-' : String(value);
+    row.append(key, val);
+    parent.appendChild(row);
+}
+
+function appendAuditEmpty(parent, text) {
+    const empty = document.createElement('div');
+    empty.className = 'audit-muted';
+    empty.textContent = text;
+    parent.appendChild(empty);
+}
+
+function appendAuditProvenance(parent, provenance) {
+    const section = appendAuditSection(parent, 'Provenance');
+    const incoming = provenance.incoming_edges || [];
+    const outgoing = provenance.outgoing_edges || [];
+    appendAuditEdgeList(section, 'Incoming', incoming);
+    appendAuditEdgeList(section, 'Outgoing', outgoing);
+    if(!incoming.length && !outgoing.length) appendAuditEmpty(section, 'No compact direct edge provenance in this static summary.');
+}
+
+function appendAuditEdgeList(parent, title, edges) {
+    if(!edges.length) return;
+    const subtitle = document.createElement('div');
+    subtitle.className = 'audit-muted';
+    subtitle.textContent = `${title} edges`;
+    parent.appendChild(subtitle);
+    edges.slice(0, 6).forEach(edge => {
+        const card = document.createElement('div');
+        card.className = 'audit-card';
+        const main = document.createElement('div');
+        main.className = 'audit-edge-main';
+        const endpoints = document.createElement('span');
+        endpoints.textContent = `${edge.source || '?'} → ${edge.target || '?'}`;
+        const kind = document.createElement('span');
+        kind.textContent = edge.kind || 'edge';
+        main.append(endpoints, kind);
+        card.appendChild(main);
+        appendAuditRow(card, 'confidence', edge.confidence || '-');
+        appendAuditRow(card, 'strategy', edge.resolution?.strategy || '-');
+        const fallbacks = Array.isArray(edge.resolution?.fallbacks) ? edge.resolution.fallbacks.join(', ') : '';
+        if(fallbacks) appendAuditRow(card, 'fallbacks', fallbacks);
+        const evidenceKinds = (edge.evidence || []).map(item => item.kind || 'unknown');
+        if(evidenceKinds.length) {
+            const pills = document.createElement('div');
+            evidenceKinds.forEach(kindName => {
+                const pill = document.createElement('span');
+                pill.className = 'audit-pill';
+                pill.textContent = kindName;
+                pills.appendChild(pill);
+            });
+            card.appendChild(pills);
+        }
+        parent.appendChild(card);
+    });
+}
+
+function appendAuditImpact(parent, impact) {
+    const section = appendAuditSection(parent, 'Impact');
+    const sections = [
+        ['Call', impact.call_impact],
+        ['Import', impact.import_impact],
+        ['Entrypoint', impact.entrypoint_impact],
+        ['Resource', impact.resource_impact],
+    ];
+    let hasData = false;
+    sections.forEach(([label, item]) => {
+        if(!item) return;
+        const edgeCount = item.edge_count ?? 0;
+        const nodeCount = item.node_count ?? 0;
+        if(edgeCount || nodeCount) hasData = true;
+        const card = document.createElement('div');
+        card.className = 'audit-card';
+        appendAuditRow(card, label, `${nodeCount} nodes / ${edgeCount} edges`);
+        const sample = item.affected_symbols || item.affected_modules || item.entrypoints || item.resources || [];
+        sample.slice(0, 3).forEach(node => appendAuditRow(card, 'sample', node.label || node.qualname || node.id));
+        section.appendChild(card);
+    });
+    if(!hasData) appendAuditEmpty(section, 'No compact blast-radius counts in this static summary.');
+}
+
+function appendAuditTests(parent, tests) {
+    const section = appendAuditSection(parent, 'Tests');
+    const candidates = tests.candidates || [];
+    const gaps = tests.gaps || [];
+    appendAuditRow(section, 'coverage', tests.coverage?.status || 'unknown');
+    appendAuditListCards(section, 'candidate', candidates, item => `${item.path || item.target || '-'} · ${item.reason || 'candidate'}`);
+    appendAuditListCards(section, 'gap', gaps, item => `${item.target || item.path || '-'} · ${item.reason || item.severity || 'gap'}`);
+    if(!candidates.length && !gaps.length) appendAuditEmpty(section, 'No test candidates or gaps in this static summary.');
+}
+
+function appendAuditUnresolved(parent, unresolved) {
+    const section = appendAuditSection(parent, 'Unresolved');
+    const items = [
+        ...(unresolved.items || []),
+        ...((unresolved.impact_risks || {}).items || []),
+    ];
+    const summary = unresolved.summary || {};
+    appendAuditRow(section, 'release blocking', summary.release_blocking_count ?? 0);
+    appendAuditListCards(
+        section,
+        'unresolved',
+        items,
+        item => `${item.category || 'unknown'} · risk ${item.risk_level || '-'} · ${item.suggested_next_step || item.raw_expression || item.message || '-'}`
+    );
+    if(!items.length) appendAuditEmpty(section, 'No unresolved triage attached to this node.');
+}
+
+function appendAuditReads(parent, reads) {
+    const section = appendAuditSection(parent, 'Recommended Reads');
+    appendAuditListCards(section, 'read', reads, item => `${item.path || '-'} · ${item.reason || '-'}`, 'audit-path');
+    if(!reads.length) appendAuditEmpty(section, 'No additional recommended reads in this static summary.');
+}
+
+function appendAuditListCards(parent, label, items, formatter, extraClass = '') {
+    items.slice(0, 6).forEach(item => {
+        const card = document.createElement('div');
+        card.className = extraClass ? `audit-card ${extraClass}` : 'audit-card';
+        const tag = document.createElement('span');
+        tag.className = 'audit-pill';
+        tag.textContent = label;
+        card.appendChild(tag);
+        card.appendChild(document.createTextNode(formatter(item)));
+        parent.appendChild(card);
+    });
+}
+
+function hideDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.body.classList.remove('drawer-open');
+    selectedNode = null;
+    nodeGroup.selectAll('g').style('opacity',1);
+    linkGroup.selectAll('path').attr('stroke-opacity', d => CONF_OPACITY[d.dominant_confidence||d.confidence]||0.1);
+    drawCanvas();
+}
+document.getElementById('drawer-close').addEventListener('click', hideDrawer);
+document.getElementById('btn-overview').addEventListener('click', clearFocus);
+document.getElementById('btn-focus').addEventListener('click', () => {
+    if(selectedNode && focusNodeById.has(selectedNode.id)) enterFocus([selectedNode.id]);
+    else if(focusSeedIds.length) enterFocus(focusSeedIds);
+    else updateFocusSummary();
+});
+document.getElementById('btn-clear-focus').addEventListener('click', clearFocus);
+document.getElementById('focus-depth').addEventListener('change', e => {
+    focusDepth = +e.target.value;
+    if(graphMode === 'focus') enterFocus(focusSeedIds, {fit: true});
+});
+document.getElementById('focus-direction').addEventListener('change', e => {
+    focusDirection = e.target.value;
+    if(graphMode === 'focus') enterFocus(focusSeedIds, {fit: true});
+});
+document.getElementById('btn-modules').addEventListener('click', () => switchView('modules'));
+document.getElementById('btn-symbols').addEventListener('click', () => switchView('symbols'));
+document.getElementById('btn-layout-pkg').addEventListener('click', () => setLayout('package'));
+document.getElementById('btn-layout-arch').addEventListener('click', () => setLayout('architecture'));
+
+function focusNode(id) {
+    if(focusNodeById.has(id)) {
+        enterFocus([id]);
+        return;
+    }
+    const node = activeNodes.find(n=>n.id===id);
+    if(!node) return;
+    const {edges} = filtered();
+    showDrawer(node, edges, activeNodes);
+    const t = currentTransform;
+    zoomTarget().transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(width/2-node.x*t.k, height/2-node.y*t.k).scale(t.k));
+}
+
+// ─── Module expansion ───────────────────────────────────────
+function expandModule(d) {
+    if(!d||currentView!=='modules') return;
+    const exp = graphData.module_symbols[d.id];
+    if(!exp) return;
+    const existing = new Set(activeNodes.map(n=>n.id));
+    let added = 0;
+    exp.nodes.forEach(sym => {
+        if(existing.has(sym.id)) return;
+        activeNodes.push({
+            ...sym,
+            package:sym.package || d.package,
+            sub_package:sym.sub_package || d.sub_package,
+            path:sym.path || d.path,
+            source_root:sym.source_root || d.source_root,
+            x:d.x+seededJitter(sym.id, 0)*40,
+            y:d.y+seededJitter(sym.id, 1)*40
+        });
+        existing.add(sym.id);
+        added++;
+        activeEdges.push({source:d.id, target:sym.id, kind:'contains', weight:1, dominant_confidence:'confirmed'});
+    });
+    exp.edges.forEach(e => { if(existing.has(e.source)&&existing.has(e.target)) activeEdges.push({...e, weight:1, dominant_confidence:e.confidence||'confirmed'}); });
+    if(added>0) render();
+}
+
+// ─── Fit view ───────────────────────────────────────────────
+function fitView(nodes) {
+    if(!nodes.length) return;
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+    nodes.forEach(d => { if(d.x<x0)x0=d.x; if(d.x>x1)x1=d.x; if(d.y<y0)y0=d.y; if(d.y>y1)y1=d.y; });
+    const pad=60, scale=Math.min((width-pad*2)/(x1-x0||1),(height-pad*2)/(y1-y0||1),2);
+    zoomTarget().transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(width/2,height/2).scale(scale).translate(-(x0+x1)/2,-(y0+y1)/2));
+}
+
+// ─── Legend ─────────────────────────────────────────────────
+function initLegend() {
+    const legend = document.getElementById('legend');
+    clearChildren(legend);
+    const preferredKinds = ['module','class','function','method','route','pydantic_model','config','interface','component','mcp_tool','worker_task','table','queue','external_symbol'];
+    const actualKinds = new Set([
+        ...graphData.module_graph.nodes.map(n => n.kind),
+        ...graphData.symbol_graph.nodes.map(n => n.kind),
+        ...(graphData.focus_index?.nodes || []).map(n => n.kind),
+    ]);
+    const shown = [...preferredKinds, ...[...actualKinds].sort()].filter((kind, index, arr) => actualKinds.has(kind) && arr.indexOf(kind) === index);
+    shown.forEach(kind => {
+        const el = document.createElement('div');
+        el.className = 'legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'legend-dot';
+        dot.style.background = KIND_COLORS[kind];
+        el.appendChild(dot);
+        el.appendChild(document.createTextNode(kind.replace(/_/g,' ')));
+        el.onclick = () => { if(hiddenKinds.has(kind)){hiddenKinds.delete(kind);el.classList.remove('dimmed');}else{hiddenKinds.add(kind);el.classList.add('dimmed');} render(); };
+        legend.appendChild(el);
+    });
+    const eLegend = document.getElementById('edge-legend');
+    clearChildren(eLegend);
+    const edgeCounts = {};
+    [...graphData.module_graph.edges, ...graphData.symbol_graph.edges, ...(graphData.focus_index?.edges || [])]
+        .forEach(edge => edgeCounts[edge.kind] = (edgeCounts[edge.kind]||0)+1);
+    Object.keys(edgeCounts).sort((a,b) => edgeCounts[b]-edgeCounts[a] || a.localeCompare(b)).slice(0,16).forEach(kind => {
+        const el = document.createElement('div');
+        el.className = 'legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'legend-dot';
+        dot.style.background = EDGE_COLORS[kind]||EDGE_COLORS._default;
+        el.appendChild(dot);
+        el.appendChild(document.createTextNode(kind));
+        eLegend.appendChild(el);
+    });
+}
+
+// ─── Search ─────────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase().trim();
+    const res = document.getElementById('search-results');
+    clearChildren(res);
+    if(!q||q.length<2) return;
+    if(remoteMode) {
+        runRemoteSearch(q, res);
+        return;
+    }
+    const searchable = [...focusNodeById.values()];
+    const matches = searchable.filter(n =>
+        (n.name || '').toLowerCase().includes(q) ||
+        (n.qualname || '').toLowerCase().includes(q) ||
+        (n.path || '').toLowerCase().includes(q)
+    ).slice(0,8);
+    matches.forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'search-item';
+        item.style.borderLeftColor = KIND_COLORS[m.kind]||KIND_COLORS._default;
+        item.appendChild(document.createTextNode(`${m.name} `));
+        const kind = document.createElement('span');
+        kind.style.color = 'var(--text-dimmed)';
+        kind.style.fontSize = '10px';
+        kind.textContent = m.kind;
+        item.appendChild(kind);
+        item.addEventListener('click', () => {
+            enterFocus([m.id]);
+            clearChildren(res);
+            document.getElementById('search-input').value = '';
+        });
+        res.appendChild(item);
+    });
+});
+
+async function runRemoteSearch(q, res) {
+    const requestId = ++searchRequestSeq;
+    const loading = document.createElement('div');
+    loading.className = 'search-item';
+    loading.textContent = 'Searching...';
+    res.appendChild(loading);
+    try {
+        const payload = await fetchJson(`/api/search?q=${encodeURIComponent(q)}&limit=8`);
+        if(requestId !== searchRequestSeq) return;
+        clearChildren(res);
+        (payload.items || []).forEach(item => {
+            const m = {
+                ...item,
+                name: item.name || item.label || item.id,
+                qualname: item.qualname || item.label || item.id,
+            };
+            if(m.focusable !== false) focusNodeById.set(m.id, {...m});
+            const row = document.createElement('div');
+            row.className = 'search-item';
+            row.style.borderLeftColor = KIND_COLORS[m.kind]||KIND_COLORS._default;
+            row.appendChild(document.createTextNode(`${m.name} `));
+            const kind = document.createElement('span');
+            kind.style.color = 'var(--text-dimmed)';
+            kind.style.fontSize = '10px';
+            kind.textContent = m.kind;
+            row.appendChild(kind);
+            row.addEventListener('click', () => {
+                enterFocus([m.id]);
+                clearChildren(res);
+                document.getElementById('search-input').value = '';
+            });
+            res.appendChild(row);
+        });
+        if(!(payload.items || []).length) {
+            const empty = document.createElement('div');
+            empty.className = 'search-item';
+            empty.textContent = 'No matches';
+            res.appendChild(empty);
+        }
+    } catch (err) {
+        if(requestId !== searchRequestSeq) return;
+        clearChildren(res);
+        const error = document.createElement('div');
+        error.className = 'search-item';
+        error.textContent = `Search failed: ${err.message || err}`;
+        res.appendChild(error);
+    }
+}
+
+// ─── Controls ───────────────────────────────────────────────
+document.getElementById('confidence-slider').addEventListener('input', e => { confThreshold=+e.target.value; document.getElementById('conf-val').textContent=CONF_NAMES[confThreshold]; render(); });
+document.getElementById('weight-slider').addEventListener('input', e => { minWeight=+e.target.value; document.getElementById('weight-val').textContent=minWeight; render(); });
+document.getElementById('charge-slider').addEventListener('input', e => { chargeStrength=+e.target.value; document.getElementById('charge-val').textContent=chargeStrength; render(); });
+document.getElementById('distance-slider').addEventListener('input', e => { linkDist=+e.target.value; document.getElementById('dist-val').textContent=linkDist; render(); });
+document.getElementById('cohesion-slider').addEventListener('input', e => { cohesion=+e.target.value/100; document.getElementById('cohesion-val').textContent=cohesion.toFixed(2); render(); });
+
+// Preset buttons (scoped to #preset-group only)
+document.querySelectorAll('#preset-group .preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#preset-group .preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const p = PRESETS[btn.dataset.preset];
+        chargeStrength=p.charge; linkDist=p.dist;
+        document.getElementById('charge-slider').value=p.charge; document.getElementById('charge-val').textContent=p.charge;
+        document.getElementById('distance-slider').value=p.dist; document.getElementById('dist-val').textContent=p.dist;
+        render();
+    });
+});
+
+// Lens buttons
+document.querySelectorAll('#lens-group .preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('#lens-group .preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeLens = btn.dataset.lens;
+        render();
+    });
+});
+
+// Renderer buttons
+document.querySelectorAll('#renderer-group .view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        rendererMode = btn.dataset.renderer;
+        render();
+    });
+});
+
+// Readability controls
+document.querySelectorAll('#density-group .view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        densityMode = btn.dataset.density;
+        render();
+    });
+});
+document.querySelectorAll('#labels-group .view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        labelMode = btn.dataset.labels;
+        render();
+    });
+});
+
+// Collapse All / Expand All
+document.getElementById('btn-collapse-all').addEventListener('click', () => {
+    if (currentView !== 'modules' || !graphData) return;
+    const counts = {};
+    graphData.module_graph.nodes.forEach(n => {
+        if (n.sub_package) counts[n.sub_package] = (counts[n.sub_package] || 0) + 1;
+    });
+    Object.entries(counts)
+        .filter(([, count]) => count > 1)
+        .forEach(([subPkg]) => collapsedPackages.add(subPkg));
+    rebuildWithCollapse();
+});
+document.getElementById('btn-expand-all').addEventListener('click', () => {
+    collapsedPackages.clear();
+    rebuildWithCollapse();
+});
+
+document.getElementById('btn-zoom-in').addEventListener('click', e => { e.stopPropagation(); zoomTarget().transition().call(zoom.scaleBy, 1.5); });
+document.getElementById('btn-zoom-out').addEventListener('click', e => { e.stopPropagation(); zoomTarget().transition().call(zoom.scaleBy, 0.67); });
+document.getElementById('btn-fit').addEventListener('click', e => { e.stopPropagation(); const {nodes}=filtered(); fitView(nodes); });
+
+// Quick-start: Architecture + Entry→Resource + Collapse All
+document.getElementById('btn-quickstart').addEventListener('click', () => {
+    if (!graphData) return;
+    layoutMode = 'architecture';
+    document.getElementById('btn-layout-pkg').classList.remove('active');
+    document.getElementById('btn-layout-arch').classList.add('active');
+    document.getElementById('cohesion-slider').parentElement
+        .querySelector('.slider-label span:first-child').textContent = 'Tier Cohesion';
+    activeLens = 'entry-resource';
+    document.querySelectorAll('#lens-group .preset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.lens === 'entry-resource'));
+    if (currentView === 'modules') {
+        const counts = {};
+        graphData.module_graph.nodes.forEach(n => {
+            if (n.sub_package) counts[n.sub_package] = (counts[n.sub_package] || 0) + 1;
+        });
+        Object.entries(counts)
+            .filter(([, count]) => count > 1)
+            .forEach(([subPkg]) => collapsedPackages.add(subPkg));
+        rebuildWithCollapse();
+    } else {
+        render();
+    }
+});
+
+// Advanced toggle
+document.getElementById('advanced-toggle').addEventListener('click', () => {
+    document.getElementById('advanced-toggle').classList.toggle('open');
+    document.getElementById('advanced-content').classList.toggle('open');
+});
+
+// ─── Util ───────────────────────────────────────────────────
+function clearChildren(el) { while(el.firstChild) el.removeChild(el.firstChild); }
+function edgeWeight(edge) { return Math.max(0.1, +(edge.layout_weight ?? edge.weight ?? 1)); }
+function nodeRadius(d, deg, rScale) {
+    if (d._collapsed) return Math.max(14, Math.sqrt(d._memberCount || 1) * 5);
+    return rScale(deg[d.id] || 0);
+}
+function seededJitter(id, salt) {
+    let h = 2166136261 ^ salt;
+    for(let i=0; i<String(id).length; i++) h = Math.imul(h ^ String(id).charCodeAt(i), 16777619);
+    return ((h >>> 0) / 4294967295) - 0.5;
+}
+</script>
+</body>
+</html>

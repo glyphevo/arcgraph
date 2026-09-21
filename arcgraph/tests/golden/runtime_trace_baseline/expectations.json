@@ -1,0 +1,26 @@
+{
+  "expected_runtime_edge": {
+    "source": "fn:pkg.api.create_memory",
+    "target": "fn:pkg.service.build_message",
+    "kind": "calls",
+    "confidence": "runtime-only",
+    "evidence_kind": "runtime_trace_dynamic_call",
+    "resolution_status": "runtime-only",
+    "resolution_strategy": "runtime_trace"
+  },
+  "expected_metrics": {
+    "events_total": 2,
+    "edges_imported": 1,
+    "unresolved_events": 1,
+    "redacted_fields": 2,
+    "status": "partial"
+  },
+  "expected_warning_kinds": [
+    "runtime_trace_path_outside_repo",
+    "runtime_trace_redacted_fields"
+  ],
+  "forbidden_edge_properties": [
+    "args",
+    "headers"
+  ]
+}

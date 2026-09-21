@@ -1,0 +1,41 @@
+{
+  "name": "@arcgraph/conditional",
+  "version": "0.1.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./feature": {
+      "browser": {
+        "import": "./src/features/Feature.tsx"
+      },
+      "default": "./src/features/FeatureFallback.tsx"
+    },
+    "./types-only": {
+      "types": "./src/types-only.d.ts"
+    },
+    "./ambiguous": [
+      "./src/ambiguous/one.ts",
+      "./src/ambiguous/two.ts"
+    ]
+  },
+  "imports": {
+    "#env": {
+      "types": "./src/env.d.ts",
+      "import": "./src/env.ts",
+      "default": "./src/env.ts"
+    },
+    "#browser": {
+      "browser": {
+        "import": "./src/browser.ts"
+      },
+      "default": "./src/server.ts"
+    },
+    "#ambiguous": [
+      "./src/ambiguous/one.ts",
+      "./src/ambiguous/two.ts"
+    ]
+  }
+}

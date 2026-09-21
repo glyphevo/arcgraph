@@ -1,0 +1,88 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ArcGraph OpenAPI Fixture",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/duplicate": {
+      "get": {
+        "operationId": "listPets",
+        "responses": {
+          "200": {
+            "description": "Duplicate operationId response"
+          }
+        }
+      }
+    },
+    "/api/v1/orphans": {
+      "get": {
+        "operationId": "orphanOperation",
+        "responses": {
+          "200": {
+            "description": "No deterministic handler"
+          }
+        }
+      }
+    },
+    "/api/v1/pets": {
+      "get": {
+        "operationId": "listPets",
+        "responses": {
+          "200": {
+            "description": "Pet list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pets"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Pet"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created pet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pet"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Pet": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "Pets": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Pet"
+        }
+      }
+    }
+  }
+}

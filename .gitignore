@@ -1,0 +1,35 @@
+__pycache__/
+.DS_Store
+arcgraph/_build_provenance.json
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+# Approved generated-output fixture used by TypeScript framework scanner tests.
+!arcgraph/tests/fixtures/typescript_frameworks/dist/
+!arcgraph/tests/fixtures/typescript_frameworks/dist/**
+*.egg-info/
+.venv/
+node_modules/
+output/
+.agents/
+.codex/
+viz/graph_data.json
+
+# Private working material stays under docs/_internal and is never committed.
+docs/_internal/
+
+# Generated/runtime/local artifact filename patterns
+*.log
+*.tmp
+*.db
+*.sqlite
+*.sqlite3
+
+# Local operator instructions are not part of the public source tree.
+/AGENTS.md

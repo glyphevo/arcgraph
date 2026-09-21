@@ -1,0 +1,69 @@
+{
+  "expected_nodes": [
+    {"id": "component:packages.app.src.App.App", "kind": "component"},
+    {"id": "component:packages.ui.src.Button.Button", "kind": "component"},
+    {"id": "mod:packages.app.src.App", "kind": "module"},
+    {"id": "mod:packages.dupe-a.src", "kind": "module"},
+    {"id": "mod:packages.dupe-b.src", "kind": "module"},
+    {"id": "mod:packages.ui.src.Button", "kind": "module"},
+    {"id": "mod:packages.ui.src", "kind": "module"}
+  ],
+  "expected_edges": [
+    {
+      "source": "mod:packages.app.src.App",
+      "kind": "imports",
+      "target": "ext:react",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:packages.app.src.App",
+      "kind": "imports",
+      "target": "mod:packages.ui.src",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:packages.app.src.App",
+      "kind": "imports",
+      "target": "mod:packages.ui.src.Button",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:packages.app.src.App",
+      "kind": "imports",
+      "target": "unresolved:@arcgraph/ui/missing",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:packages.app.src.App",
+      "kind": "imports",
+      "target": "unresolved:@arcgraph/dupe",
+      "confidence": "unresolved"
+    }
+  ],
+  "forbidden_edges": [
+    {"source": "mod:packages.app.src.App", "kind": "imports", "target": "ext:@arcgraph/ui"},
+    {"source": "mod:packages.app.src.App", "kind": "imports", "target": "ext:@arcgraph/dupe"},
+    {"source": "mod:packages.app.src.App", "kind": "imports", "target": "mod:packages.dupe-a.src"},
+    {"source": "mod:packages.app.src.App", "kind": "imports", "target": "mod:packages.dupe-b.src"}
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "packages/app/src/App.tsx",
+      "message_contains": ["@arcgraph/ui/missing", "workspace package exports"]
+    },
+    {
+      "kind": "typescript_import_ambiguous",
+      "path": "packages/app/src/App.tsx",
+      "message_contains": ["@arcgraph/dupe", "workspace package exports"]
+    }
+  ],
+  "forbidden_external_packages": [
+    "@arcgraph/ui",
+    "@arcgraph/dupe"
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 8,
+    "typescript_edges": 8
+  }
+}

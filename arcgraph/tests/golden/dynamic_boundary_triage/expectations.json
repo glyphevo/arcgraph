@@ -1,0 +1,105 @@
+{
+  "expected_unresolved": [
+    {
+      "raw_expression": "http_session.post",
+      "category": "external_service_boundary",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "redis_client.publish",
+      "category": "external_service_boundary",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "producer.send",
+      "category": "external_service_boundary",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "broker.publish",
+      "category": "external_service_boundary",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "channel.basic_publish",
+      "category": "external_service_boundary",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "router.add_api_route",
+      "category": "framework_magic",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "celery_app.autodiscover_tasks",
+      "category": "framework_magic",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "cli.add_command",
+      "category": "framework_magic",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "getattr(client, method_name)",
+      "category": "generated_or_reflection",
+      "risk_level": "medium",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "cache.get",
+      "category": "true_dynamic_call",
+      "risk_level": "low",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "bag.add",
+      "category": "true_dynamic_call",
+      "risk_level": "low",
+      "release_blocking": false,
+      "count": 1
+    },
+    {
+      "raw_expression": "plugin.run",
+      "category": "true_dynamic_call",
+      "risk_level": "low",
+      "release_blocking": false,
+      "count": 1
+    }
+  ],
+  "unresolved_summary": {
+    "total": 12,
+    "category_counts": {
+      "external_service_boundary": 5,
+      "framework_magic": 3,
+      "generated_or_reflection": 1,
+      "true_dynamic_call": 3,
+      "static_candidate": 0,
+      "missing_type_context": 0,
+      "mock_or_assertion": 0
+    },
+    "risk_counts": {
+      "low": 3,
+      "medium": 9
+    },
+    "release_blocking_count": 0
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@arcgraph/widgets",
+  "exports": {
+    ".": "./src/index.ts",
+    "./button": "./src/components/Button.tsx",
+    "./theme": {
+      "import": "./src/theme.ts"
+    },
+    "./ambiguous": [
+      "./src/ambiguous/one.ts",
+      "./src/ambiguous/two.ts"
+    ],
+    "./missing": "./src/missing.ts"
+  },
+  "imports": {
+    "#config": "./src/config.ts",
+    "#lib/*": "./src/lib/*.ts",
+    "#missing": "./src/missing-internal.ts"
+  }
+}

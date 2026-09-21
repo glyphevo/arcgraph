@@ -1,0 +1,7 @@
+[
+  {
+    "directory": ".",
+    "command": "clang++ -std=c++20 -I. -c service.cpp",
+    "file": "service.cpp"
+  }
+]

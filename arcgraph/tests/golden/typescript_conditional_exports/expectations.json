@@ -1,0 +1,97 @@
+{
+  "expected_nodes": [
+    {"id": "fn:features.Feature.Feature", "kind": "function"},
+    {"id": "fn:pages.Conditional.ConditionalPage", "kind": "function"},
+    {"id": "mod:browser", "kind": "module"},
+    {"id": "mod:env", "kind": "module"},
+    {"id": "mod:features.Feature", "kind": "module"},
+    {"id": "mod:index", "kind": "module"},
+    {"id": "mod:pages.Conditional", "kind": "module"}
+  ],
+  "expected_edges": [
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "mod:index",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "mod:features.Feature",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "mod:env",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "mod:browser",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "unresolved:@arcgraph/conditional/types-only",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "unresolved:@arcgraph/conditional/ambiguous",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Conditional",
+      "kind": "imports",
+      "target": "unresolved:#ambiguous",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "fn:pages.Conditional.ConditionalPage",
+      "kind": "calls",
+      "target": "fn:features.Feature.Feature",
+      "confidence": "heuristic"
+    }
+  ],
+  "forbidden_edges": [
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "mod:features.FeatureFallback"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "mod:server"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "mod:types-only"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "ext:@arcgraph/conditional"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "ext:#env"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "ext:#browser"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "mod:ambiguous.one"},
+    {"source": "mod:pages.Conditional", "kind": "imports", "target": "mod:ambiguous.two"}
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Conditional.tsx",
+      "message_contains": ["@arcgraph/conditional/types-only"]
+    },
+    {
+      "kind": "typescript_import_ambiguous",
+      "path": "src/pages/Conditional.tsx",
+      "message_contains": ["@arcgraph/conditional/ambiguous", "package exports"]
+    },
+    {
+      "kind": "typescript_import_ambiguous",
+      "path": "src/pages/Conditional.tsx",
+      "message_contains": ["#ambiguous", "package exports"]
+    }
+  ],
+  "forbidden_external_packages": [
+    "@arcgraph/conditional",
+    "#env",
+    "#browser"
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 9,
+    "typescript_edges": 10
+  }
+}

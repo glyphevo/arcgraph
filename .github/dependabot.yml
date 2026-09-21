@@ -1,0 +1,59 @@
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    groups:
+      python-dependencies:
+        patterns:
+          - '*'
+    ignore:
+      # Ruff 0.x minor releases can be breaking. Keep the reviewed upper bound
+      # until a dedicated migration updates the rule policy and codebase.
+      - dependency-name: ruff
+        versions:
+          - '>=0.16.0'
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+    ignore:
+      # ArcGraph consumes the TypeScript compiler API. Major upgrades require
+      # an explicit compatibility review before Dependabot may propose them.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Etc/UTC
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps

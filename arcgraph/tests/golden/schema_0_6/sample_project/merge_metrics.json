@@ -1,0 +1,30 @@
+{
+  "confidence_counts": {
+    "confirmed": 71,
+    "inferred": 11
+  },
+  "conflicts_count": 0,
+  "diagnostics_count": 21,
+  "edge_kind_counts": {
+    "calls": 12,
+    "consumes": 2,
+    "contains": 10,
+    "defines": 31,
+    "enqueues": 1,
+    "extends": 1,
+    "imports": 9,
+    "injects": 4,
+    "invokes": 6,
+    "maps_to": 1,
+    "provides": 2,
+    "reads": 1,
+    "similar_to": 1,
+    "writes": 1
+  },
+  "edges_out": 82,
+  "facts_in": 136,
+  "facts_merged": 136,
+  "nodes_out": 54,
+  "truncated_count": 0,
+  "unresolved_count": 21
+}

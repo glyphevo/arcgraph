@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: Change Safety Fixture
+  version: 0.1.0
+paths:
+  /changes/{change_id}:
+    get:
+      operationId: getChangeStatus
+      responses:
+        '200':
+          description: Current status

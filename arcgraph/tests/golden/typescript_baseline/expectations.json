@@ -1,0 +1,182 @@
+{
+  "expected_nodes": [
+    {"id": "component:App.App", "kind": "component"},
+    {"id": "component:components.Button.Button", "kind": "component"},
+    {"id": "fn:hooks.useGreeting.useGreeting", "kind": "function"},
+    {"id": "fn:tests.greeting.test.loadStatusSpec", "kind": "function"},
+    {"id": "class:services.greeting.GreetingService", "kind": "class"},
+    {"id": "method:services.greeting.GreetingService.getStatus", "kind": "method"},
+    {"id": "method:services.greeting.GreetingService.refresh", "kind": "method"},
+    {"id": "method:services.greeting.GreetingService.getViaAxios", "kind": "method"},
+    {"id": "method:services.greeting.GreetingService.getDynamic", "kind": "method"},
+    {"id": "interface:types.Greeting", "kind": "interface"},
+    {"id": "interface:types.Named", "kind": "interface"},
+    {"id": "interface:types.ButtonProps", "kind": "interface"},
+    {"id": "type_alias:types.Tone", "kind": "type_alias"},
+    {"id": "enum:types.ViewMode", "kind": "enum"},
+    {"id": "class:types.BaseWidget", "kind": "class"},
+    {"id": "class:types.ButtonModel", "kind": "class"},
+    {"id": "mod:index", "kind": "module"},
+    {"id": "mod:tests.greeting.test", "kind": "module"},
+    {"id": "route:GET:/api/v1/greeting/status", "kind": "route"},
+    {"id": "route:POST:/api/v1/greeting/refresh", "kind": "route"}
+  ],
+  "expected_edges": [
+    {
+      "source": "mod:App",
+      "kind": "imports",
+      "target": "mod:components.Button",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "mod:index",
+      "kind": "exports",
+      "target": "mod:App",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "component:App.App",
+      "kind": "renders",
+      "target": "component:components.Button.Button",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "component:App.App",
+      "kind": "calls",
+      "target": "fn:hooks.useGreeting.useGreeting",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "component:App.App",
+      "kind": "uses_hook",
+      "target": "fn:hooks.useGreeting.useGreeting",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "component:App.App",
+      "kind": "calls",
+      "target": "method:services.greeting.GreetingService.refresh",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "fn:hooks.useGreeting.useGreeting",
+      "kind": "uses_hook",
+      "target": "extsym:react.useState",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "fn:hooks.useGreeting.useGreeting",
+      "kind": "uses_hook",
+      "target": "extsym:react.useEffect",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "fn:hooks.useGreeting.useGreeting",
+      "kind": "calls",
+      "target": "method:services.greeting.GreetingService.getStatus",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "fn:tests.greeting.test.loadStatusSpec",
+      "kind": "calls",
+      "target": "method:services.greeting.GreetingService.getStatus",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "method:services.greeting.GreetingService.getStatus",
+      "kind": "calls",
+      "target": "route:GET:/api/v1/greeting/status",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "method:services.greeting.GreetingService.getViaAxios",
+      "kind": "calls",
+      "target": "route:GET:/api/v1/greeting/status",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "method:services.greeting.GreetingService.refresh",
+      "kind": "calls",
+      "target": "route:POST:/api/v1/greeting/refresh",
+      "confidence": "heuristic",
+      "strategy": null
+    },
+    {
+      "source": "interface:types.ButtonProps",
+      "kind": "extends",
+      "target": "interface:types.Named",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:types.ButtonModel",
+      "kind": "extends",
+      "target": "class:types.BaseWidget",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "class:types.ButtonModel",
+      "kind": "implements",
+      "target": "interface:types.ButtonProps",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "mod:services.greeting",
+      "kind": "imports",
+      "target": "ext:axios",
+      "confidence": "confirmed",
+      "strategy": null
+    },
+    {
+      "source": "mod:hooks.useGreeting",
+      "kind": "imports",
+      "target": "ext:react",
+      "confidence": "confirmed",
+      "strategy": null
+    }
+  ],
+  "forbidden_edges": [
+    {
+      "source": "method:services.greeting.GreetingService.getDynamic",
+      "kind": "calls",
+      "target": "route:GET:/api/v1/greeting/status"
+    },
+    {
+      "source": "method:services.greeting.GreetingService.getDynamic",
+      "kind": "calls",
+      "target": "route:POST:/api/v1/greeting/refresh"
+    }
+  ],
+  "expected_external_packages": [
+    "axios",
+    "react"
+  ],
+  "expected_frontend_metrics": {
+    "phase_timings_key": "typescript-static"
+  },
+  "expected_warnings": {
+    "max_total": 0,
+    "forbidden_kinds": [
+      "typescript_frontend_unavailable"
+    ]
+  },
+  "minimum_counts": {
+    "typescript_nodes": 20,
+    "typescript_edges": 35,
+    "typescript_modules": 8
+  }
+}

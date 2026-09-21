@@ -1,0 +1,1 @@
+"""Python precision benchmark fixture."""

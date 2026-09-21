@@ -1,0 +1,305 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "rust-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "rust",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "crate",
+      "enum",
+      "external_symbol",
+      "field",
+      "function",
+      "impl",
+      "method",
+      "module",
+      "struct",
+      "trait"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "contains",
+      "defines",
+      "has_field",
+      "imports",
+      "implements",
+      "references",
+      "type_ref"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "cargo",
+        "status": "available",
+        "required": true,
+        "version": "fixture-cargo-1.78"
+      },
+      {
+        "name": "rust-analyzer",
+        "status": "available",
+        "required": true,
+        "version": "fixture"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "rust-analyzer-or-cargo",
+        "command": "cargo",
+        "required": true,
+        "version_args": ["--version"]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "crate:rust:arcgraph_demo",
+      "kind": "crate",
+      "name": "arcgraph_demo",
+      "qualname": "arcgraph_demo",
+      "path": "rust/Cargo.toml",
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external",
+        "semantic_source": "rust-analyzer"
+      }
+    },
+    {
+      "id": "module:rust:arcgraph_demo::service",
+      "kind": "module",
+      "name": "service",
+      "qualname": "arcgraph_demo::service",
+      "path": "rust/src/lib.rs",
+      "start_line": 1,
+      "end_line": 22,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    },
+    {
+      "id": "trait:rust:arcgraph_demo::service::Saver",
+      "kind": "trait",
+      "name": "Saver",
+      "qualname": "arcgraph_demo::service::Saver",
+      "path": "rust/src/lib.rs",
+      "start_line": 2,
+      "end_line": 4,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    },
+    {
+      "id": "struct:rust:arcgraph_demo::service::Repository",
+      "kind": "struct",
+      "name": "Repository",
+      "qualname": "arcgraph_demo::service::Repository",
+      "path": "rust/src/lib.rs",
+      "start_line": 6,
+      "end_line": 8,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    },
+    {
+      "id": "field:rust:arcgraph_demo::service::Repository::name",
+      "kind": "field",
+      "name": "name",
+      "qualname": "arcgraph_demo::service::Repository::name",
+      "path": "rust/src/lib.rs",
+      "start_line": 7,
+      "end_line": 7,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external",
+        "type": "String"
+      }
+    },
+    {
+      "id": "impl:rust:arcgraph_demo::service::Repository::Saver",
+      "kind": "impl",
+      "name": "impl Saver for Repository",
+      "qualname": "arcgraph_demo::service::Repository::Saver",
+      "path": "rust/src/lib.rs",
+      "start_line": 10,
+      "end_line": 14,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    },
+    {
+      "id": "method:rust:arcgraph_demo::service::Repository::save",
+      "kind": "method",
+      "name": "save",
+      "qualname": "arcgraph_demo::service::Repository::save",
+      "path": "rust/src/lib.rs",
+      "start_line": 11,
+      "end_line": 13,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    },
+    {
+      "id": "function:rust:arcgraph_demo::service::use_saver",
+      "kind": "function",
+      "name": "use_saver",
+      "qualname": "arcgraph_demo::service::use_saver",
+      "path": "rust/src/lib.rs",
+      "start_line": 16,
+      "end_line": 18,
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:rust:std::fmt",
+      "kind": "external_symbol",
+      "name": "fmt",
+      "qualname": "std::fmt",
+      "properties": {
+        "language": "rust",
+        "frontend_name": "rust-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "crate:rust:arcgraph_demo",
+      "target": "module:rust:arcgraph_demo::service",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "cargo_metadata_module"},
+      "evidence": [{"kind": "cargo_metadata_module", "path": "rust/Cargo.toml", "start_line": 1, "end_line": 1}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "module:rust:arcgraph_demo::service",
+      "target": "trait:rust:arcgraph_demo::service::Saver",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_definition"},
+      "evidence": [{"kind": "rust_analyzer_definition", "path": "rust/src/lib.rs", "start_line": 2, "end_line": 4}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "module:rust:arcgraph_demo::service",
+      "target": "struct:rust:arcgraph_demo::service::Repository",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_definition"},
+      "evidence": [{"kind": "rust_analyzer_definition", "path": "rust/src/lib.rs", "start_line": 6, "end_line": 8}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "struct:rust:arcgraph_demo::service::Repository",
+      "target": "field:rust:arcgraph_demo::service::Repository::name",
+      "kind": "has_field",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_field"},
+      "evidence": [{"kind": "rust_analyzer_field", "path": "rust/src/lib.rs", "start_line": 7, "end_line": 7}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "module:rust:arcgraph_demo::service",
+      "target": "impl:rust:arcgraph_demo::service::Repository::Saver",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_impl"},
+      "evidence": [{"kind": "rust_analyzer_impl", "path": "rust/src/lib.rs", "start_line": 10, "end_line": 14}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "impl:rust:arcgraph_demo::service::Repository::Saver",
+      "target": "trait:rust:arcgraph_demo::service::Saver",
+      "kind": "implements",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_trait_impl"},
+      "evidence": [{"kind": "rust_analyzer_trait_impl", "path": "rust/src/lib.rs", "start_line": 10, "end_line": 10}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "impl:rust:arcgraph_demo::service::Repository::Saver",
+      "target": "struct:rust:arcgraph_demo::service::Repository",
+      "kind": "type_ref",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_type_ref"},
+      "evidence": [{"kind": "rust_analyzer_type_ref", "path": "rust/src/lib.rs", "start_line": 10, "end_line": 10}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "impl:rust:arcgraph_demo::service::Repository::Saver",
+      "target": "method:rust:arcgraph_demo::service::Repository::save",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_method"},
+      "evidence": [{"kind": "rust_analyzer_method", "path": "rust/src/lib.rs", "start_line": 11, "end_line": 13}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "module:rust:arcgraph_demo::service",
+      "target": "function:rust:arcgraph_demo::service::use_saver",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_definition"},
+      "evidence": [{"kind": "rust_analyzer_definition", "path": "rust/src/lib.rs", "start_line": 16, "end_line": 18}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "module:rust:arcgraph_demo::service",
+      "target": "extsym:rust:std::fmt",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_use"},
+      "evidence": [{"kind": "rust_analyzer_use", "path": "rust/src/lib.rs", "start_line": 11, "end_line": 11}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "function:rust:arcgraph_demo::service::use_saver",
+      "target": "struct:rust:arcgraph_demo::service::Repository",
+      "kind": "type_ref",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_type_ref"},
+      "evidence": [{"kind": "rust_analyzer_type_ref", "path": "rust/src/lib.rs", "start_line": 16, "end_line": 16}],
+      "properties": {"language": "rust"}
+    },
+    {
+      "source": "function:rust:arcgraph_demo::service::use_saver",
+      "target": "method:rust:arcgraph_demo::service::Repository::save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "resolution": {"status": "resolved", "strategy": "rust_analyzer_call_resolution"},
+      "evidence": [{"kind": "rust_analyzer_call_resolution", "path": "rust/src/lib.rs", "start_line": 17, "end_line": 17, "detail": "fixture call edge represents rust-analyzer resolved method symbol evidence"}],
+      "properties": {"language": "rust"}
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "rust_external_cfg_deferred",
+      "message": "cfg-gated code is not represented unless the analyzer payload includes the active feature set.",
+      "path": "rust/src/lib.rs"
+    },
+    {
+      "kind": "rust_external_proc_macro_deferred",
+      "message": "Proc macro expansion and build.rs effects are not represented in this fixture payload.",
+      "path": "rust/Cargo.toml"
+    }
+  ],
+  "metrics": {
+    "crates_total": 1,
+    "modules_total": 1,
+    "types_total": 3,
+    "functions_total": 1,
+    "methods_total": 1,
+    "calls_resolved": 1,
+    "trait_impls_total": 1
+  }
+}

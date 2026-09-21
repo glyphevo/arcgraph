@@ -1,0 +1,124 @@
+{
+  "expected_nodes": [
+    {"id": "component:components.Button.Button", "kind": "component"},
+    {"id": "component:pages.Home.Home", "kind": "component"},
+    {"id": "fn:app.services.api.fetchGreeting", "kind": "function"},
+    {"id": "mod:app.services.api", "kind": "module"},
+    {"id": "mod:components.Button", "kind": "module"},
+    {"id": "mod:config", "kind": "module"},
+    {"id": "mod:pages.Home", "kind": "module"}
+  ],
+  "expected_edges": [
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:app.services.api",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:components.Button",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "mod:config",
+      "confidence": "confirmed"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "unresolved:@ambiguous/foo",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "unresolved:@missing/Ghost",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "mod:pages.Home",
+      "kind": "imports",
+      "target": "unresolved:@dynamic/foo",
+      "confidence": "unresolved"
+    },
+    {
+      "source": "component:pages.Home.Home",
+      "kind": "calls",
+      "target": "fn:app.services.api.fetchGreeting",
+      "confidence": "heuristic"
+    },
+    {
+      "source": "component:pages.Home.Home",
+      "kind": "renders",
+      "target": "component:components.Button.Button",
+      "confidence": "heuristic"
+    }
+  ],
+  "forbidden_edges": [
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@app/services"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@config"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "ext:@missing/Ghost"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "mod:ambiguous.vite.foo"},
+    {"source": "mod:pages.Home", "kind": "imports", "target": "mod:ambiguous.webpack.foo"}
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_import_ambiguous",
+      "path": "src/pages/Home.tsx",
+      "message_contains": [
+        "@ambiguous/foo",
+        "bundler alias",
+        "mod:ambiguous.vite.foo",
+        "mod:ambiguous.webpack.foo"
+      ]
+    },
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Home.tsx",
+      "message_contains": [
+        "@missing/Ghost",
+        "bundler alias"
+      ]
+    },
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Home.tsx",
+      "message_contains": [
+        "@dynamic/foo",
+        "bundler alias"
+      ]
+    },
+    {
+      "kind": "typescript_bundler_alias_unsupported",
+      "path": "vite.config.ts",
+      "message_contains": [
+        "@dynamic",
+        "static"
+      ]
+    },
+    {
+      "kind": "typescript_bundler_alias_unsupported",
+      "path": "vite.config.ts",
+      "message_contains": [
+        "regex",
+        "static"
+      ]
+    }
+  ],
+  "forbidden_external_packages": [
+    "@",
+    "@app/services",
+    "@config",
+    "@missing/Ghost",
+    "@dynamic/foo"
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 9,
+    "typescript_edges": 9
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "expected_nodes": [
+    {"id": "component:features.Widget.Widget", "kind": "component"},
+    {"id": "fn:features.Dashboard.Dashboard", "kind": "function"},
+    {"id": "fn:features.TemplateOnly.TemplateOnly", "kind": "function"},
+    {"id": "fn:pages.Lazy.LazyRoute", "kind": "function"},
+    {"id": "mod:features.Dashboard", "kind": "module"},
+    {"id": "mod:features.TemplateOnly", "kind": "module"},
+    {"id": "mod:features.Widget", "kind": "module"},
+    {"id": "mod:pages.Lazy", "kind": "module"}
+  ],
+  "expected_edges": [
+    {
+      "source": "fn:pages.Lazy.LazyRoute",
+      "kind": "imports",
+      "target": "mod:features.Dashboard",
+      "confidence": "heuristic",
+      "import_kind": "dynamic"
+    },
+    {
+      "source": "fn:pages.Lazy.LazyRoute",
+      "kind": "imports",
+      "target": "mod:features.TemplateOnly",
+      "confidence": "heuristic",
+      "import_kind": "dynamic"
+    },
+    {
+      "source": "fn:pages.Lazy.LazyRoute",
+      "kind": "imports",
+      "target": "mod:features.Widget",
+      "confidence": "heuristic",
+      "import_kind": "dynamic"
+    },
+    {
+      "source": "fn:pages.Lazy.LazyRoute",
+      "kind": "imports",
+      "target": "ext:react",
+      "confidence": "heuristic",
+      "import_kind": "dynamic"
+    },
+    {
+      "source": "fn:pages.Lazy.LazyRoute",
+      "kind": "imports",
+      "target": "unresolved:@/missing/Ghost",
+      "confidence": "unresolved",
+      "import_kind": "dynamic"
+    }
+  ],
+  "forbidden_edges": [
+    {"source": "fn:pages.Lazy.LazyRoute", "kind": "imports", "target": "ext:@/features"},
+    {"source": "fn:pages.Lazy.LazyRoute", "kind": "imports", "target": "ext:@/missing"},
+    {"source": "fn:pages.Lazy.LazyRoute", "kind": "imports", "target": "unresolved:dynamicPath"},
+    {"source": "fn:pages.Lazy.LazyRoute", "kind": "imports", "target": "unresolved:../features/${dynamicPath}"}
+  ],
+  "expected_warnings": [
+    {
+      "kind": "typescript_import_unresolved",
+      "path": "src/pages/Lazy.tsx",
+      "message_contains": [
+        "@/missing/Ghost"
+      ]
+    },
+    {
+      "kind": "typescript_dynamic_import_unresolved",
+      "path": "src/pages/Lazy.tsx",
+      "message_contains": [
+        "Dynamic TypeScript import",
+        "statically"
+      ]
+    }
+  ],
+  "forbidden_external_packages": [
+    "@/features",
+    "@/missing"
+  ],
+  "minimum_counts": {
+    "typescript_nodes": 8,
+    "typescript_edges": 9
+  }
+}

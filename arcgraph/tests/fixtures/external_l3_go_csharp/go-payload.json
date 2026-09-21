@@ -1,0 +1,399 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "go-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "go",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "external_symbol",
+      "field",
+      "file",
+      "function",
+      "interface",
+      "method",
+      "package",
+      "struct"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "contains",
+      "defines",
+      "has_field",
+      "imports",
+      "implements",
+      "references"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "go",
+        "status": "available",
+        "required": true,
+        "version": "fixture-go1.22"
+      },
+      {
+        "name": "go/packages",
+        "status": "available",
+        "required": true,
+        "version": "fixture"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "go",
+        "command": "go",
+        "required": true,
+        "version_args": [
+          "version"
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "pkg:go:example.com/arcgraphdemo/service",
+      "kind": "package",
+      "name": "service",
+      "qualname": "example.com/arcgraphdemo/service",
+      "path": "go/service.go",
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external",
+        "semantic_source": "go/packages"
+      }
+    },
+    {
+      "id": "file:go:go/service.go",
+      "kind": "file",
+      "name": "service.go",
+      "qualname": "go/service.go",
+      "path": "go/service.go",
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external"
+      }
+    },
+    {
+      "id": "interface:go:example.com/arcgraphdemo/service.Saver",
+      "kind": "interface",
+      "name": "Saver",
+      "qualname": "example.com/arcgraphdemo/service.Saver",
+      "path": "go/service.go",
+      "start_line": 5,
+      "end_line": 7,
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external"
+      }
+    },
+    {
+      "id": "struct:go:example.com/arcgraphdemo/service.Repository",
+      "kind": "struct",
+      "name": "Repository",
+      "qualname": "example.com/arcgraphdemo/service.Repository",
+      "path": "go/service.go",
+      "start_line": 9,
+      "end_line": 11,
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external"
+      }
+    },
+    {
+      "id": "field:go:example.com/arcgraphdemo/service.Repository.store",
+      "kind": "field",
+      "name": "store",
+      "qualname": "example.com/arcgraphdemo/service.Repository.store",
+      "path": "go/service.go",
+      "start_line": 10,
+      "end_line": 10,
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external",
+        "type": "string"
+      }
+    },
+    {
+      "id": "function:go:example.com/arcgraphdemo/service.NewRepository",
+      "kind": "function",
+      "name": "NewRepository",
+      "qualname": "example.com/arcgraphdemo/service.NewRepository",
+      "path": "go/service.go",
+      "start_line": 13,
+      "end_line": 15,
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external"
+      }
+    },
+    {
+      "id": "method:go:example.com/arcgraphdemo/service.Repository.Save",
+      "kind": "method",
+      "name": "Save",
+      "qualname": "example.com/arcgraphdemo/service.Repository.Save",
+      "path": "go/service.go",
+      "start_line": 17,
+      "end_line": 19,
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external",
+        "receiver": "*Repository"
+      }
+    },
+    {
+      "id": "function:go:example.com/arcgraphdemo/service.UseSaver",
+      "kind": "function",
+      "name": "UseSaver",
+      "qualname": "example.com/arcgraphdemo/service.UseSaver",
+      "path": "go/service.go",
+      "start_line": 21,
+      "end_line": 23,
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:go:context",
+      "kind": "external_symbol",
+      "name": "context",
+      "qualname": "context",
+      "properties": {
+        "language": "go",
+        "frontend_name": "go-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "pkg:go:example.com/arcgraphdemo/service",
+      "target": "file:go:go/service.go",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_packages_file"
+      },
+      "evidence": [
+        {
+          "kind": "go_packages_file",
+          "path": "go/service.go",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "file:go:go/service.go",
+      "target": "interface:go:example.com/arcgraphdemo/service.Saver",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_definition"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_definition",
+          "path": "go/service.go",
+          "start_line": 5,
+          "end_line": 7
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "file:go:go/service.go",
+      "target": "struct:go:example.com/arcgraphdemo/service.Repository",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_definition"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_definition",
+          "path": "go/service.go",
+          "start_line": 9,
+          "end_line": 11
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "struct:go:example.com/arcgraphdemo/service.Repository",
+      "target": "field:go:example.com/arcgraphdemo/service.Repository.store",
+      "kind": "has_field",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_field"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_field",
+          "path": "go/service.go",
+          "start_line": 10,
+          "end_line": 10
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "file:go:go/service.go",
+      "target": "function:go:example.com/arcgraphdemo/service.NewRepository",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_definition"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_definition",
+          "path": "go/service.go",
+          "start_line": 13,
+          "end_line": 15
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "struct:go:example.com/arcgraphdemo/service.Repository",
+      "target": "method:go:example.com/arcgraphdemo/service.Repository.Save",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_method"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_method",
+          "path": "go/service.go",
+          "start_line": 17,
+          "end_line": 19
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "file:go:go/service.go",
+      "target": "function:go:example.com/arcgraphdemo/service.UseSaver",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_definition"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_definition",
+          "path": "go/service.go",
+          "start_line": 21,
+          "end_line": 23
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "pkg:go:example.com/arcgraphdemo/service",
+      "target": "extsym:go:context",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_packages_import"
+      },
+      "evidence": [
+        {
+          "kind": "go_packages_import",
+          "path": "go/service.go",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "struct:go:example.com/arcgraphdemo/service.Repository",
+      "target": "interface:go:example.com/arcgraphdemo/service.Saver",
+      "kind": "implements",
+      "confidence": "inferred",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_interface_conformance"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_interface_conformance",
+          "path": "go/service.go",
+          "start_line": 17,
+          "end_line": 19
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    },
+    {
+      "source": "function:go:example.com/arcgraphdemo/service.UseSaver",
+      "target": "method:go:example.com/arcgraphdemo/service.Repository.Save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "resolution": {
+        "status": "resolved",
+        "strategy": "go_types_call_resolution"
+      },
+      "evidence": [
+        {
+          "kind": "go_types_call_resolution",
+          "path": "go/service.go",
+          "start_line": 22,
+          "end_line": 22
+        }
+      ],
+      "properties": {
+        "language": "go"
+      }
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "go_external_dynamic_dispatch_deferred",
+      "message": "Interface dispatch is reported as inferred and remains runtime-dependent beyond static type evidence.",
+      "path": "go/service.go"
+    }
+  ],
+  "metrics": {
+    "packages_total": 1,
+    "types_total": 2,
+    "functions_total": 2,
+    "methods_total": 1,
+    "calls_resolved": 1,
+    "implements_total": 1
+  }
+}

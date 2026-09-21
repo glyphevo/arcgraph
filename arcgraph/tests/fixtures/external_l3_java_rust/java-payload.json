@@ -1,0 +1,371 @@
+{
+  "schema_version": "1",
+  "extractor": {
+    "name": "java-semantic-external",
+    "version": "0.1.0"
+  },
+  "language": "java",
+  "capabilities": {
+    "tier": "L3",
+    "supported_node_kinds": [
+      "annotation",
+      "class",
+      "constructor",
+      "enum",
+      "external_symbol",
+      "field",
+      "interface",
+      "method",
+      "package",
+      "project",
+      "record"
+    ],
+    "supported_edge_kinds": [
+      "calls",
+      "contains",
+      "defines",
+      "has_annotation",
+      "has_field",
+      "imports",
+      "implements",
+      "references"
+    ]
+  },
+  "toolchain": {
+    "status": "available",
+    "tools": [
+      {
+        "name": "javac",
+        "status": "available",
+        "required": true,
+        "version": "fixture-javac-21"
+      },
+      {
+        "name": "jdt",
+        "status": "available",
+        "required": true,
+        "version": "fixture"
+      }
+    ],
+    "requirements": [
+      {
+        "name": "javac-or-jdt",
+        "command": "javac",
+        "required": true,
+        "version_args": ["-version"]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "project:java:arcgraph-demo",
+      "kind": "project",
+      "name": "arcgraph-demo",
+      "qualname": "arcgraph-demo",
+      "path": "java/pom.xml",
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external",
+        "semantic_source": "jdt"
+      }
+    },
+    {
+      "id": "package:java:com.example.arcgraph",
+      "kind": "package",
+      "name": "arcgraph",
+      "qualname": "com.example.arcgraph",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 1,
+      "end_line": 1,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "annotation:java:com.example.arcgraph.Tracked",
+      "kind": "annotation",
+      "name": "Tracked",
+      "qualname": "com.example.arcgraph.Tracked",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 5,
+      "end_line": 5,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "interface:java:com.example.arcgraph.Saver",
+      "kind": "interface",
+      "name": "Saver",
+      "qualname": "com.example.arcgraph.Saver",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 7,
+      "end_line": 9,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "enum:java:com.example.arcgraph.Mode",
+      "kind": "enum",
+      "name": "Mode",
+      "qualname": "com.example.arcgraph.Mode",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 11,
+      "end_line": 13,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "record:java:com.example.arcgraph.SaveRequest",
+      "kind": "record",
+      "name": "SaveRequest",
+      "qualname": "com.example.arcgraph.SaveRequest",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 15,
+      "end_line": 15,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "class:java:com.example.arcgraph.RepositoryService",
+      "kind": "class",
+      "name": "RepositoryService",
+      "qualname": "com.example.arcgraph.RepositoryService",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 18,
+      "end_line": 33,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "field:java:com.example.arcgraph.RepositoryService.name",
+      "kind": "field",
+      "name": "name",
+      "qualname": "com.example.arcgraph.RepositoryService.name",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 19,
+      "end_line": 19,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external",
+        "type": "java.lang.String"
+      }
+    },
+    {
+      "id": "constructor:java:com.example.arcgraph.RepositoryService.RepositoryService",
+      "kind": "constructor",
+      "name": "RepositoryService",
+      "qualname": "com.example.arcgraph.RepositoryService.RepositoryService",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 21,
+      "end_line": 23,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "method:java:com.example.arcgraph.RepositoryService.save",
+      "kind": "method",
+      "name": "save",
+      "qualname": "com.example.arcgraph.RepositoryService.save",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 26,
+      "end_line": 28,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "method:java:com.example.arcgraph.RepositoryService.run",
+      "kind": "method",
+      "name": "run",
+      "qualname": "com.example.arcgraph.RepositoryService.run",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java",
+      "start_line": 30,
+      "end_line": 32,
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    },
+    {
+      "id": "extsym:java:java.util.Objects",
+      "kind": "external_symbol",
+      "name": "Objects",
+      "qualname": "java.util.Objects",
+      "properties": {
+        "language": "java",
+        "frontend_name": "java-semantic-external"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "project:java:arcgraph-demo",
+      "target": "package:java:com.example.arcgraph",
+      "kind": "contains",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_project_model"},
+      "evidence": [{"kind": "jdt_project_model", "path": "java/pom.xml", "start_line": 1, "end_line": 1}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "package:java:com.example.arcgraph",
+      "target": "annotation:java:com.example.arcgraph.Tracked",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_symbol_definition"},
+      "evidence": [{"kind": "jdt_symbol_definition", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 5, "end_line": 5}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "package:java:com.example.arcgraph",
+      "target": "interface:java:com.example.arcgraph.Saver",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_symbol_definition"},
+      "evidence": [{"kind": "jdt_symbol_definition", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 7, "end_line": 9}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "package:java:com.example.arcgraph",
+      "target": "enum:java:com.example.arcgraph.Mode",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_symbol_definition"},
+      "evidence": [{"kind": "jdt_symbol_definition", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 11, "end_line": 13}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "package:java:com.example.arcgraph",
+      "target": "record:java:com.example.arcgraph.SaveRequest",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_record_symbol"},
+      "evidence": [{"kind": "jdt_record_symbol", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 15, "end_line": 15}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "package:java:com.example.arcgraph",
+      "target": "class:java:com.example.arcgraph.RepositoryService",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_symbol_definition"},
+      "evidence": [{"kind": "jdt_symbol_definition", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 18, "end_line": 33}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "class:java:com.example.arcgraph.RepositoryService",
+      "target": "interface:java:com.example.arcgraph.Saver",
+      "kind": "implements",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_type_hierarchy"},
+      "evidence": [{"kind": "jdt_type_hierarchy", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 18, "end_line": 18}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "class:java:com.example.arcgraph.RepositoryService",
+      "target": "annotation:java:com.example.arcgraph.Tracked",
+      "kind": "has_annotation",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_annotation_binding"},
+      "evidence": [{"kind": "jdt_annotation_binding", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 17, "end_line": 17}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "class:java:com.example.arcgraph.RepositoryService",
+      "target": "field:java:com.example.arcgraph.RepositoryService.name",
+      "kind": "has_field",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_field_binding"},
+      "evidence": [{"kind": "jdt_field_binding", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 19, "end_line": 19}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "class:java:com.example.arcgraph.RepositoryService",
+      "target": "constructor:java:com.example.arcgraph.RepositoryService.RepositoryService",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_constructor_symbol"},
+      "evidence": [{"kind": "jdt_constructor_symbol", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 21, "end_line": 23}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "class:java:com.example.arcgraph.RepositoryService",
+      "target": "method:java:com.example.arcgraph.RepositoryService.save",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_method_symbol"},
+      "evidence": [{"kind": "jdt_method_symbol", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 26, "end_line": 28}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "class:java:com.example.arcgraph.RepositoryService",
+      "target": "method:java:com.example.arcgraph.RepositoryService.run",
+      "kind": "defines",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_method_symbol"},
+      "evidence": [{"kind": "jdt_method_symbol", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 30, "end_line": 32}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "package:java:com.example.arcgraph",
+      "target": "extsym:java:java.util.Objects",
+      "kind": "imports",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_import_binding"},
+      "evidence": [{"kind": "jdt_import_binding", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 3, "end_line": 3}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "constructor:java:com.example.arcgraph.RepositoryService.RepositoryService",
+      "target": "field:java:com.example.arcgraph.RepositoryService.name",
+      "kind": "references",
+      "confidence": "confirmed",
+      "resolution": {"status": "resolved", "strategy": "jdt_semantic_model"},
+      "evidence": [{"kind": "jdt_semantic_model", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 22, "end_line": 22}],
+      "properties": {"language": "java"}
+    },
+    {
+      "source": "method:java:com.example.arcgraph.RepositoryService.run",
+      "target": "method:java:com.example.arcgraph.RepositoryService.save",
+      "kind": "calls",
+      "confidence": "inferred",
+      "resolution": {"status": "resolved", "strategy": "jdt_call_resolution"},
+      "evidence": [{"kind": "jdt_call_resolution", "path": "java/src/main/java/com/example/arcgraph/Service.java", "start_line": 31, "end_line": 31, "detail": "fixture call edge represents JDT-resolved method symbol evidence"}],
+      "properties": {"language": "java"}
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "java_external_reflection_deferred",
+      "message": "Class.forName reflection is not resolved by this static fixture payload.",
+      "path": "java/src/main/java/com/example/arcgraph/Service.java"
+    },
+    {
+      "kind": "java_external_annotation_processor_deferred",
+      "message": "Annotation processor generated sources are not represented in this fixture payload.",
+      "path": "java/pom.xml"
+    }
+  ],
+  "metrics": {
+    "projects_total": 1,
+    "types_total": 5,
+    "members_total": 4,
+    "calls_resolved": 1,
+    "implements_total": 1,
+    "annotations_total": 1
+  }
+}

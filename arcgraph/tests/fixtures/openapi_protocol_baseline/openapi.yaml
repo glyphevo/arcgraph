@@ -1,0 +1,15 @@
+openapi: 3.0.3
+info:
+  title: ArcGraph OpenAPI YAML Fixture
+  version: "1.0.0"
+paths:
+  /api/v1/yaml-pets:
+    get:
+      operationId: listPets
+      responses:
+        "200":
+          description: Pet list
+components:
+  schemas:
+    Pet:
+      type: object

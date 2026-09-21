@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["*"],
+      "@app/*": ["app/*"],
+      "@config": ["config.ts"],
+      "@missing/*": ["missing/*"],
+      "@ambiguous/*": ["ambiguous/one/*", "ambiguous/two/*"]
+    }
+  }
+}

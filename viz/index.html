@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcGraph Workbench Compatibility</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #1a1b1e;
+            --panel: #25262b;
+            --border: #373a40;
+            --text: #c1c2c5;
+            --muted: #909296;
+            --blue: #228be6;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        main {
+            width: min(720px, calc(100vw - 32px));
+            padding: 28px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        h1 { margin: 0 0 10px; font-size: 24px; }
+        p { color: var(--muted); line-height: 1.55; }
+        code {
+            display: block;
+            margin: 14px 0;
+            padding: 12px;
+            overflow-x: auto;
+            border-radius: 6px;
+            background: #111318;
+            color: #e7f5ff;
+        }
+        a { color: var(--blue); }
+    </style>
+</head>
+<body>
+<main>
+    <h1>ArcGraph Explorer moved to the packaged workbench</h1>
+    <p>
+        This file is a compatibility note for the old source-checkout viewer.
+        The canonical ArcGraph Explorer template now lives in the Python package
+        assets and is generated together with its graph and status payloads.
+    </p>
+    <code>arcgraph visual workbench --output-dir output/arcgraph/reports/workbench</code>
+    <p>
+        Then open
+        <a href="../output/arcgraph/reports/workbench/index.html">
+            output/arcgraph/reports/workbench/index.html
+        </a>
+        through a local file server.
+    </p>
+</main>
+</body>
+</html>

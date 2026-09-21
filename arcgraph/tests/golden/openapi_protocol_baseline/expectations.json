@@ -1,0 +1,74 @@
+{
+  "expected_adapter_metrics": {
+    "ambiguous_operation_matches": 0,
+    "duplicate_operation_ids": 1,
+    "invalid_specs": 0,
+    "matched_handlers": 3,
+    "operations_total": 4,
+    "path_outside_repo": 0,
+    "routes_total": 4,
+    "schemas_total": 2,
+    "unmatched_operations": 1
+  },
+  "expected_edges": [
+    {
+      "confidence": "confirmed",
+      "kind": "defines",
+      "source_operation": {
+        "method": "GET",
+        "path": "/api/v1/pets"
+      },
+      "strategy": "openapi_protocol_operation",
+      "target": "route:GET:/api/v1/pets"
+    },
+    {
+      "confidence": "inferred",
+      "kind": "invokes",
+      "source": "route:GET:/api/v1/pets",
+      "strategy": "openapi_operation_id_handler_match",
+      "target": "fn:pkg.api.listPets"
+    },
+    {
+      "confidence": "inferred",
+      "kind": "invokes",
+      "source": "route:POST:/api/v1/pets",
+      "strategy": "openapi_operation_id_handler_match",
+      "target": "fn:pkg.api.createPet"
+    },
+    {
+      "confidence": "confirmed",
+      "kind": "references",
+      "source_operation": {
+        "method": "POST",
+        "path": "/api/v1/pets"
+      },
+      "strategy": "openapi_protocol_schema_reference",
+      "target_schema": "Pet"
+    }
+  ],
+  "expected_nodes": [
+    {
+      "kind": "operation",
+      "operation": {
+        "method": "GET",
+        "path": "/api/v1/pets"
+      }
+    },
+    {
+      "id": "route:GET:/api/v1/pets",
+      "kind": "route"
+    },
+    {
+      "kind": "schema",
+      "schema": "Pet"
+    },
+    {
+      "kind": "schema",
+      "schema": "Pets"
+    }
+  ],
+  "expected_warnings": [
+    "openapi_protocol_duplicate_operation_id",
+    "openapi_protocol_operation_unmatched"
+  ]
+}

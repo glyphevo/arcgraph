@@ -1,0 +1,14 @@
+{
+  "name": "arcgraph",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TypeScript parser dependency for ArcGraph development and tests.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/glyphevo/arcgraph.git"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

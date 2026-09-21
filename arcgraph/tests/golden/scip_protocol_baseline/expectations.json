@@ -1,0 +1,33 @@
+{
+  "expected_nodes": [
+    {"kind": "document", "path": "src/server.go"},
+    {"kind": "module", "id": "mod:src.server"},
+    {"kind": "class", "symbol": "local src/server.go Handler#"},
+    {"kind": "method", "symbol": "local src/server.go Handler#Serve()."},
+    {"kind": "function", "symbol": "local src/server.go Helper()."},
+    {"kind": "class", "symbol": "local src/App.java App#"},
+    {"kind": "class", "symbol": "local src/Client.cs Client#"},
+    {"kind": "method", "symbol": "local src/Client.cs Client#Send()."},
+    {"kind": "external_symbol", "symbol": "scip-go gomod github.com/acme/lib v1.0.0 lib.go/External()."}
+  ],
+  "expected_edges": [
+    {"kind": "contains", "source": "doc:scip:src/server.go", "target": "mod:src.server", "confidence": "confirmed"},
+    {"kind": "contains", "source": "doc:scip:src/Client.cs", "target": "mod:src.Client", "confidence": "confirmed"},
+    {"kind": "defines", "source": "mod:src.server", "symbol": "local src/server.go Handler#Serve().", "confidence": "confirmed", "strategy": "scip_protocol_definition"},
+    {"kind": "references", "source_symbol": "local src/server.go Handler#Serve().", "target_symbol": "local src/server.go Helper().", "confidence": "confirmed", "strategy": "scip_protocol_reference"},
+    {"kind": "references", "source_symbol": "local src/App.java App#", "target_symbol": "local src/server.go Handler#Serve().", "confidence": "confirmed", "strategy": "scip_protocol_reference"},
+    {"kind": "references", "source_symbol": "local src/Client.cs Client#Send().", "target_symbol": "local src/App.java App#", "confidence": "confirmed", "strategy": "scip_protocol_reference"},
+    {"kind": "references", "source_symbol": "local src/server.go Handler#Serve().", "target_symbol": "scip-go gomod github.com/acme/lib v1.0.0 lib.go/External().", "target_external": true, "confidence": "confirmed"}
+  ],
+  "forbidden_edge_kinds": ["calls", "imports"],
+  "expected_warnings": ["scip_protocol_duplicate_definition", "scip_protocol_unmapped_symbol"],
+  "expected_adapter_metrics": {
+    "documents_total": 4,
+    "definitions_total": 6,
+    "references_total": 5,
+    "duplicate_definitions": 1,
+    "unmapped_local_references": 1,
+    "languages": ["csharp", "go", "java", "rust"],
+    "documents_by_language": {"csharp": 1, "go": 1, "java": 1, "rust": 1}
+  }
+}

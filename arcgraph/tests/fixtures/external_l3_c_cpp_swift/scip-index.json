@@ -1,0 +1,34 @@
+{
+  "documents": [
+    {
+      "relativePath": "c/service.c",
+      "occurrences": [
+        {
+          "symbol": "local c/service.c use_repository().",
+          "range": [11, 12, 14, 1],
+          "symbolRoles": 1
+        }
+      ]
+    },
+    {
+      "relativePath": "cpp/service.cpp",
+      "occurrences": [
+        {
+          "symbol": "local cpp/service.cpp RepositoryService#run().",
+          "range": [12, 12, 15, 1],
+          "symbolRoles": 1
+        }
+      ]
+    },
+    {
+      "relativePath": "swift/Sources/ArcGraphDemo/Service.swift",
+      "occurrences": [
+        {
+          "symbol": "local swift/Sources/ArcGraphDemo/Service.swift useSaver().",
+          "range": [16, 5, 19, 1],
+          "symbolRoles": 1
+        }
+      ]
+    }
+  ]
+}

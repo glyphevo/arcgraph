@@ -1,0 +1,7 @@
+[
+  {
+    "directory": ".",
+    "command": "clang -std=c17 -I. -c service.c",
+    "file": "service.c"
+  }
+]
