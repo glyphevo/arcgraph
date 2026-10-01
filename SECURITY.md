@@ -1,17 +1,20 @@
 # Security Policy
 
 ArcGraph is currently alpha-stage local-first infrastructure. Please report
-security issues privately to [security@glyphevo.com](mailto:security@glyphevo.com).
-Do not open a GitHub issue for vulnerabilities or credential exposure.
+security issues privately: use GitHub private vulnerability reporting (the
+"Report a vulnerability" button on this repository's Security tab) or email
+[security@glyphevo.com](mailto:security@glyphevo.com). Do not open a GitHub
+issue for vulnerabilities or credential exposure.
 
-This repository does not currently enable GitHub private vulnerability
-reporting or a live Actions security job. Dependabot alerts are enabled: GitHub
-notifies the maintainers when a declared dependency matches a published
-advisory. That is a notification, not a certification, and it carries no
-response-time commitment; the dependency audits in the release checklist remain
-the check run before a release. The published mailbox domain has mail exchange
-records; that is not proof the inbox is monitored. If you do not receive an
-acknowledgement, assume the report still needs a maintainer follow-up.
+Private vulnerability reporting, Dependabot alerts, and secret scanning with
+push protection are enabled on this repository. Dependabot alerts notify the
+maintainers when a declared dependency matches a published advisory. These are
+notifications, not a certification, and they carry no response-time
+commitment; the dependency audits in the release checklist remain the check run
+before a release. This repository does not currently run a live Actions
+security job. The published mailbox domain has mail exchange records; that is
+not proof the inbox is monitored. If you do not receive an acknowledgement,
+assume the report still needs a maintainer follow-up.
 
 ## Supported Versions
 
