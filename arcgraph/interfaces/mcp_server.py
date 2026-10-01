@@ -1,4 +1,4 @@
-"""Private-alpha local MCP server entrypoint for ArcGraph."""
+"""Alpha local MCP server entrypoint for ArcGraph."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m arcgraph.interfaces.mcp_server",
         description=(
-            "Run the private-alpha local ArcGraph MCP server over stdio. Its "
+            "Run the alpha local ArcGraph MCP server over stdio. Its "
             "default analysis/change/help surface is read-only; an explicit "
             "feedback log enables one local append tool."
         ),
@@ -88,7 +88,7 @@ def add_mcp_server_args(parser: argparse.ArgumentParser) -> None:
         "--transport",
         default=DEFAULT_MCP_TRANSPORT,
         choices=[DEFAULT_MCP_TRANSPORT],
-        help="MCP transport. Only stdio is supported in private alpha.",
+        help="MCP transport. Only stdio is supported in this alpha preview.",
     )
     parser.add_argument(
         "--expose-source-snippets",

@@ -108,7 +108,7 @@ uploads a CycloneDX JSON Python environment SBOM plus machine-readable audit
 results. Those artifacts are review evidence, not a certification or a signed
 release attestation.
 
-GitHub Actions is currently disabled on the intended public repository, so this
+GitHub Actions is currently disabled on this repository, so this
 candidate has no current remote CI run or uploaded SBOM as live evidence.
 
 The Bandit configuration excludes tests and globally skips five specific check

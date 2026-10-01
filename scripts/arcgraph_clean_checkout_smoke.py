@@ -1,4 +1,4 @@
-"""Clean-checkout private-alpha smoke for ArcGraph.
+"""Clean-checkout smoke for ArcGraph.
 
 The smoke validates an installed ArcGraph source checkout from a temporary Git
 checkout at a concrete commit. It intentionally avoids the caller's working tree
@@ -35,7 +35,7 @@ class CommandSpec:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate ArcGraph private-alpha source-checkout operation from a "
+            "Validate ArcGraph alpha source-checkout operation from a "
             "temporary clean Git checkout."
         )
     )
@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--quick",
         action="store_true",
-        help="Skip the inner `arcgraph ci` step inside the private-alpha smoke.",
+        help="Skip the inner `arcgraph ci` step inside the source-checkout smoke.",
     )
     parser.add_argument(
         "--skip-mcp-extra",
@@ -280,8 +280,8 @@ def build_command_plan(
                 checkout_dir,
             ),
             CommandSpec(
-                "docs-private-alpha-smoke",
-                [str(arcgraph), "docs", "private-alpha-smoke"],
+                "docs-source-checkout-smoke",
+                [str(arcgraph), "docs", "source-checkout-smoke"],
                 checkout_dir,
             ),
             CommandSpec(
@@ -303,13 +303,13 @@ def build_command_plan(
     )
     private_smoke = [
         str(python),
-        "scripts/arcgraph_private_alpha_smoke.py",
+        "scripts/arcgraph_source_checkout_smoke.py",
     ]
     if quick:
         private_smoke.append("--skip-ci")
     commands.append(
         CommandSpec(
-            "private-alpha-smoke",
+            "source-checkout-smoke",
             private_smoke,
             checkout_dir,
             timeout_seconds,
@@ -477,15 +477,15 @@ def _matrix_summary(
         "source_checkout_editable_install",
         "cli_subprocess_contract_help_and_docs",
         "mcp_server_help_and_module_help",
-        "private_alpha_smoke",
+        "source_checkout_smoke",
         "clean_checkout_git_status",
     ]
     if install_mcp_extra:
         executed.append("source_checkout_editable_install_with_mcp_extra")
     if quick:
-        skipped = ["inner_private_alpha_smoke_arcgraph_ci"]
+        skipped = ["inner_source_checkout_smoke_arcgraph_ci"]
     else:
-        executed.append("inner_private_alpha_smoke_arcgraph_ci")
+        executed.append("inner_source_checkout_smoke_arcgraph_ci")
         skipped = []
     deferred = [
         "linux_clean_checkout_smoke_unless_run_on_linux",

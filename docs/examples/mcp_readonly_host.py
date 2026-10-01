@@ -1,6 +1,6 @@
 """Minimal read-only ArcGraph MCP host example.
 
-The preferred private-alpha command is now `arcgraph mcp serve`. This example
+The preferred alpha command is now `arcgraph mcp serve`. This example
 keeps the lower-level host shape visible for developers who need to embed the
 same read-only facade in a compatible MCP runtime.
 """

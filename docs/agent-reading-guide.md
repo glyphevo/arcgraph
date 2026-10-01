@@ -242,7 +242,7 @@ usage or billed tokens.
 
 ## Rules And Boundaries
 
-These rules apply to humans and AI agents using ArcGraph in private alpha.
+These rules apply to humans and AI agents using ArcGraph in the alpha developer preview.
 They are written for local source-checkout workflows and do not authorize
 public release, package publishing, tags, GitHub Releases, branch protection,
 or GitHub settings changes.
@@ -317,9 +317,9 @@ Stop before:
 - Automatic agent config installers.
 - Any change whose evidence cannot be verified locally.
 
-## Private-Alpha CLI Contract
+## Alpha CLI Contract
 
-For private-alpha agent use, call ArcGraph as a local subprocess from the
+For alpha agent use, call ArcGraph as a local subprocess from the
 repository root, or pass global `--repo-root PATH` before the subcommand. The
 default stdout for dictionary payloads is JSON. The global `--human` flag is for
 interactive humans and should not be used by JSON-parsing agents.
@@ -366,7 +366,7 @@ silently rebuild the index. If JSON parsing fails despite exit
 code 0, treat the response as an incompatible CLI surface and fall back to
 `arcgraph doctor` plus a fresh build.
 
-Recommended private-alpha agent-facing commands:
+Recommended alpha agent-facing commands:
 
 | Need | Command |
 | --- | --- |
@@ -387,7 +387,7 @@ Recommended private-alpha agent-facing commands:
 | Local graph health gate | `arcgraph ci` |
 | CLI-per-call latency check | `arcgraph benchmark agent-startup` or `arcgraph benchmark suite` |
 
-The commands above are the recommended private-alpha product-facing agent
+The commands above are the recommended alpha product-facing agent
 surface. Debug and compatibility commands such as `bindings`, `types`,
 `callsites`, raw non-compact relation queries, and report-generation commands
 can still be useful for maintainers, but agents should prefer the compact
@@ -471,7 +471,7 @@ def context_for(repo: Path, target: str) -> dict[str, Any]:
     )
 ```
 
-## Private-Alpha MCP Server
+## Alpha MCP Server
 
 When an agent client can host a local MCP stdio server, use the installed
 candidate executable (or the source checkout for maintainer work):
@@ -747,7 +747,7 @@ arcgraph --repo-root /path/to/repo impact <target> --profile review_default
 arcgraph --repo-root /path/to/repo tests <target>
 ```
 
-See the Private-Alpha CLI Contract section above for exactly when stdout
+See the Alpha CLI Contract section above for exactly when stdout
 carries JSON versus when it is empty; do not assume exit code zero is the
 only case with parseable stdout. Treat nonzero exit codes, schema mismatches,
 missing indexes, stale indexes, and warning-heavy payloads as conditions to

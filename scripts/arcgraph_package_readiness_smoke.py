@@ -699,8 +699,8 @@ def build_installed_command_plan(
             "docs-mcp-server", [str(arcgraph), "docs", "mcp-server"], sample_repo
         ),
         CommandSpec(
-            "docs-private-alpha-smoke",
-            [str(arcgraph), "docs", "private-alpha-smoke"],
+            "docs-source-checkout-smoke",
+            [str(arcgraph), "docs", "source-checkout-smoke"],
             sample_repo,
         ),
         CommandSpec(

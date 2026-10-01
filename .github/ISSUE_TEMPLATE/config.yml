@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/glyphevo/arcgraph/blob/main/SECURITY.md
+    about: Do not open a public issue for a vulnerability or credential exposure. Follow the private reporting path in SECURITY.md.

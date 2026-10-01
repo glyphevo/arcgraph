@@ -28,10 +28,10 @@ def load_clean_checkout_module() -> Any:
     return module
 
 
-def load_private_alpha_smoke_module() -> Any:
-    script_path = REPO_ROOT / "scripts" / "arcgraph_private_alpha_smoke.py"
+def load_source_checkout_smoke_module() -> Any:
+    script_path = REPO_ROOT / "scripts" / "arcgraph_source_checkout_smoke.py"
     spec = importlib.util.spec_from_file_location(
-        "arcgraph_private_alpha_smoke", script_path
+        "arcgraph_source_checkout_smoke", script_path
     )
     assert spec is not None
     assert spec.loader is not None
@@ -48,7 +48,7 @@ def test_clean_checkout_smoke_script_is_syntax_valid() -> None:
     )
 
 
-def test_clean_checkout_smoke_dry_run_plans_private_alpha_matrix(
+def test_clean_checkout_smoke_dry_run_plans_alpha_matrix(
     capsys: Any,
 ) -> None:
     smoke = load_clean_checkout_module()
@@ -68,18 +68,18 @@ def test_clean_checkout_smoke_dry_run_plans_private_alpha_matrix(
     assert "docs-mcp-server" in command_names
     assert "mcp-serve-help" in command_names
     assert "mcp-module-help" in command_names
-    assert "private-alpha-smoke" in command_names
+    assert "source-checkout-smoke" in command_names
     private_smoke = next(
         command
         for command in payload["commands"]
-        if command["name"] == "private-alpha-smoke"
+        if command["name"] == "source-checkout-smoke"
     )
     assert "--skip-ci" in private_smoke["command"]
     assert (
         "source_checkout_editable_install_with_mcp_extra"
         in payload["matrix"]["executed"]
     )
-    assert "inner_private_alpha_smoke_arcgraph_ci" in payload["matrix"]["skipped"]
+    assert "inner_source_checkout_smoke_arcgraph_ci" in payload["matrix"]["skipped"]
     assert "wheel_or_sdist_install_package_readiness" in payload["matrix"]["deferred"]
     assert "automatic_agent_configuration_installer" in payload["matrix"]["deferred"]
     assert "http_or_network_mcp_transport" in payload["matrix"]["deferred"]
@@ -122,18 +122,18 @@ def test_clean_checkout_smoke_tail_tolerates_missing_stream() -> None:
     assert smoke._tail(None) == ""
 
 
-def test_private_alpha_smoke_prefers_repo_root_over_scripts_path() -> None:
+def test_source_checkout_smoke_prefers_repo_root_over_scripts_path() -> None:
     original_path = list(sys.path)
     try:
-        smoke = load_private_alpha_smoke_module()
+        smoke = load_source_checkout_smoke_module()
 
         assert sys.path[0] == str(smoke.REPO_ROOT)
     finally:
         sys.path[:] = original_path
 
 
-def test_private_alpha_smoke_distinguishes_read_and_index_schemas() -> None:
-    smoke = load_private_alpha_smoke_module()
+def test_source_checkout_smoke_distinguishes_read_and_index_schemas() -> None:
+    smoke = load_source_checkout_smoke_module()
     index_payload = {
         "schema_version": INDEX_SCHEMA_VERSION,
         "status": "available",

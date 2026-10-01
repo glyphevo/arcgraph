@@ -216,7 +216,7 @@ forwarding them to external systems.
 
 ## Clean-Checkout Smoke
 
-Use the clean-checkout smoke when you need to prove the private-alpha
+Use the clean-checkout smoke when you need to prove the alpha
 source-checkout path from committed repository state instead of the current
 working tree:
 
@@ -235,7 +235,7 @@ is meant to exercise. The same applies to
 The script creates a temporary Git checkout, creates a temporary virtual
 environment, installs ArcGraph with editable source install, installs the
 optional MCP extra unless skipped, renders CLI/docs/MCP help, runs the
-private-alpha smoke, and verifies the temporary checkout has no tracked or
+source-checkout smoke, and verifies the temporary checkout has no tracked or
 staged changes.
 
 For a faster local check:

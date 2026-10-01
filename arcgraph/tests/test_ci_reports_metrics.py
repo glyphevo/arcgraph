@@ -967,7 +967,7 @@ def test_cli_docs_reference_topics() -> None:
     evidence_cookbook = main(["docs", "evidence-cookbook"])
     agent_cli_contract = main(["docs", "agent-cli-contract"])
     mcp_server = main(["docs", "mcp-server"])
-    private_alpha_smoke = main(["docs", "private-alpha-smoke"])
+    source_checkout_smoke = main(["docs", "source-checkout-smoke"])
     package_readiness = main(["docs", "package-readiness"])
 
     assert capabilities == 0
@@ -978,7 +978,7 @@ def test_cli_docs_reference_topics() -> None:
     assert evidence_cookbook == 0
     assert agent_cli_contract == 0
     assert mcp_server == 0
-    assert private_alpha_smoke == 0
+    assert source_checkout_smoke == 0
     assert package_readiness == 0
 
     cli_reference = render_docs("cli-reference")
@@ -990,7 +990,7 @@ def test_cli_docs_reference_topics() -> None:
     evidence_docs = render_docs("evidence-cookbook")
     agent_cli_docs = render_docs("agent-cli-contract")
     mcp_server_docs = render_docs("mcp-server")
-    smoke_docs = render_docs("private-alpha-smoke")
+    smoke_docs = render_docs("source-checkout-smoke")
     package_docs = render_docs("package-readiness")
 
     assert "source checkout" in cli_reference
@@ -1101,7 +1101,7 @@ def test_cli_docs_reference_topics() -> None:
     assert "arcgraph current" in smoke_docs
     assert "arcgraph context arcgraph.pipeline.indexer.ArcGraphIndexer" in smoke_docs
     assert "arcgraph ci" in smoke_docs
-    assert "python scripts/arcgraph_private_alpha_smoke.py" in smoke_docs
+    assert "python scripts/arcgraph_source_checkout_smoke.py" in smoke_docs
     assert "arcgraph mcp serve --help" in smoke_docs
     assert "PyPI publishing remains unapproved" in smoke_docs
     assert "npm package publishing remains private/dev-only" in smoke_docs

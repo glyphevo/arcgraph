@@ -53,7 +53,7 @@ arcgraph = "arcgraph.interfaces.cli:main"
 [project.urls]
 Homepage = "https://github.com/glyphevo/arcgraph"
 Repository = "https://github.com/glyphevo/arcgraph"
-Changelog = "https://github.com/glyphevo/arcgraph/releases"
+Changelog = "https://github.com/glyphevo/arcgraph/blob/main/RELEASE_NOTES.md"
 Issues = "https://github.com/glyphevo/arcgraph/issues"
 
 [tool.hatch.build.targets.wheel]

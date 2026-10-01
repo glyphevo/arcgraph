@@ -111,8 +111,8 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 
 | Surface | Status | Notes |
 | --- | --- | --- |
-| CLI subprocess | Supported private alpha | Start with `arcgraph help`; exact syntax remains in `arcgraph --help`. CLI has broader operational/query coverage than MCP. |
-| MCP server | Supported private alpha | Stdio only. Protocol `list_tools` discovers the registered surface; analysis/change/help tools are read-only, while optional feedback is a disclosed local append. |
+| CLI subprocess | Supported (alpha) | Start with `arcgraph help`; exact syntax remains in `arcgraph --help`. CLI has broader operational/query coverage than MCP. |
+| MCP server | Supported (alpha) | Stdio only. Protocol `list_tools` discovers the registered surface; analysis/change/help tools are read-only, while optional feedback is a disclosed local append. |
 | Automatic agent configuration via explicit setup | Source implementation | `setup --client` supports five client adapters; actual host/model acceptance is separate. |
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The v0.1.0rc7 trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. No public package publishing is implied. |

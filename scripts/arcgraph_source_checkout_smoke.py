@@ -1,4 +1,4 @@
-"""Private-alpha source-checkout smoke for ArcGraph."""
+"""Alpha source-checkout smoke for ArcGraph."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ sys.path.insert(0, repo_root_path)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the private-alpha ArcGraph source-checkout smoke in a temporary "
+            "Run the alpha ArcGraph source-checkout smoke in a temporary "
             "project. Generated output is cleaned up automatically."
         )
     )
@@ -42,12 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.keep_temp:
-        temp_path = Path(tempfile.mkdtemp(prefix="arcgraph-private-alpha-smoke-"))
+        temp_path = Path(tempfile.mkdtemp(prefix="arcgraph-source-checkout-smoke-"))
         result = _run_smoke(temp_path, skip_ci=args.skip_ci)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
-    with tempfile.TemporaryDirectory(prefix="arcgraph-private-alpha-smoke-") as temp:
+    with tempfile.TemporaryDirectory(prefix="arcgraph-source-checkout-smoke-") as temp:
         result = _run_smoke(Path(temp), skip_ci=args.skip_ci)
         print(json.dumps(result, indent=2, sort_keys=True))
     return 0
@@ -122,7 +122,7 @@ def _run_smoke(project: Path, *, skip_ci: bool) -> dict[str, Any]:
             commands=commands,
         )
     _run_text(["docs", "agent-cli-contract"], commands=commands)
-    _run_text(["docs", "private-alpha-smoke"], commands=commands)
+    _run_text(["docs", "source-checkout-smoke"], commands=commands)
     _run_text(["docs", "mcp-server"], commands=commands)
     _run_text(["mcp", "--help"], commands=commands)
     _run_text(["mcp", "serve", "--help"], commands=commands)

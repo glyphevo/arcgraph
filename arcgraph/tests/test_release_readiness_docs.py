@@ -47,7 +47,7 @@ def test_release_readiness_docs_topics_are_renderable() -> None:
     assert main(["docs", "frontend-contract"]) == 0
     assert main(["docs", "agent-cli-contract"]) == 0
     assert main(["docs", "mcp-server"]) == 0
-    assert main(["docs", "private-alpha-smoke"]) == 0
+    assert main(["docs", "source-checkout-smoke"]) == 0
     assert main(["docs", "package-readiness"]) == 0
 
 
@@ -429,7 +429,7 @@ def test_quickstart_docs_cover_clone_to_confidence_workflow() -> None:
     assert "arcgraph docs release-checklist" in quickstart
     assert "arcgraph docs agent-cli-contract" in quickstart
     assert "arcgraph docs mcp-server" in quickstart
-    assert "arcgraph docs private-alpha-smoke" in quickstart
+    assert "arcgraph docs source-checkout-smoke" in quickstart
     assert "arcgraph docs schema-governance" in quickstart
     assert "arcgraph docs security-model" in quickstart
     assert "arcgraph docs frontend-contract" in quickstart
@@ -482,7 +482,7 @@ def test_agent_cli_contract_docs_cover_subprocess_json_boundary() -> None:
     assert "No language is claimed as L4" in contract
 
 
-def test_mcp_server_docs_cover_private_alpha_server_boundary() -> None:
+def test_mcp_server_docs_cover_alpha_server_boundary() -> None:
     docs = render_docs("mcp-server")
 
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in docs
@@ -504,7 +504,7 @@ def test_agent_workflows_doc_includes_subprocess_example() -> None:
     )
     normalized_workflows = " ".join(workflows.split())
 
-    assert "## Private-Alpha CLI Contract" in workflows
+    assert "## Alpha CLI Contract" in workflows
     assert '["arcgraph", "--repo-root", str(repo), *args]' in workflows
     assert "subprocess.run" in workflows
     assert "json.loads" in workflows
@@ -512,16 +512,18 @@ def test_agent_workflows_doc_includes_subprocess_example() -> None:
     assert "arcgraph build" in workflows
     assert "Avoid `--include-source` by" in workflows
     assert "Generated indexes" in workflows
-    assert "The commands above are the recommended private-alpha" in workflows
-    assert "## Private-Alpha MCP Server" in workflows
+    assert "The commands above are the recommended alpha" in workflows
+    assert "## Alpha MCP Server" in workflows
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in workflows
     assert "does not auto-build indexes" in normalized_workflows
     assert "## Client Integration Examples" in workflows
 
 
-def test_private_alpha_smoke_docs_cover_source_checkout_and_package_boundary() -> None:
-    smoke = render_docs("private-alpha-smoke")
-    example = (REPO_ROOT / "docs" / "examples" / "private-alpha-smoke.md").read_text(
+def test_source_checkout_smoke_docs_cover_source_checkout_and_package_boundary() -> (
+    None
+):
+    smoke = render_docs("source-checkout-smoke")
+    example = (REPO_ROOT / "docs" / "examples" / "source-checkout-smoke.md").read_text(
         encoding="utf-8"
     )
     combined = smoke + "\n" + example
@@ -539,7 +541,7 @@ def test_private_alpha_smoke_docs_cover_source_checkout_and_package_boundary() -
     assert "arcgraph context arcgraph.pipeline.indexer.ArcGraphIndexer" in combined
     assert "arcgraph explain arcgraph.pipeline.indexer.ArcGraphIndexer" in combined
     assert "arcgraph ci" in combined
-    assert "python scripts/arcgraph_private_alpha_smoke.py" in combined
+    assert "python scripts/arcgraph_source_checkout_smoke.py" in combined
     assert "python scripts/arcgraph_clean_checkout_smoke.py" in combined
     assert "docs/clean-checkout-smoke.md" in combined
     assert "arcgraph mcp serve --help" in combined
@@ -638,7 +640,7 @@ def test_mcp_readonly_host_example_is_public_safe_and_syntax_valid() -> None:
     assert "create_tool_group" in source
     assert "expose_source_snippets=False" in source
     assert "allowed_roots" in source
-    assert "preferred private-alpha command" in source
+    assert "preferred alpha command" in source
     assert "arcgraph mcp serve" in source
     assert "docs/examples/mcp_readonly_host.py" in mcp_usage
     assert "v0.1.0rc7 external trial" in mcp_usage
@@ -806,7 +808,7 @@ def test_current_product_docs_do_not_embed_drifting_mcp_tool_counts() -> None:
     assert all(drifting_count.search(document) is None for document in documents)
 
 
-def test_private_alpha_operational_docs_cover_agent_boundaries() -> None:
+def test_alpha_operational_docs_cover_agent_boundaries() -> None:
     integrations = (REPO_ROOT / "docs" / "agent-reading-guide.md").read_text(
         encoding="utf-8"
     )
@@ -892,9 +894,9 @@ def test_external_trial_docs_bind_python_scope_and_typescript_degradation() -> N
     assert "whl[mcp]" in integrations
 
 
-def test_private_alpha_smoke_script_is_syntax_valid() -> None:
+def test_source_checkout_smoke_script_is_syntax_valid() -> None:
     py_compile.compile(
-        str(REPO_ROOT / "scripts" / "arcgraph_private_alpha_smoke.py"),
+        str(REPO_ROOT / "scripts" / "arcgraph_source_checkout_smoke.py"),
         doraise=True,
     )
 
@@ -914,7 +916,7 @@ def test_clean_checkout_smoke_docs_cover_matrix_and_release_boundaries() -> None
     assert "concrete Git commit" in combined
     assert "CLI help" in combined
     assert "MCP help" in combined
-    assert "private-alpha smoke" in combined
+    assert "source-checkout smoke" in combined
     assert "does not authorize package publishing" in combined_lower
     assert "does not authorize public release" in combined_lower
     assert "does not authorize public/packaged mcp distribution" in combined_lower
@@ -1105,7 +1107,7 @@ def test_readme_points_to_current_release_readiness_workflows() -> None:
     assert "arcgraph docs schema-governance" in readme
     assert "arcgraph docs agent-cli-contract" in readme
     assert "arcgraph docs mcp-server" in readme
-    assert "arcgraph docs private-alpha-smoke" in readme
+    assert "arcgraph docs source-checkout-smoke" in readme
     assert "docs/agent-reading-guide.md" in readme
     assert "docs/runbook.md" in readme
     assert "docs/clean-checkout-smoke.md" in readme
@@ -1548,7 +1550,7 @@ _ALLOWED_POWERSHELL_BLOCKS = {
         "docs/external-trial-guide.md",
         ".\\.arcgraph-trial-venv\\Scripts\\Activate.ps1",
     ),
-    ("docs/examples/private-alpha-smoke.md", ".\\.venv\\Scripts\\Activate.ps1"),
+    ("docs/examples/source-checkout-smoke.md", ".\\.venv\\Scripts\\Activate.ps1"),
 }
 
 

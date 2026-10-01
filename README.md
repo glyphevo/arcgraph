@@ -125,7 +125,7 @@ exact running source checkout or installed wheel. For wheel installs, compare
 `artifact_provenance.sha256` with the candidate manifest; do not infer a Git
 commit from the product version alone.
 
-To validate the private-alpha source-checkout path from a temporary clean Git
+To validate the alpha source-checkout path from a temporary clean Git
 checkout, run:
 
 ```bash
@@ -133,7 +133,7 @@ python scripts/arcgraph_clean_checkout_smoke.py
 ```
 
 This checks source-checkout editable install, CLI docs/help, MCP help, and the
-private-alpha smoke path. It does not authorize package publishing, public
+source-checkout smoke path. It does not authorize package publishing, public
 release, public/packaged MCP distribution, or automatic agent configuration.
 
 To validate local wheel/sdist readiness without publishing anything, run:
@@ -144,10 +144,10 @@ python scripts/arcgraph_package_readiness_smoke.py
 
 This builds temporary package artifacts, installs the built wheel in a
 temporary virtual environment, and checks the installed CLI, built-in docs, MCP
-server and a sample-repository workflow there. It then cleans up by default and
-does not approve PyPI, npm, Docker/GHCR, GitHub Release, tag, public repo, or
-public/packaged MCP distribution. See
-[docs/package-readiness.md](docs/package-readiness.md).
+server and a sample-repository workflow there. It then cleans up by default.
+It is a check only: it publishes nothing, creates no tag or GitHub Release,
+uploads no package (PyPI, npm, Docker/GHCR), and does not change repository
+visibility. See [docs/package-readiness.md](docs/package-readiness.md).
 
 External trial users should start with
 [docs/external-trial-guide.md](docs/external-trial-guide.md). Maintainers can
@@ -346,7 +346,7 @@ feedback log.
 
 For subprocess/JSON integration, run `arcgraph docs agent-cli-contract`.
 For local MCP server integration, run `arcgraph docs mcp-server`.
-For the full private-alpha smoke path, run `arcgraph docs private-alpha-smoke`.
+For the full source-checkout smoke path, run `arcgraph docs source-checkout-smoke`.
 For clean-checkout source-install verification, see
 [docs/clean-checkout-smoke.md](docs/clean-checkout-smoke.md).
 
@@ -519,13 +519,13 @@ See:
 - [docs/package-readiness.md](docs/package-readiness.md)
 - [docs/external-trial-guide.md](docs/external-trial-guide.md)
 - [docs/agent-reading-guide.md](docs/agent-reading-guide.md)
-- [docs/examples/private-alpha-smoke.md](docs/examples/private-alpha-smoke.md)
+- [docs/examples/source-checkout-smoke.md](docs/examples/source-checkout-smoke.md)
 - `arcgraph docs limitations`
 - `arcgraph docs security-model`
 - `arcgraph docs frontend-contract`
 - `arcgraph docs schema-governance`
 - `arcgraph docs mcp-server`
-- `arcgraph docs private-alpha-smoke`
+- `arcgraph docs source-checkout-smoke`
 - `arcgraph docs package-readiness`
 
 ## Visualization
@@ -582,7 +582,7 @@ payload. The complete topic list is:
 | `arcgraph docs limitations` | What ArcGraph does not claim or guarantee. |
 | `arcgraph docs troubleshooting` | Common failures and recovery paths. |
 | `arcgraph docs migration-notes` | Behavior changes that affect existing callers. |
-| `arcgraph docs private-alpha-smoke` | Private-alpha source-checkout smoke path. |
+| `arcgraph docs source-checkout-smoke` | Alpha source-checkout smoke path. |
 | `arcgraph docs package-readiness` | Local wheel/sdist build and install verification. |
 | `arcgraph docs release-checklist` | Pre-release gate steps and required evidence. |
 

@@ -1,4 +1,4 @@
-# Example: Private-Alpha Smoke
+# Example: Source-Checkout Smoke
 
 Use this smoke path to validate the current source-checkout product surface
 without publishing a package or changing repository visibility.
@@ -34,10 +34,10 @@ python scripts/arcgraph.py <command>
 For an executable local smoke that creates and cleans up a temporary project:
 
 ```bash
-python scripts/arcgraph_private_alpha_smoke.py
+python scripts/arcgraph_source_checkout_smoke.py
 ```
 
-To verify the same private-alpha path from a temporary clean Git checkout and
+To verify the same alpha path from a temporary clean Git checkout and
 fresh virtual environment:
 
 ```bash
@@ -71,7 +71,7 @@ arcgraph docs agent-cli-contract
 arcgraph docs mcp-server
 ```
 
-For the private-alpha local MCP server, install the optional runtime and start
+For the alpha local MCP server, install the optional runtime and start
 stdio serving only after a local index exists:
 
 ```bash
@@ -86,7 +86,7 @@ python docs/examples/mcp_readonly_host.py --repo-root . --output-dir output/arcg
 ```
 
 This smoke does not auto-configure agent clients. Explicit client setup is a
-separate workflow documented in [client-setup.md](../client-setup.md). The MCP server is a private-alpha source-checkout path, not
+separate workflow documented in [client-setup.md](../client-setup.md). The MCP server is an alpha source-checkout path, not
 a public packaged MCP product.
 
 ## Expected Results

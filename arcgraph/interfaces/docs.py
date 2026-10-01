@@ -11,7 +11,7 @@ DOC_TOPICS = (
     "change-safety",
     "agent-cli-contract",
     "mcp-server",
-    "private-alpha-smoke",
+    "source-checkout-smoke",
     "package-readiness",
     "capabilities",
     "visualization",
@@ -190,7 +190,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Local Install And Upgrade",
                     "items": [
-                        "The current private-alpha install path is a source checkout; public PyPI, npm, Docker/GHCR, and GitHub Release package paths are not approved yet.",
+                        "The current alpha install path is a source checkout; public PyPI, npm, Docker/GHCR, and GitHub Release package paths are not approved yet.",
                         "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`). Create and activate a virtual environment before installing when you want an isolated local tool.",
                         "From a source checkout, run `python -m pip install --upgrade -e .` in the ArcGraph project directory to install or refresh the `arcgraph` CLI.",
                         'For development and local validation, run `python -m pip install -e ".[dev]"`; use the analyzed project\'s locked npm install when TypeScript/JavaScript analysis is required.',
@@ -333,7 +333,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             "title": "ArcGraph Agent CLI Subprocess Contract",
             "sections": [
                 {
-                    "title": "Private-Alpha Subprocess Boundary",
+                    "title": "Alpha Subprocess Boundary",
                     "items": [
                         "Agents should call ArcGraph as a local subprocess from the repository root or pass global `--repo-root PATH` before the subcommand.",
                         "Dictionary payloads print JSON to stdout by default. Global `--human` must appear before the subcommand and is for humans, not JSON-parsing agents.",
@@ -503,15 +503,15 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 },
             ],
         }
-    if topic == "private-alpha-smoke":
+    if topic == "source-checkout-smoke":
         return {
             "topic": topic,
-            "title": "ArcGraph Private-Alpha Smoke",
+            "title": "ArcGraph Source-Checkout Smoke",
             "sections": [
                 {
                     "title": "Source Checkout Assumption",
                     "items": [
-                        'The current private-alpha product path is a source checkout installed with `python -m pip install -e .` or `python -m pip install -e ".[dev]"`.',
+                        'The current alpha product path is a source checkout installed with `python -m pip install -e .` or `python -m pip install -e ".[dev]"`.',
                         "Node.js and a resolvable TypeScript compiler API are required at analysis runtime for TypeScript/JavaScript projects. The Python wheel does not bundle `node_modules/typescript`; npm remains a dependency-install mechanism, not an approved product distribution channel.",
                         "The v0.1.0rc7 external-trial guarantee is Python analysis plus local stdio MCP with a default read-only analysis/change/help surface and optional disclosed local feedback. TS/JS is outside the trial acceptance even when a local runtime makes it available.",
                         "If `arcgraph` is not on PATH, use `python scripts/arcgraph.py <command>` from the checkout.",
@@ -521,7 +521,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Smoke Commands",
                     "items": [
-                        "`python scripts/arcgraph_private_alpha_smoke.py` runs an executable local smoke in a temporary project and cleans up generated output by default.",
+                        "`python scripts/arcgraph_source_checkout_smoke.py` runs an executable local smoke in a temporary project and cleans up generated output by default.",
                         "`arcgraph --help` and `python -m pip show arcgraph` verify the installed CLI surface.",
                         "`arcgraph doctor` checks environment, project config, source roots, index state, optional evidence, precision tools, and Python version.",
                         "`arcgraph init --dry-run` previews `[tool.arcgraph]` source-root config without writing project files.",
@@ -530,7 +530,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "`arcgraph context arcgraph.pipeline.indexer.ArcGraphIndexer --detail-level summary` and `arcgraph explain arcgraph.pipeline.indexer.ArcGraphIndexer --detail-level summary` verify agent payloads for a known target.",
                         "`arcgraph ci` verifies local graph health and returns nonzero on failures.",
                         "`arcgraph docs agent-cli-contract` verifies the local subprocess JSON contract for coding agents.",
-                        "`arcgraph docs mcp-server` documents the private-alpha local stdio MCP server, its default read-only tools, and optional feedback.",
+                        "`arcgraph docs mcp-server` documents the alpha local stdio MCP server, its default read-only tools, and optional feedback.",
                         "`arcgraph mcp serve --help` verifies MCP server CLI wiring without requiring the optional MCP runtime.",
                         "`python docs/examples/mcp_readonly_host.py --repo-root . --output-dir output/arcgraph` exercises the lower-level example host path when a compatible MCP host framework is installed separately.",
                     ],
@@ -830,7 +830,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             "title": "ArcGraph Quickstart",
             "sections": [
                 {
-                    "title": "Private-Alpha Install From A Checkout",
+                    "title": "Alpha Install From A Checkout",
                     "items": [
                         "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`) and is currently installed from a source checkout.",
                         "Create and activate a virtual environment, then run `python -m pip install --upgrade pip`.",
@@ -839,7 +839,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "For TypeScript/JavaScript analysis, Node.js and a TypeScript compiler API must be resolvable at runtime. Use the analyzed project's locked npm install; the Python wheel includes the `.mjs` extractor but not `node_modules/typescript`.",
                         "For ArcGraph's own TypeScript golden tests from a source checkout, run `npm ci` in the ArcGraph checkout; that is development setup, not the analyzed project's product runtime.",
                         "The v0.1.0rc7 external-trial guarantee is Python analysis through the installed CLI plus local stdio MCP with default read-only analysis/change/help tools and optional disclosed local feedback; TS/JS remains outside its acceptance scope.",
-                        "Run `python -m pip install -e '.[mcp]'` only when you need to start the private-alpha local MCP server.",
+                        "Run `python -m pip install -e '.[mcp]'` only when you need to start the alpha local MCP server.",
                         "If the `arcgraph` executable is not on PATH, use `python scripts/arcgraph.py <command>` from the source checkout.",
                         "Public PyPI, npm, Docker/GHCR, and GitHub Release package paths are not approved yet.",
                     ],
@@ -865,7 +865,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "items": [
                         "Run `arcgraph visual workbench --output-dir output/arcgraph/reports/workbench --open` for the static local ArcGraph Explorer.",
                         "Run `arcgraph visual serve --host 127.0.0.1 --port 8765 --open` when large repositories need loopback-only on-demand search, focus, node detail, and audit summaries.",
-                        "Run `arcgraph mcp serve --repo-root . --output-dir output/arcgraph` when a manually configured MCP client needs the private-alpha local stdio server; omit `--feedback-log` for the default read-only surface.",
+                        "Run `arcgraph mcp serve --repo-root . --output-dir output/arcgraph` when a manually configured MCP client needs the alpha local stdio server; omit `--feedback-log` for the default read-only surface.",
                         "Run `arcgraph benchmark suite --iterations 5 --warmups 1 --output output/arcgraph/reports/benchmark-suite.json` to record local CLI-per-call and query latency baselines.",
                     ],
                 },
@@ -884,8 +884,8 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Governance References",
                     "items": [
                         "Run `arcgraph docs agent-cli-contract` before wiring a coding agent to ArcGraph through a subprocess JSON contract.",
-                        "Run `arcgraph docs mcp-server` before wiring a coding agent to ArcGraph through the private-alpha local MCP server.",
-                        "Run `arcgraph docs private-alpha-smoke` to validate the source-checkout product path without public publishing.",
+                        "Run `arcgraph docs mcp-server` before wiring a coding agent to ArcGraph through the alpha local MCP server.",
+                        "Run `arcgraph docs source-checkout-smoke` to validate the source-checkout product path without public publishing.",
                         "Run `arcgraph docs package-readiness` before validating local wheel/sdist readiness without publishing.",
                         "Run `arcgraph docs release-checklist` before publishing or sharing a release candidate.",
                         "Run `arcgraph docs schema-governance` before changing schema, resolver defaults, graph storage, or evidence import compatibility.",
@@ -1075,7 +1075,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "TypeScript/JavaScript analysis requires Node.js and a resolvable TypeScript compiler API at runtime. The Python wheel includes the `.mjs` extractor but not `node_modules/typescript`; use the analyzed project's locked npm install when TS/JS is required.",
                         "Without that runtime, a build should succeed while recording `typescript_frontend_unavailable` in its `summary.json` and `diagnostics.jsonl`. This is acceptable only for the Python-only v0.1.0rc7 trial scope.",
                         "npm package publishing remains unapproved; installing a project-local compiler runtime does not turn npm into an ArcGraph distribution channel.",
-                        "Public PyPI, npm, Docker/GHCR, and GitHub Release installation paths are not approved yet; use a source checkout for private-alpha use.",
+                        "Public PyPI, npm, Docker/GHCR, and GitHub Release installation paths are not approved yet; use a source checkout for alpha use.",
                     ],
                 },
                 {

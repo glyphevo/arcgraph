@@ -35,3 +35,6 @@ What did ArcGraph print or produce?
 
 Do not include secrets, private repository content, tokens, or sensitive source
 snippets unless you have explicitly sanitized them.
+
+Do not report a security vulnerability or credential exposure here. Follow the
+private reporting path in SECURITY.md instead.
