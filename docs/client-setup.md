@@ -98,11 +98,60 @@ MCP reads never rebuild; after editing, use authorized CLI `sync --if-stale`
 with the exact prefix returned by setup. Source search and tests remain required
 for claims beyond indexed relationships.
 
+## Verified hosts
+
+Host verification keeps three layers apart: the protocol probe that `setup` runs
+itself, client discovery (the host loaded the configuration), and model use (a
+model in the host called the tools and reported values that only the tools can
+return). Each host below was exercised once, on one macOS machine, in a
+throwaway two-file Python project, by running the same prompt: call
+`arcgraph_help`, call `arcgraph_index_status` and quote its `index_version` and
+`commit_sha`, call `arcgraph_explain` on a function and list its callers.
+
+| Host | Version observed | What was observed |
+| --- | --- | --- |
+| Claude Code (CLI) | 2.1.276 | The project `.mcp.json` entry was discovered, approved by the user and connected; the model called the three tools. |
+| Cursor (desktop) | 3.23.12 | The server connected once the project was open; three MCP tool calls completed. |
+| Codex (desktop) | core 0.159.2 (app version not recorded) | After the project was trusted in Codex (Codex recorded the trust entry itself), the project configuration loaded and three MCP tool calls ran. |
+| Hermes Agent | CLI 0.21.5; desktop session (app version not recorded) | `hermes mcp test` connected and discovered 14 tools without a model; a desktop session then called the three tools. |
+| Pi (CLI) | 0.85.1 | The project skill was loaded and the three CLI commands ran. The result is for one model: two other providers failed for reasons unrelated to ArcGraph. |
+
+Limits: only macOS and only one session per host. The CI package matrix installs
+the wheel and exercises MCP client handshakes on Ubuntu, Windows and macOS, but
+no real host application was run on Windows or Linux. Larger or multi-project
+setups, other client versions, and the exact wording of each host's approval or
+enable prompts were not recorded.
+
+What to expect, from those runs:
+
+- Claude Code writes your approval to `.claude/settings.local.json` in the
+  project. `claude mcp get NAME` reports `Pending approval` before you approve
+  and `Connected` afterwards.
+- Cursor connected as soon as the project was open in 3.23.12. Earlier guidance
+  said the server may start disabled; if yours does, enable it in the MCP
+  settings.
+- Codex records the project trust in its own configuration
+  (`trust_level = "trusted"`); `setup` does not write it.
+- Hermes registers the server for the whole profile, so every Hermes session in
+  that profile lists it. Remove it with `hermes mcp remove NAME`. Hermes may add
+  its own default keys when it rewrites `config.yaml`. `hermes mcp test NAME`
+  checks the connection and tool discovery without a model.
+- `arcgraph_index_status` redacts host paths (`<redacted-user-path>`). Identify
+  an index by its `commit_sha`, `index_version` and `repo_id`, not by a path.
+- Any other client that can start a stdio MCP server can use the same entry:
+  `command` is the installed `arcgraph` executable and `args` are `mcp serve
+  --repo-root PROJECT --output-dir INDEX`. Only the five clients above have
+  `setup` adapters; other clients were not verified.
+
 ## Installation availability
 
-Until publication, use the validated local wheel. Once a version is actually
-published, the intended persistent installation is `uv tool install --python
-3.11 'arcgraph[mcp]==VERSION'`, followed by `arcgraph setup --client CLIENT` in
+ArcGraph is not published on PyPI. Install it from the GitHub repository into a
+persistent tool environment, for example `uv tool install --python 3.11
+"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"` or the
+equivalent `python -m pip install` into a dedicated virtual environment (both
+were tested on macOS with Python 3.11). Once a version is actually published,
+the intended persistent installation is `uv tool install --python 3.11
+'arcgraph[mcp]==VERSION'`. In either case run `arcgraph setup --client CLIENT` in
 each project. The five adapters share the runtime, index logic and protocol;
 this does not require five packages or five MCP implementations. Unattended
 installation, client-specific model calls and cloud/remote MCP remain separate.
@@ -113,7 +162,7 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 | --- | --- | --- |
 | CLI subprocess | Supported (alpha) | Start with `arcgraph help`; exact syntax remains in `arcgraph --help`. CLI has broader operational/query coverage than MCP. |
 | MCP server | Supported (alpha) | Stdio only. Protocol `list_tools` discovers the registered surface; analysis/change/help tools are read-only, while optional feedback is a disclosed local append. |
-| Automatic agent configuration via explicit setup | Source implementation | `setup --client` supports five client adapters; actual host/model acceptance is separate. |
+| Automatic agent configuration via explicit setup | Verified on one machine (see Verified hosts) | `setup --client` supports five client adapters; each was observed once in a real host on macOS with a throwaway project. |
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The v0.1.0rc7 trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. No public package publishing is implied. |
 | Public package install | Deferred | PyPI/npm/Docker/GHCR publishing is not approved. |

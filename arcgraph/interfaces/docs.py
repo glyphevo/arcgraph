@@ -51,7 +51,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Prepare One Project",
                     "items": [
-                        "Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. A disposable uvx environment is not managed by setup. Public PyPI publication remains separate.",
+                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is not on PyPI: install it from the GitHub repository, for example `uv tool install --python 3.11 "arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"` or the equivalent `python -m pip install` (both were tested on macOS with Python 3.11). A disposable uvx environment is not managed by setup. Public PyPI publication remains separate.',
                         "From the target project, run `arcgraph setup --client claude|codex|cursor|hermes|pi`, selecting one client. It explicitly builds or refreshes the index, probes the runtime, then writes one client entry.",
                         "Use `--dry-run` for a plan without writes, indexing or subprocesses; `--client-config PATH` overrides the destination, not client discovery; `--timeout SECONDS` sets a positive per-step timeout.",
                         "Global options precede setup: `arcgraph --repo-root /path/to/project --output-dir /path/to/index setup --client codex`. Default output is project/output/arcgraph. Indexing, MCP and CLI guidance share the same absolute paths. Source scope follows ordinary project configuration and detection; inspect it with doctor.",
@@ -63,7 +63,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "Claude Code: project/.mcp.json, stdio MCP; approve project MCP/trust in the client when requested.",
                         "Codex: project/.codex/config.toml, stdio MCP; the client must trust the project to load its configuration. Setup does not write trust settings.",
                         "Cursor: project/.cursor/mcp.json, stdio MCP; open that project and enable the server if the client initially disables it.",
-                        "Hermes Agent: HERMES_HOME/config.yaml, otherwise ~/.hermes/config.yaml, stdio MCP. Each hashed server name remains bound to one project even when cwd changes; use isolated profiles where needed.",
+                        "Hermes Agent: HERMES_HOME/config.yaml, otherwise ~/.hermes/config.yaml, stdio MCP. Each hashed server name remains bound to one project even when cwd changes and is listed by every session of that profile; remove it with `hermes mcp remove NAME`, check it without a model with `hermes mcp test NAME`, and use isolated profiles where needed. Hermes may add its own default keys when it rewrites the file.",
                         "Pi: project/.pi/skills/arcgraph/SKILL.md, CLI skill rather than native MCP; reload project resources and use /skill:arcgraph. An override must name the skill file.",
                     ],
                 },
@@ -74,6 +74,15 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "Conflicting same-name entries, different existing Pi skills and symlinked destinations/ancestors are refused; there is no force option. Identical setup leaves configuration unchanged. Installation moves or upgrades can require manual entry review.",
                         "Detected concurrent config changes are refused, but this is not an adversarial filesystem sandbox. Use canonical paths. Machine-specific config/skill paths may appear in git status; setup never stages them.",
                         "Blocked returns nonzero. Indexing and config are not one transaction: a completed index may remain after a probe or config failure. An incompatible/corrupt index may require an explicit build; a different repository requires a separate output directory.",
+                    ],
+                },
+                {
+                    "title": "Verified Hosts",
+                    "items": [
+                        "Three layers are recorded separately: setup's own protocol probe, client discovery, and model use. Each host was exercised once on one macOS machine in a throwaway two-file Python project with the same prompt (arcgraph_help, arcgraph_index_status quoting index_version and commit_sha, arcgraph_explain with callers).",
+                        "Observed: Claude Code CLI 2.1.276 (project entry discovered, approved, connected, three tool calls); Cursor 3.23.12 (connected once the project was open, three tool calls); Codex desktop with core 0.159.2 (project configuration loaded after the project was trusted in Codex, which recorded the trust entry itself; three tool calls); Hermes Agent CLI 0.21.5 (hermes mcp test connected and found 14 tools without a model) and a desktop session (three tool calls); Pi 0.85.1 (skill loaded, three CLI commands) with one model, two other providers having failed for reasons unrelated to ArcGraph. App versions of the Codex and Hermes desktop apps were not recorded.",
+                        "Limits: macOS only and one session per host. The CI package matrix exercises MCP client handshakes on Ubuntu, Windows and macOS but no real host application ran on Windows or Linux. Larger or multi-project setups, other client versions and the exact wording of each host's approval or enable prompts were not recorded. Claude Code writes the approval to .claude/settings.local.json; Codex records project trust in its own configuration; Cursor may start with the server disabled in other versions.",
+                        "arcgraph_index_status redacts host paths; identify an index by commit_sha, index_version and repo_id. Any other client that can start a stdio MCP server can use the same entry (command: the installed arcgraph executable; args: mcp serve --repo-root PROJECT --output-dir INDEX), but only the five clients above have setup adapters and other clients were not verified.",
                     ],
                 },
                 {

@@ -36,12 +36,26 @@ With ArcGraph:
 
 ## Install
 
-ArcGraph has two local installation paths. Maintainers can use an editable
-source checkout. Agent-trial users install the verified candidate wheel once in
-a dedicated virtual environment and reuse that exact `arcgraph` executable
-across projects. Public package publishing is not approved: there is no
-supported PyPI, npm, Docker/GHCR, GitHub Release, or public packaged MCP
-distribution for this candidate. The v0.1.0rc7 external-trial scope is Python
+ArcGraph is not published on PyPI, npm, Docker/GHCR, or as a GitHub Release, so
+install it from this repository. Use a dedicated virtual environment or tool
+environment and reuse that one `arcgraph` executable across projects:
+
+```bash
+python -m pip install "arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"
+```
+
+or, with uv:
+
+```bash
+uv tool install --python 3.11 "arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"
+```
+
+Both forms were tested on macOS with Python 3.11. The `mcp` extra is only needed
+to run the MCP server. `arcgraph version --json` reports the commit the
+installed copy was built from. Maintainers and contributors can use an editable
+source checkout instead, described below. Public package publishing is not
+approved: there is no supported PyPI, npm, Docker/GHCR, GitHub Release, or
+public packaged MCP distribution. The v0.1.0rc7 external-trial scope is Python
 analysis through the installed CLI plus local stdio MCP.
 TypeScript/JavaScript analysis is outside that trial's acceptance scope.
 
@@ -104,13 +118,18 @@ python -m pip install -e '.[dev,mcp,security]'
 npm ci
 ```
 
-For an Agent trial, follow
-[docs/external-trial-guide.md](docs/external-trial-guide.md) instead: verify the
-candidate bundle, create one tool virtual environment outside the analyzed
-projects, and install the bundled wheel with its `mcp` extra. Do not substitute
-an editable checkout. Each project then gets its own repository root, index
-output, stdio server process, metrics log, and optional feedback log; the
-installed executable itself is shared.
+For a controlled Agent trial with a checksum-verified wheel, follow
+[docs/external-trial-guide.md](docs/external-trial-guide.md) instead. Maintainers
+assemble that candidate bundle; it is not distributed publicly. Verify it, create
+one tool virtual environment outside the analyzed projects, and install the
+bundled wheel with its `mcp` extra. Do not substitute an editable checkout. Each
+project then gets its own repository root, index output, stdio server process,
+metrics log, and optional feedback log; the installed executable itself is
+shared.
+
+To connect a coding agent to a project, run `arcgraph setup --client CLIENT`;
+[docs/client-setup.md](docs/client-setup.md) lists the hosts that were verified
+and under which conditions.
 
 Confirm the CLI:
 
