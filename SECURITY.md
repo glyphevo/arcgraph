@@ -11,10 +11,11 @@ push protection are enabled on this repository. Dependabot alerts notify the
 maintainers when a declared dependency matches a published advisory. These are
 notifications, not a certification, and they carry no response-time
 commitment; the dependency audits in the release checklist remain the check run
-before a release. This repository does not currently run a live Actions
-security job. The published mailbox domain has mail exchange records; that is
-not proof the inbox is monitored. If you do not receive an acknowledgement,
-assume the report still needs a maintainer follow-up.
+before a release. The CI workflow's security job runs on GitHub Actions (see
+Automated Security Evidence below). The published mailbox domain has mail
+exchange records; that is not proof the inbox is monitored. If you do not
+receive an acknowledgement, assume the report still needs a maintainer
+follow-up.
 
 ## Supported Versions
 
@@ -105,14 +106,12 @@ copy of it.
 
 ## Automated Security Evidence
 
-When GitHub Actions is enabled, the workflow audits the resolved Python project
-dependencies and Node development dependencies, scans runtime Python source, and
-uploads a CycloneDX JSON Python environment SBOM plus machine-readable audit
-results. Those artifacts are review evidence, not a certification or a signed
-release attestation.
-
-GitHub Actions is currently disabled on this repository, so this
-candidate has no current remote CI run or uploaded SBOM as live evidence.
+The CI workflow's security job, which runs on GitHub Actions, audits the
+resolved Python project dependencies and Node development dependencies, scans
+runtime Python source, and uploads a CycloneDX JSON Python environment SBOM plus
+machine-readable audit results as workflow artifacts. Those artifacts are review
+evidence for the commit that ran, not a certification or a signed release
+attestation; check the run for the exact commit.
 
 The Bandit configuration excludes tests and globally skips five specific check
 IDs, reviewed at the time they were added: B110 (best-effort metadata-parsing

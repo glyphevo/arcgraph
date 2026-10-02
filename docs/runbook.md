@@ -255,8 +255,7 @@ public/packaged MCP distribution, automatic agent configuration, or final
 pre-cutover approval. It validates only the matrix cells actually executed on
 the current host. The GitHub Actions test and package matrices are defined to
 provide separate Ubuntu, Windows, macOS, Python 3.11, and Python 3.12 evidence
-when `CI Gate` passes. Actions is currently disabled, so those jobs are not
-producing evidence for this checkout. The package matrix also runs
+when `CI Gate` passes for the commit being claimed. The package matrix also runs
 installed-wheel MCP v2 auto/legacy and real v1.28.1 client handshakes, calls
 the exact registered default surface, proves one-install/two-project isolation,
 and requires clean shutdown. Public package distribution remains separately

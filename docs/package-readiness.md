@@ -38,8 +38,8 @@ remaining options.
   itself.
 - A dirty or source-mutating run is invalid evidence and fails closed.
 - A single local run covers only the current host. The GitHub Actions
-  `package-matrix` job is configured for Ubuntu, Windows and macOS, but Actions
-  is currently disabled, so it is not current evidence.
+  `package-matrix` job runs it on Ubuntu, Windows and macOS; a passing run is
+  evidence only for the commit it ran on.
 - Built wheel, sdist, temporary virtual environments, generated indexes and
   smoke output must not be committed.
 - Nothing here publishes packages, creates tags or releases, changes GitHub

@@ -43,7 +43,7 @@ bundle: the validated wheel and sdist plus provenance and checksums. It hands
 the persisted wheel and sdist to the candidate check and accepts only a `pass`
 report that carries the clean-rebuild comparison for those exact files. It
 publishes, tags and pushes nothing. It requires saved evidence of a completed
-successful remote CI run for the exact candidate commit, so it cannot run while
-GitHub Actions is disabled. Run it with `--help` for its inputs; recipients
+successful remote CI push run on `main` for the exact candidate commit. Run it
+with `--help` for its inputs; recipients
 verify a bundle with the steps in the
 [External Trial Guide](external-trial-guide.md).

@@ -45,9 +45,10 @@ distribution for this candidate. The v0.1.0rc7 external-trial scope is Python
 analysis through the installed CLI plus local stdio MCP.
 TypeScript/JavaScript analysis is outside that trial's acceptance scope.
 
-This source candidate is an alpha developer preview. GitHub Actions is
-currently disabled, so remote Ubuntu, Windows, and macOS matrix results are not
-current evidence for this checkout.
+This source candidate is an alpha developer preview. GitHub Actions runs the
+`CI` workflow (Ubuntu, Windows, and macOS; Python 3.11 and 3.12). A passing run
+is evidence only for the commit it ran on, so check the run for the exact
+commit you are using.
 
 Requirements:
 
@@ -153,8 +154,8 @@ External trial users should start with
 [docs/external-trial-guide.md](docs/external-trial-guide.md). Maintainers can
 assemble a local external-trial bundle with
 `scripts/arcgraph_external_trial_bundle.py` without publishing it; it requires
-saved evidence of a completed successful remote CI run for the exact candidate
-commit, so it is not available while GitHub Actions is disabled. See
+saved evidence of a completed successful remote CI push run on `main` for the
+exact candidate commit. See
 [docs/release-tooling.md](docs/release-tooling.md).
 
 If `arcgraph` is not on `PATH`, use the source checkout wrapper:

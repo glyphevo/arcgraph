@@ -25,10 +25,9 @@ and `arcgraph help` for local diagnostics.
 - No production support SLA is offered.
 - Public package publishing is not approved.
 - Public or packaged MCP distribution is not approved.
-- GitHub Actions is currently disabled. Workflow files in this source tree are
-  not a running remote matrix or a green cross-platform result.
-- Branch protection has not been verified. GitHub's protection and ruleset
-  APIs returned plan/feature errors when they were checked; do not assume
-  `main` is protected.
+- GitHub Actions runs the `CI` workflow. A passing run is evidence only for the
+  commit it ran on; a workflow file alone is not a cross-platform result.
+- `main` is covered by a ruleset that blocks force pushes and branch deletion.
+  It does not require pull requests, reviews, or passing status checks.
 - Tags, GitHub Releases, and branch-protection changes require separate
   maintainer approval.

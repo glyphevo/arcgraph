@@ -76,9 +76,9 @@ both `summary.json` and `diagnostics.jsonl`.
 
 The workflow matrix is defined to validate Node.js 20 with TypeScript 5.4.5 (the
 supported floor) and Node.js 20/22/24 with TypeScript 5.9.3 (the current tested
-line). GitHub Actions is currently disabled, so this matrix is not running as
-live evidence for the current checkout; the analyzed project must supply the
-TypeScript compiler API either way, since ArcGraph never bundles it.
+line). GitHub Actions runs this matrix; a passing run is evidence only for the
+commit it ran on. The analyzed project must supply the TypeScript compiler API
+either way, since ArcGraph never bundles it.
 
 The v0.1.0rc7 external-trial acceptance scope is Python analysis through the
 installed CLI plus local stdio MCP. The default MCP analysis/change/help

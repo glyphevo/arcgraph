@@ -980,7 +980,7 @@ def test_release_checklist_docs_cover_full_gate() -> None:
     assert "pinned to an exact version in `pyproject.toml`" in checklist
     assert "the bundle assembler accepts only `pass`" in checklist
     assert "arcgraph_external_trial_bundle.py" in checklist
-    assert "cannot run while GitHub Actions is disabled" in checklist
+    assert "completed successful remote CI push run on `main`" in checklist
 
     # docs and README call the checklist a fixed, ordered sequence, so it must
     # actually run top to bottom: dependencies first, then checks that need them.

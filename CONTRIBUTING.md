@@ -13,8 +13,9 @@ and no public MCP distribution claims.
   `python scripts/arcgraph_release_gate.py` and
   `python scripts/arcgraph_package_readiness_smoke.py`; dirty source is rejected
   so artifact evidence cannot be confused with uncommitted work.
-- GitHub Actions is currently disabled. Do not treat a missing remote run as a
-  passing Ubuntu/Windows/macOS matrix.
+- GitHub Actions runs the `CI` workflow. A passing run is evidence only for the
+  commit it ran on; check the run for the exact commit before treating the
+  Ubuntu/Windows/macOS matrix as passing.
 - Do not commit generated output, `dist`, `node_modules`, caches, smoke outputs,
   credentials, private repository contents, or local process notes.
 - Keep docs honest about current maturity. Describe ArcGraph as an alpha
