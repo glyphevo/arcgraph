@@ -23,12 +23,14 @@ from arcgraph.interfaces.trial_feedback import (
     MAX_WARNING_KINDS,
 )
 from arcgraph.pipeline.indexer import ArcGraphIndexer
+from arcgraph.tests import mcp_runtime_probe
 from arcgraph.tests.mcp_runtime_probe import (
     CANCEL_STARTED,
     CONCURRENT_MIXED,
     CONCURRENT_SAME,
     TIMEOUT_STARTED,
     probe_release_path,
+    replace_state_file,
 )
 from mcp import StdioServerParameters
 from mcp.client import Client
@@ -381,6 +383,110 @@ def test_mcp_stdio_cancels_started_requests_and_recovers(
         indexed_sample,
         tmp_path / "cancellation-state.json",
     )
+
+
+def _deny_first_reads(
+    monkeypatch: pytest.MonkeyPatch,
+    target: Path,
+    denials: int,
+) -> list[int]:
+    attempts = [0]
+    original = Path.read_text
+
+    def read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == target:
+            attempts[0] += 1
+            if attempts[0] <= denials:
+                raise PermissionError(13, "Permission denied", str(self))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    return attempts
+
+
+def test_probe_state_poll_retries_windows_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path: Path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps({"rounds": {CANCEL_STARTED: {"cancel_seen": 1}}}),
+        encoding="utf-8",
+    )
+    attempts = _deny_first_reads(monkeypatch, state_path, denials=3)
+
+    state = asyncio.run(
+        _wait_for_probe_round(
+            state_path, CANCEL_STARTED, field="cancel_seen", minimum=1
+        )
+    )
+
+    assert state == {"cancel_seen": 1}
+    assert attempts[0] == 4
+
+
+def test_probe_state_poll_names_a_persistent_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path: Path = tmp_path / "state.json"
+    state_path.write_text("{}", encoding="utf-8")
+    _deny_first_reads(monkeypatch, state_path, denials=10**6)
+
+    with pytest.raises(AssertionError, match="last read error: PermissionError"):
+        asyncio.run(
+            _wait_for_probe_round(
+                state_path,
+                CANCEL_STARTED,
+                field="cancel_seen",
+                minimum=1,
+                timeout=0.1,
+            )
+        )
+
+
+def test_probe_state_replace_retries_windows_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path: Path = tmp_path / "state.json"
+    temporary: Path = tmp_path / "state.json.tmp"
+    state_path.write_text("old\n", encoding="utf-8")
+    temporary.write_text("new\n", encoding="utf-8")
+    attempts = [0]
+    original = Path.replace
+
+    def replace(self: Path, target: Any) -> Path:
+        attempts[0] += 1
+        if attempts[0] <= 2:
+            raise PermissionError(13, "Permission denied", str(target))
+        return original(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+
+    replace_state_file(temporary, state_path)
+
+    assert attempts[0] == 3
+    assert state_path.read_text(encoding="utf-8") == "new\n"
+    assert not temporary.exists()
+
+
+def test_probe_state_replace_gives_up_on_a_persistent_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path: Path = tmp_path / "state.json"
+    temporary: Path = tmp_path / "state.json.tmp"
+    temporary.write_text("new\n", encoding="utf-8")
+
+    def replace(self: Path, target: Any) -> Path:
+        raise PermissionError(13, "Permission denied", str(target))
+
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(mcp_runtime_probe, "_PROBE_WAIT_SECONDS", 0.05)
+
+    with pytest.raises(PermissionError):
+        replace_state_file(temporary, state_path)
 
 
 def test_mcp_stdio_enforces_runtime_security_boundaries(
@@ -1102,13 +1208,20 @@ async def _wait_for_probe_round(
     *,
     field: str,
     minimum: int,
+    timeout: float = 5,
 ) -> dict[str, Any]:
-    deadline = asyncio.get_running_loop().time() + 5
+    deadline = asyncio.get_running_loop().time() + timeout
     last_state: dict[str, Any] = {}
+    last_error: OSError | None = None
     while asyncio.get_running_loop().time() < deadline:
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
+            await asyncio.sleep(0.01)
+            continue
+        except PermissionError as exc:
+            # Windows denies opening the file while the probe server replaces it.
+            last_error = exc
             await asyncio.sleep(0.01)
             continue
         rounds = state.get("rounds")
@@ -1121,7 +1234,8 @@ async def _wait_for_probe_round(
                     return round_state
         await asyncio.sleep(0.01)
     raise AssertionError(
-        f"MCP runtime probe {marker!r} did not reach {field}>={minimum}: {last_state!r}"
+        f"MCP runtime probe {marker!r} did not reach {field}>={minimum}: "
+        f"{last_state!r}; last read error: {last_error!r}"
     )
 
 

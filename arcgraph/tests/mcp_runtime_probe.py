@@ -146,7 +146,22 @@ class _ProbeCoordinator:
             json.dumps({"rounds": self._rounds}, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        temporary.replace(self.state_path)
+        replace_state_file(temporary, self.state_path)
+
+
+def replace_state_file(temporary: Path, state_path: Path) -> None:
+    # On Windows a reader that has the state file open makes the replace fail
+    # with PermissionError until it closes the file; the test polls the file,
+    # so retry briefly instead of failing the probe.
+    deadline = time.monotonic() + _PROBE_WAIT_SECONDS
+    while True:
+        try:
+            temporary.replace(state_path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 class _ProbeToolGroup(ArcGraphMCPToolGroup):
