@@ -723,12 +723,18 @@ class GraphStoreReader:
     @classmethod
     def from_current(cls, output_dir: Path) -> "GraphStoreReader":
         current_path = output_dir / "current.json"
-        if not current_path.exists():
-            raise FileNotFoundError(f"No ArcGraph current index at {current_path}")
+        # Read instead of checking exists() first: on Windows a stat can miss
+        # the file while a build replaces it, but the read is retried.
+        try:
+            current_text = retry_sharing_violation(
+                lambda: current_path.read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, NotADirectoryError):
+            raise FileNotFoundError(
+                f"No ArcGraph current index at {current_path}"
+            ) from None
 
-        current = json.loads(
-            retry_sharing_violation(lambda: current_path.read_text(encoding="utf-8"))
-        )
+        current = json.loads(current_text)
         build_rel = Path(str(current["build_dir"]))
         if (
             build_rel.is_absolute()

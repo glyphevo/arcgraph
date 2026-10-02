@@ -34,7 +34,7 @@ from arcgraph.change.errors import (
 from arcgraph.change.evidence import redact_sensitive_text
 from arcgraph.change.paths import ensure_contained_path, resolve_under_root
 from arcgraph.core.schemas import SCHEMA_VERSION
-from arcgraph.core.sharing_retry import retry_sharing_violation
+from arcgraph.core.sharing_retry import is_regular_file, retry_sharing_violation
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -70,7 +70,7 @@ def atomic_write_json(path: Path, payload: dict[str, Any], *, root: Path) -> Non
 
 def read_json_object(path: Path, *, root: Path) -> dict[str, Any]:
     contained = ensure_contained_path(root, path)
-    if contained.is_symlink() or not contained.is_file():
+    if contained.is_symlink() or not is_regular_file(contained):
         raise ChangeStoreNotFound(f"state record does not exist: {contained.name}")
     try:
         payload = json.loads(
@@ -284,9 +284,12 @@ class ChangeStateStore:
 
     def read_current_decision(self, plan_id: str) -> PlanDecision | None:
         pointer_path = self._path("plans", plan_id, "decision-current.json")
-        if not pointer_path.exists():
+        # The pointer is replaced in place, so read it rather than trusting an
+        # exists() check that can miss it on Windows during the replace.
+        try:
+            pointer = self._read_model(pointer_path, DecisionCurrentPointer)
+        except ChangeStoreNotFound:
             return None
-        pointer = self._read_model(pointer_path, DecisionCurrentPointer)
         if pointer.plan_id != plan_id:
             raise ChangeStoreCorrupt(
                 "decision pointer does not match its plan directory"

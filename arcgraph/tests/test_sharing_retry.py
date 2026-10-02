@@ -8,11 +8,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from arcgraph.change.store import atomic_write_json, read_json_object
+from arcgraph.change.contracts import PlanDecision
+from arcgraph.change.store import (
+    ChangeStateStore,
+    atomic_write_json,
+    read_json_object,
+)
 from arcgraph.core import sharing_retry
 from arcgraph.core.cleanup import arcgraph_output_storage_status
 from arcgraph.core.graph_store import GraphStoreReader, GraphStoreWriter
 from arcgraph.core.schemas import IndexMetadata
+from arcgraph.tests.test_change_store import _revision
 
 
 class _FakeClock:
@@ -233,3 +239,150 @@ def test_storage_status_retries_a_current_json_read_during_publication(
 
     assert blocked == 1
     assert status["current_build"] == "builds/test-index"
+
+
+def _write_current(tmp_path: Path) -> Path:
+    output_dir: Path = tmp_path / "arcgraph"
+    GraphStoreWriter(output_dir).write(
+        IndexMetadata(
+            index_version="test-index",
+            repo_root=str(tmp_path),
+            source_roots=["src"],
+        ),
+        [],
+        [],
+        [],
+        [],
+    )
+    return output_dir
+
+
+def test_from_current_reads_through_an_exists_false_negative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = _write_current(tmp_path)
+    # Windows stat can report current.json missing while a build replaces it.
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    reader = GraphStoreReader.from_current(output_dir)
+
+    assert reader.sqlite_path.parent.name == "test-index"
+
+
+def test_from_current_still_reports_a_missing_index(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="No ArcGraph current index"):
+        GraphStoreReader.from_current(tmp_path / "arcgraph")
+
+
+def test_regular_file_check_confirms_a_windows_false_negative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    target: Path = tmp_path / "pointer.json"
+    target.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+
+    assert sharing_retry.is_regular_file(target) is True
+    assert windows_retry.sleeps == 0
+
+
+def test_regular_file_check_answers_a_missing_file_without_waiting(
+    tmp_path: Path,
+    windows_retry: _FakeClock,
+) -> None:
+    assert sharing_retry.is_regular_file(tmp_path / "missing.json") is False
+    assert windows_retry.sleeps == 0
+
+
+def test_regular_file_check_rejects_a_directory_without_waiting(
+    tmp_path: Path,
+    windows_retry: _FakeClock,
+) -> None:
+    directory: Path = tmp_path / "pointer.json"
+    directory.mkdir()
+
+    assert sharing_retry.is_regular_file(directory) is False
+    assert windows_retry.sleeps == 0
+
+
+def test_regular_file_check_retries_an_open_blocked_by_a_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    target: Path = tmp_path / "pointer.json"
+    target.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+    original_open = os.open
+    blocked = 0
+
+    def open_blocked(path: object, flags: int, *args: object) -> int:
+        nonlocal blocked
+        if Path(str(path)) == target and blocked < 2:
+            blocked += 1
+            raise _sharing_violation()
+        return original_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", open_blocked)
+
+    assert sharing_retry.is_regular_file(target) is True
+    assert blocked == 2
+    assert windows_retry.sleeps == 2
+
+
+def test_regular_file_check_is_plain_is_file_outside_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sharing_retry, "_RETRY_SHARING_VIOLATIONS", False)
+    target: Path = tmp_path / "pointer.json"
+    target.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+
+    assert sharing_retry.is_regular_file(target) is False
+
+
+def test_change_store_read_survives_an_is_file_false_negative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    target: Path = tmp_path / "plans" / "plan-1" / "current.json"
+    atomic_write_json(target, {"revision": 1}, root=tmp_path)
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+
+    assert read_json_object(target, root=tmp_path) == {"revision": 1}
+
+
+def test_current_decision_survives_an_exists_false_negative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    store = ChangeStateStore(tmp_path / "output", repo_id="repo")
+    revision = _revision()
+    store.write_revision(revision)
+    pending = PlanDecision(
+        repo_id="repo",
+        decision_id="decision-pending",
+        plan_id="plan",
+        plan_revision=1,
+        plan_content_digest=revision.plan_content_digest,
+        status="pending",
+        actor="system",
+        reason="initial decision",
+    )
+    store.write_decision(pending)
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    monkeypatch.setattr(Path, "is_file", lambda self: False)
+
+    assert store.read_current_decision("plan") == pending
+
+
+def test_current_decision_is_none_without_a_pointer(tmp_path: Path) -> None:
+    store = ChangeStateStore(tmp_path / "output", repo_id="repo")
+    store.write_revision(_revision())
+
+    assert store.read_current_decision("plan") is None
