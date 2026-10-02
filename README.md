@@ -36,28 +36,37 @@ With ArcGraph:
 
 ## Install
 
-ArcGraph is not published on PyPI, npm, Docker/GHCR, or as a GitHub Release, so
-install it from this repository. Use a dedicated virtual environment or tool
-environment and reuse that one `arcgraph` executable across projects:
+ArcGraph 0.1.0rc7 is published on PyPI as an alpha developer-preview
+pre-release. Install it into a dedicated virtual environment or tool environment
+and reuse that one `arcgraph` executable across projects:
 
 ```bash
-python -m pip install "arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"
+python -m pip install "arcgraph[mcp]"
 ```
 
 or, with uv:
 
 ```bash
-uv tool install --python 3.11 "arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"
+uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
-Both forms were tested on macOS with Python 3.11. The `mcp` extra is only needed
-to run the MCP server. `arcgraph version --json` reports the commit the
-installed copy was built from. Maintainers and contributors can use an editable
-source checkout instead, described below. Public package publishing is not
-approved: there is no supported PyPI, npm, Docker/GHCR, GitHub Release, or
-public packaged MCP distribution. The v0.1.0rc7 external-trial scope is Python
-analysis through the installed CLI plus local stdio MCP.
-TypeScript/JavaScript analysis is outside that trial's acceptance scope.
+Python 3.11 or 3.12 is required; pip refuses other versions. Because 0.1.0rc7 is
+currently the only release, pip selects it without `--pre`. Once a stable release
+exists, an unpinned install will choose that instead, so pin
+`arcgraph[mcp]==0.1.0rc7` to stay on this version. The `mcp` extra is only needed
+to run the MCP server. Tested on macOS: `pip install` and `uv tool install` of
+`arcgraph[mcp]==0.1.0rc7` on Python 3.11, and the pip-style install on Python
+3.12; Windows and Linux installs from PyPI have not been tried.
+`arcgraph version --json` reports the commit the installed copy was built from.
+
+To install the development version from this repository instead, replace the
+requirement with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`.
+Maintainers and contributors can use an editable source checkout, described
+below. npm, Docker/GHCR and GitHub Releases are not published, and there is no
+separate packaged MCP distribution: the MCP server is part of the PyPI package.
+The v0.1.0rc7 external-trial scope is Python analysis through the installed CLI
+plus local stdio MCP. TypeScript/JavaScript analysis is
+outside that trial's acceptance scope.
 
 This source candidate is an alpha developer preview. GitHub Actions runs the
 `CI` workflow (Ubuntu, Windows, and macOS; Python 3.11 and 3.12). A passing run
@@ -119,7 +128,7 @@ npm ci
 ```
 
 For a controlled Agent trial with a checksum-verified wheel, follow
-[docs/external-trial-guide.md](docs/external-trial-guide.md) instead. Maintainers
+[docs/external-trial-guide.md](https://github.com/glyphevo/arcgraph/blob/main/docs/external-trial-guide.md) instead. Maintainers
 assemble that candidate bundle; it is not distributed publicly. Verify it, create
 one tool virtual environment outside the analyzed projects, and install the
 bundled wheel with its `mcp` extra. Do not substitute an editable checkout. Each
@@ -128,7 +137,7 @@ metrics log, and optional feedback log; the installed executable itself is
 shared.
 
 To connect a coding agent to a project, run `arcgraph setup --client CLIENT`;
-[docs/client-setup.md](docs/client-setup.md) lists the hosts that were verified
+[docs/client-setup.md](https://github.com/glyphevo/arcgraph/blob/main/docs/client-setup.md) lists the hosts that were verified
 and under which conditions.
 
 Confirm the CLI:
@@ -167,15 +176,15 @@ temporary virtual environment, and checks the installed CLI, built-in docs, MCP
 server and a sample-repository workflow there. It then cleans up by default.
 It is a check only: it publishes nothing, creates no tag or GitHub Release,
 uploads no package (PyPI, npm, Docker/GHCR), and does not change repository
-visibility. See [docs/package-readiness.md](docs/package-readiness.md).
+visibility. See [docs/package-readiness.md](https://github.com/glyphevo/arcgraph/blob/main/docs/package-readiness.md).
 
 External trial users should start with
-[docs/external-trial-guide.md](docs/external-trial-guide.md). Maintainers can
+[docs/external-trial-guide.md](https://github.com/glyphevo/arcgraph/blob/main/docs/external-trial-guide.md). Maintainers can
 assemble a local external-trial bundle with
 `scripts/arcgraph_external_trial_bundle.py` without publishing it; it requires
 saved evidence of a completed successful remote CI push run on `main` for the
 exact candidate commit. See
-[docs/release-tooling.md](docs/release-tooling.md).
+[docs/release-tooling.md](https://github.com/glyphevo/arcgraph/blob/main/docs/release-tooling.md).
 
 If `arcgraph` is not on `PATH`, use the source checkout wrapper:
 
@@ -249,7 +258,7 @@ its stable-id kind prefix), exact path, then a unique bare name or qualname
 suffix. Ambiguous names return candidate definitions instead of selecting the
 first match. Route-shaped and entrypoint/worker-flow targets resolve
 separately, before or instead of this chain. See
-[docs/change-preflight.md](docs/change-preflight.md) for the full precedence
+[docs/change-preflight.md](https://github.com/glyphevo/arcgraph/blob/main/docs/change-preflight.md) for the full precedence
 and its exceptions.
 
 `callers`, `callees`, and `impact` return a bounded, agent-safe payload by
@@ -368,11 +377,11 @@ For subprocess/JSON integration, run `arcgraph docs agent-cli-contract`.
 For local MCP server integration, run `arcgraph docs mcp-server`.
 For the full source-checkout smoke path, run `arcgraph docs source-checkout-smoke`.
 For clean-checkout source-install verification, see
-[docs/clean-checkout-smoke.md](docs/clean-checkout-smoke.md).
+[docs/clean-checkout-smoke.md](https://github.com/glyphevo/arcgraph/blob/main/docs/clean-checkout-smoke.md).
 
-See [docs/agent-reading-guide.md](docs/agent-reading-guide.md) and
-[docs/change-preflight.md](docs/change-preflight.md), plus
-[docs/mcp-usage.md](docs/mcp-usage.md). The rc7 external-trial surface includes
+See [docs/agent-reading-guide.md](https://github.com/glyphevo/arcgraph/blob/main/docs/agent-reading-guide.md) and
+[docs/change-preflight.md](https://github.com/glyphevo/arcgraph/blob/main/docs/change-preflight.md), plus
+[docs/mcp-usage.md](https://github.com/glyphevo/arcgraph/blob/main/docs/mcp-usage.md). The rc7 external-trial surface includes
 the local stdio server from the installed wheel:
 
 ```bash
@@ -382,12 +391,12 @@ arcgraph mcp serve --repo-root . --output-dir output/arcgraph
 Explicit onboarding is available through `arcgraph setup --client
 claude|codex|cursor|hermes|pi`. It prepares the selected project and client;
 MCP query calls never change client configuration. See
-[client setup](docs/client-setup.md) for preview mode, config scopes, host trust
+[client setup](https://github.com/glyphevo/arcgraph/blob/main/docs/client-setup.md) for preview mode, config scopes, host trust
 and the distinction between protocol verification and actual model use.
 The installed package also provides `arcgraph docs client-setup`.
 For a standalone protocol example, see
-[the minimal read-only host](docs/examples/mcp_readonly_host.py).
-Public package publication remains a separate release decision.
+[the minimal read-only host](https://github.com/glyphevo/arcgraph/blob/main/docs/examples/mcp_readonly_host.py).
+npm, Docker/GHCR and GitHub Release distribution remain separate release decisions.
 
 Optional per-tool MCP metrics are local and disabled by default. Start the
 server with `--metrics-log /private/local/path/mcp.jsonl` to opt in. Events
@@ -404,7 +413,7 @@ default MCP analysis/change/help surface read-only. Feedback accepts only
 bounded enum and identifier fields—never free text, paths, targets, repository
 ids, source, prompts, or raw errors. Review a path-free aggregate with
 `arcgraph feedback summarize ABSOLUTE_PATH` before sharing anything.
-The [External Trial Guide](docs/external-trial-guide.md#feedback-machine-contract)
+The [External Trial Guide](https://github.com/glyphevo/arcgraph/blob/main/docs/external-trial-guide.md#feedback-machine-contract)
 defines the exact feedback bounds and stable machine `error_code` values;
 automation should not branch on recovery-message text.
 
@@ -439,7 +448,7 @@ only.
 Approval, evidence persistence, purge, and audit export remain CLI-only.
 
 See `arcgraph docs change-safety` and
-[docs/change-safety.md](docs/change-safety.md).
+[docs/change-safety.md](https://github.com/glyphevo/arcgraph/blob/main/docs/change-safety.md).
 
 ## Language Support
 
@@ -459,7 +468,7 @@ payload-backed; it is not default live compiler extraction for those languages.
 SCIP and OpenAPI facts remain protocol evidence and are not relabeled as L3
 language semantics.
 
-See [docs/language-support.md](docs/language-support.md).
+See [docs/language-support.md](https://github.com/glyphevo/arcgraph/blob/main/docs/language-support.md).
 
 ## Evidence Inputs
 
@@ -492,7 +501,7 @@ OpenAPI input is artifact-only and explicit:
 arcgraph build --openapi-spec PATH_TO_YOUR_OPENAPI_SPEC
 ```
 
-See [docs/examples/evidence-inputs.md](docs/examples/evidence-inputs.md).
+See [docs/examples/evidence-inputs.md](https://github.com/glyphevo/arcgraph/blob/main/docs/examples/evidence-inputs.md).
 
 ## Security And Trust
 
@@ -517,7 +526,7 @@ surfaces enforce path containment, source snippets are disabled by default in
 agent payloads, and `visual serve` is intended for loopback-only local use.
 
 Report security issues to [security@glyphevo.com](mailto:security@glyphevo.com).
-See [SECURITY.md](SECURITY.md) for the full security policy and boundaries.
+See [SECURITY.md](https://github.com/glyphevo/arcgraph/blob/main/SECURITY.md) for the full security policy and boundaries.
 
 ## Current Maturity
 
@@ -533,13 +542,13 @@ unresolved records.
 
 See:
 
-- [docs/language-support.md](docs/language-support.md)
-- [docs/runbook.md](docs/runbook.md)
-- [docs/clean-checkout-smoke.md](docs/clean-checkout-smoke.md)
-- [docs/package-readiness.md](docs/package-readiness.md)
-- [docs/external-trial-guide.md](docs/external-trial-guide.md)
-- [docs/agent-reading-guide.md](docs/agent-reading-guide.md)
-- [docs/examples/source-checkout-smoke.md](docs/examples/source-checkout-smoke.md)
+- [docs/language-support.md](https://github.com/glyphevo/arcgraph/blob/main/docs/language-support.md)
+- [docs/runbook.md](https://github.com/glyphevo/arcgraph/blob/main/docs/runbook.md)
+- [docs/clean-checkout-smoke.md](https://github.com/glyphevo/arcgraph/blob/main/docs/clean-checkout-smoke.md)
+- [docs/package-readiness.md](https://github.com/glyphevo/arcgraph/blob/main/docs/package-readiness.md)
+- [docs/external-trial-guide.md](https://github.com/glyphevo/arcgraph/blob/main/docs/external-trial-guide.md)
+- [docs/agent-reading-guide.md](https://github.com/glyphevo/arcgraph/blob/main/docs/agent-reading-guide.md)
+- [docs/examples/source-checkout-smoke.md](https://github.com/glyphevo/arcgraph/blob/main/docs/examples/source-checkout-smoke.md)
 - `arcgraph docs limitations`
 - `arcgraph docs security-model`
 - `arcgraph docs frontend-contract`
@@ -570,13 +579,14 @@ arcgraph visual smoke --output-dir output/arcgraph/reports/visual-smoke
 
 ## Release And Governance
 
-Package publishing is not approved yet. The pre-release gate is a fixed,
+The 0.1.0rc7 pre-release is published on PyPI; npm, Docker/GHCR and GitHub
+Releases are not. The pre-release gate is a fixed,
 ordered command sequence that starts from a clean working tree. Run
 `arcgraph docs release-checklist` for the current list rather than copying
 commands from this page, because a hand-copied list drifts from the gate.
-[docs/release-tooling.md](docs/release-tooling.md) describes the release
+[docs/release-tooling.md](https://github.com/glyphevo/arcgraph/blob/main/docs/release-tooling.md) describes the release
 scripts, artifact verification and bundle assembly, and
-[RELEASE_NOTES.md](RELEASE_NOTES.md) indexes the per-version notes.
+[RELEASE_NOTES.md](https://github.com/glyphevo/arcgraph/blob/main/RELEASE_NOTES.md) indexes the per-version notes.
 
 ## Built-In Documentation
 
@@ -616,5 +626,5 @@ viz/           Legacy compatibility wrapper for the source-checkout viewer
 output/        Generated local index/evidence/report data, ignored by Git
 ```
 
-See [docs/provenance.md](docs/provenance.md) for the standalone extraction
+See [docs/provenance.md](https://github.com/glyphevo/arcgraph/blob/main/docs/provenance.md) for the standalone extraction
 boundary and legacy integration policy.

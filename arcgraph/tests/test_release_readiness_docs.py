@@ -476,9 +476,11 @@ def test_agent_cli_contract_docs_cover_subprocess_json_boundary() -> None:
     assert "feedback append tool" in contract
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in contract
     assert "docs/examples/mcp_readonly_host.py" in contract
-    assert "public package publication remains deferred" in contract
+    assert (
+        "npm, Docker/GHCR, and GitHub Release distribution remain deferred" in contract
+    )
     assert "ArcGraph does not auto-configure" in contract
-    assert "Public product release and package publishing remain unapproved" in contract
+    assert "A stable public product release remains unapproved" in contract
     assert "No language is claimed as L4" in contract
 
 
@@ -548,7 +550,10 @@ def test_source_checkout_smoke_docs_cover_source_checkout_and_package_boundary()
     assert "arcgraph docs mcp-server" in combined
     assert "arcgraph docs package-readiness" in combined
     assert "output/arcgraph" in combined
-    assert "PyPI publishing remains unapproved" in combined
+    assert (
+        "PyPI: the 0.1.0rc7 pre-release is published; this smoke neither publishes nor tests it"
+        in combined
+    )
     assert "npm package publishing remains private/dev-only" in combined
     assert "Docker/GHCR publishing remains unapproved" in combined
     assert "GitHub Release and tag creation remain unapproved" in combined
@@ -1114,7 +1119,7 @@ def test_readme_points_to_current_release_readiness_workflows() -> None:
     assert "docs/examples/mcp_readonly_host.py" in readme
     assert "python scripts/arcgraph_clean_checkout_smoke.py" in readme
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in readme
-    assert "Public package publication" in readme
+    assert "separate release decisions" in readme
     assert "automatic plugin ecosystem" not in readme.lower()
     assert "full program correctness" not in readme.lower()
 

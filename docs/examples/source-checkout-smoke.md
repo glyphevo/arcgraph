@@ -5,8 +5,9 @@ without publishing a package or changing repository visibility.
 
 ## Install Assumption
 
-ArcGraph is installed from a source checkout. Public PyPI, npm, Docker/GHCR,
-GitHub Release, and public repository cutover paths remain unapproved.
+This smoke installs ArcGraph from a source checkout, not from PyPI. npm,
+Docker/GHCR, and GitHub Release paths remain unpublished; the 0.1.0rc7
+pre-release is on PyPI but is not exercised here.
 
 ```bash
 python3 -m venv .venv
@@ -87,7 +88,7 @@ python docs/examples/mcp_readonly_host.py --repo-root . --output-dir output/arcg
 
 This smoke does not auto-configure agent clients. Explicit client setup is a
 separate workflow documented in [client-setup.md](../client-setup.md). The MCP server is an alpha source-checkout path, not
-a public packaged MCP product.
+a separately packaged MCP product (the MCP server also ships in the PyPI package's `mcp` extra).
 
 ## Expected Results
 
@@ -130,7 +131,7 @@ not be committed.
 
 ## Package And Release Decisions
 
-- PyPI publishing remains unapproved.
+- PyPI: the 0.1.0rc7 pre-release is published; this smoke neither publishes nor tests it.
 - npm package publishing remains private/dev-only unless separately authorized.
 - Docker/GHCR publishing remains unapproved.
 - GitHub Release and tag creation remain unapproved.

@@ -142,7 +142,7 @@ def _run_smoke(project: Path, *, skip_ci: bool) -> dict[str, Any]:
         "mcp": mcp_summary,
         "warnings": {
             "generated_output": "temporary output was created under the smoke project",
-            "package_channels": "public package publishing remains unapproved",
+            "package_channels": "installed from a source checkout; PyPI, npm and Docker/GHCR are not exercised",
         },
     }
 

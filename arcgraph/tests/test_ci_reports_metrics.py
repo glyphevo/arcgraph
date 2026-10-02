@@ -994,7 +994,9 @@ def test_cli_docs_reference_topics() -> None:
     package_docs = render_docs("package-readiness")
 
     assert "source checkout" in cli_reference
-    assert "Public PyPI, npm, Docker/GHCR" in quickstart_docs
+    assert "npm, Docker/GHCR, and GitHub Release package paths are not published" in (
+        quickstart_docs
+    )
     assert "arcgraph doctor" in quickstart_docs
     assert "arcgraph init --dry-run" in quickstart_docs
     assert "arcgraph status" in quickstart_docs
@@ -1088,7 +1090,9 @@ def test_cli_docs_reference_topics() -> None:
     assert "`arcgraph ci` can return nonzero" in agent_cli_docs
     assert "docs/examples/mcp_readonly_host.py" in agent_cli_docs
     assert "installed-wheel local stdio server" in agent_cli_docs
-    assert "public package publication remains deferred" in agent_cli_docs
+    assert "npm, Docker/GHCR, and GitHub Release distribution remain deferred" in (
+        agent_cli_docs
+    )
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in (
         mcp_server_docs
     )
@@ -1103,7 +1107,10 @@ def test_cli_docs_reference_topics() -> None:
     assert "arcgraph ci" in smoke_docs
     assert "python scripts/arcgraph_source_checkout_smoke.py" in smoke_docs
     assert "arcgraph mcp serve --help" in smoke_docs
-    assert "PyPI publishing remains unapproved" in smoke_docs
+    assert (
+        "PyPI: the 0.1.0rc7 pre-release is published; this smoke neither publishes nor tests it"
+        in smoke_docs
+    )
     assert "npm package publishing remains private/dev-only" in smoke_docs
     assert "Docker/GHCR publishing remains unapproved" in smoke_docs
     assert "arcgraph_package_readiness_smoke.py" in package_docs

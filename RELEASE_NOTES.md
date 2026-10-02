@@ -5,7 +5,7 @@ notes themselves are the only place their content is written down.
 
 | Version | Status | Notes |
 | --- | --- | --- |
-| 0.1.0rc7 | Current source version; alpha developer-preview candidate | [v0.1.0-rc7](docs/release_notes/v0.1.0-rc7.md) |
+| 0.1.0rc7 | Current source version; published on PyPI on 2026-10-02 as an alpha developer-preview pre-release | [v0.1.0-rc7](docs/release_notes/v0.1.0-rc7.md) |
 
 A version label alone is not proof of package publication, platform support,
 or source/artifact identity. Use `arcgraph version --json` to identify the

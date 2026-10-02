@@ -19,7 +19,8 @@ follow-up.
 
 ## Supported Versions
 
-ArcGraph has not made a public package release yet. Security fixes are handled on
+ArcGraph's only public package release is the 0.1.0rc7 developer-preview
+pre-release on PyPI. Security fixes are handled on
 the main repository line until a formal version support policy is published.
 
 ## Reporting A Vulnerability

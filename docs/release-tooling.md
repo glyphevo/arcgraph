@@ -47,3 +47,21 @@ successful remote CI push run on `main` for the exact candidate commit. Run it
 with `--help` for its inputs; recipients
 verify a bundle with the steps in the
 [External Trial Guide](external-trial-guide.md).
+
+## Published Releases
+
+0.1.0rc7 was uploaded to PyPI on 2026-10-02 by a maintainer, from the validated
+candidate built from commit `653f20412237f53658b34cbde813f6060bee64fc`; the two
+files on PyPI are byte-identical to that candidate (wheel sha256
+`51ebc958d43aa21062bab639a15d6fb4bd7fad9a13df876815fbe9fb4f9b6ad2`, sdist
+sha256 `7b2ab2bcc61df4dbb099d1aab885cb718fcaaf5841dfd55bb0a707f0adaa95bc`). The
+same files were rehearsed on TestPyPI first. Compare any download with those
+hashes, and use `arcgraph version --json` to see the commit an installed copy
+was built from.
+
+A published file cannot be replaced. PyPI never lets a file name be reused, even
+after the file or project is deleted, and deletion is permanent. To withdraw a
+release, a maintainer can yank it (pip then skips it unless the exact version is
+pinned) and, to fix it, publish a new version. Documentation changes that land
+on `main` after an upload do not change the uploaded files and reach PyPI only
+with the next version.

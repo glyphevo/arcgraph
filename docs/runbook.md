@@ -1,7 +1,7 @@
 # ArcGraph Runbook
 
 This runbook covers source-checkout operation for CLI and MCP agent workflows.
-It assumes package publishing, tags, and GitHub Releases are not approved.
+It assumes tags and GitHub Releases are not approved; the 0.1.0rc7 pre-release is on PyPI.
 
 ## Missing Index
 
@@ -258,7 +258,7 @@ provide separate Ubuntu, Windows, macOS, Python 3.11, and Python 3.12 evidence
 when `CI Gate` passes for the commit being claimed. The package matrix also runs
 installed-wheel MCP v2 auto/legacy and real v1.28.1 client handshakes, calls
 the exact registered default surface, proves one-install/two-project isolation,
-and requires clean shutdown. Public package distribution remains separately
+and requires clean shutdown. npm and Docker/GHCR distribution remain separately
 deferred.
 
 ## CI Or Release Gate Failure

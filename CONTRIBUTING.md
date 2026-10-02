@@ -2,8 +2,9 @@
 
 ArcGraph is an alpha-stage, local-first code semantic graph engine.
 Contributions should preserve the current public-safe boundaries:
-source-checkout install, local execution, no public package publishing claims,
-and no public MCP distribution claims.
+source-checkout install, local execution, accurate package claims (ArcGraph is
+on PyPI only as the 0.1.0rc7 developer-preview pre-release), and no claims of a
+separate MCP distribution.
 
 ## Before Opening A Pull Request
 
