@@ -23,6 +23,7 @@ from arcgraph.core.schemas import (
     SemanticDiagnostic,
     SemanticFact,
 )
+from arcgraph.core.sharing_retry import retry_sharing_violation
 
 
 class GraphStoreWriter:
@@ -370,7 +371,7 @@ class GraphStoreWriter:
         temp_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
         )
-        temp_path.replace(current_path)
+        retry_sharing_violation(lambda: temp_path.replace(current_path))
 
     @staticmethod
     def _write_sqlite(
@@ -725,7 +726,9 @@ class GraphStoreReader:
         if not current_path.exists():
             raise FileNotFoundError(f"No ArcGraph current index at {current_path}")
 
-        current = json.loads(current_path.read_text(encoding="utf-8"))
+        current = json.loads(
+            retry_sharing_violation(lambda: current_path.read_text(encoding="utf-8"))
+        )
         build_rel = Path(str(current["build_dir"]))
         if (
             build_rel.is_absolute()

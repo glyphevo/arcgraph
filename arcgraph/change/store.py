@@ -34,6 +34,7 @@ from arcgraph.change.errors import (
 from arcgraph.change.evidence import redact_sensitive_text
 from arcgraph.change.paths import ensure_contained_path, resolve_under_root
 from arcgraph.core.schemas import SCHEMA_VERSION
+from arcgraph.core.sharing_retry import retry_sharing_violation
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -58,7 +59,7 @@ def atomic_write_json(path: Path, payload: dict[str, Any], *, root: Path) -> Non
             handle.flush()
             os.fsync(handle.fileno())
         ensure_contained_path(root, temp_path)
-        os.replace(temp_path, contained)
+        retry_sharing_violation(lambda: os.replace(temp_path, contained))
         _fsync_directory(parent)
     finally:
         try:
@@ -72,7 +73,9 @@ def read_json_object(path: Path, *, root: Path) -> dict[str, Any]:
     if contained.is_symlink() or not contained.is_file():
         raise ChangeStoreNotFound(f"state record does not exist: {contained.name}")
     try:
-        payload = json.loads(contained.read_text(encoding="utf-8"))
+        payload = json.loads(
+            retry_sharing_violation(lambda: contained.read_text(encoding="utf-8"))
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise ChangeStoreCorrupt(
             f"cannot read JSON state record {contained.name}"
