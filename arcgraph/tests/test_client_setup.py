@@ -85,7 +85,7 @@ def test_merge_preserves_other_servers_and_backup(tmp_path, client):
     new = setup._render(client, old, "arcgraph-test", server, "")
     backup = setup._write_config(path, old, new)
     assert Path(backup).read_bytes() == old
-    data = decode(path.read_text())
+    data = decode(path.read_text(encoding="utf-8"))
     key = "mcp_servers" if client in {"hermes", "codex"} else "mcpServers"
     assert data["model"] == "keep"
     assert data[key]["other"] == {"command": "other"}

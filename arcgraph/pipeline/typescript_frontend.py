@@ -356,6 +356,8 @@ class TypeScriptGraphAnalyzer:
             [node, str(script_path)],
             input=json.dumps(request),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             cwd=str(self.repo_root),
             timeout=self.timeout_seconds,

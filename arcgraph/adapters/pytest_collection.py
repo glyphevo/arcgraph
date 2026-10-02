@@ -44,7 +44,7 @@ class PytestCollection:
             try:
                 if name == "pyproject.toml":
                     values = (
-                        tomllib.loads(path.read_text())
+                        tomllib.loads(path.read_text(encoding="utf-8"))
                         .get("tool", {})
                         .get("pytest", {})
                         .get("ini_options")
@@ -53,7 +53,7 @@ class PytestCollection:
                         continue
                 else:
                     config = configparser.ConfigParser(interpolation=None)
-                    config.read_string(path.read_text())
+                    config.read_string(path.read_text(encoding="utf-8"))
                     if not config.has_section(section):
                         if name in {"pytest.ini", ".pytest.ini"}:
                             return cls()

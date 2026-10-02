@@ -693,3 +693,55 @@ def test_sibling_conftest_unknown_providers_do_not_block_builtin(tmp_path):
         },
     )
     assert any(e.target == "extsym:pytest.MonkeyPatch.setenv" for e in result.edges)
+
+
+_NON_UTF8_LOCALE_PROBE = """
+import json, locale, sys
+from pathlib import Path
+from arcgraph.adapters.pytest_collection import PytestCollection
+
+encoding = locale.getpreferredencoding(False)
+collection = PytestCollection.from_root(Path(sys.argv[1]))
+print(json.dumps({"encoding": encoding, "python_files": collection.python_files}))
+"""
+
+
+@pytest.mark.parametrize(
+    "name,config",
+    [
+        (
+            "pyproject.toml",
+            '[project]\nname = "含空格"\n\n'
+            '[tool.pytest.ini_options]\npython_files = ["check_*.py"]\n',
+        ),
+        ("setup.cfg", "# 含空格\n[tool:pytest]\npython_files = check_*.py\n"),
+    ],
+)
+def test_collection_config_is_read_as_utf8_under_a_non_utf8_locale(
+    tmp_path, name, config
+):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    (tmp_path / name).write_text(config, encoding="utf-8")
+    env = {
+        **os.environ,
+        "LC_ALL": "C",
+        "LANG": "C",
+        "PYTHONUTF8": "0",
+        "PYTHONCOERCECLOCALE": "0",
+    }
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8=0", "-c", _NON_UTF8_LOCALE_PROBE, str(tmp_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        check=True,
+    )
+    report = json.loads(result.stdout)
+    if report["encoding"].replace("-", "").lower() == "utf8":
+        pytest.skip("this platform kept a UTF-8 locale encoding")
+    assert report["python_files"] == ["check_*.py"]
