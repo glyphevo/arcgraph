@@ -14,6 +14,7 @@ from arcgraph.change.contracts import CHANGE_CONTRACT_VERSION
 from arcgraph.core.evidence_manifest import evidence_manifest_path
 from arcgraph.core.operation_lock import arcgraph_operation_lock
 from arcgraph.core.schemas import SCHEMA_VERSION
+from arcgraph.core.sharing_retry import retry_sharing_violation
 
 DEFAULT_BUILD_RETENTION = 3
 # Sizes change only when a build is published or pruned, so a short reuse
@@ -451,7 +452,9 @@ def _current_build(
 ) -> tuple[Path | None, str | None]:
     current_path = output_dir / "current.json"
     try:
-        current = json.loads(current_path.read_text(encoding="utf-8"))
+        current = json.loads(
+            retry_sharing_violation(lambda: current_path.read_text(encoding="utf-8"))
+        )
         build_rel = Path(str(current["build_dir"]))
     except FileNotFoundError:
         return None, f"No current.json found at {current_path}"

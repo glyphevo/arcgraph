@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import time
+from types import SimpleNamespace
 
 import pytest
 
 from arcgraph.change.store import atomic_write_json, read_json_object
 from arcgraph.core import sharing_retry
+from arcgraph.core.cleanup import arcgraph_output_storage_status
 from arcgraph.core.graph_store import GraphStoreReader, GraphStoreWriter
 from arcgraph.core.schemas import IndexMetadata
 
@@ -31,8 +34,13 @@ def windows_retry(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
 
     clock = _FakeClock()
     monkeypatch.setattr(sharing_retry, "_RETRY_SHARING_VIOLATIONS", True)
-    monkeypatch.setattr(sharing_retry.time, "monotonic", clock.monotonic)
-    monkeypatch.setattr(sharing_retry.time, "sleep", clock.sleep)
+    # Replace only the module's own reference; the process-wide time module
+    # stays real for everything else the test exercises.
+    monkeypatch.setattr(
+        sharing_retry,
+        "time",
+        SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep),
+    )
     return clock
 
 
@@ -187,3 +195,41 @@ def test_change_store_read_retries_during_pointer_publication(
 
     assert read_json_object(target, root=tmp_path) == {"revision": 1}
     assert blocked == 1
+
+
+def test_windows_retry_fixture_leaves_the_global_clock_alone(
+    windows_retry: _FakeClock,
+) -> None:
+    assert sharing_retry.time.monotonic == windows_retry.monotonic
+    assert time.monotonic != windows_retry.monotonic
+    assert time.sleep != windows_retry.sleep
+
+
+def test_storage_status_retries_a_current_json_read_during_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    output_dir: Path = tmp_path / "arcgraph"
+    metadata = IndexMetadata(
+        index_version="test-index",
+        repo_root=str(tmp_path),
+        source_roots=["src"],
+    )
+    GraphStoreWriter(output_dir).write(metadata, [], [], [], [])
+    original_read_text = Path.read_text
+    blocked = 0
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        nonlocal blocked
+        if self.name == "current.json" and blocked < 1:
+            blocked += 1
+            raise _sharing_violation()
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    status = arcgraph_output_storage_status(output_dir, refresh=True)
+
+    assert blocked == 1
+    assert status["current_build"] == "builds/test-index"
