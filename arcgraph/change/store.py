@@ -289,6 +289,10 @@ class ChangeStateStore:
         try:
             pointer = self._read_model(pointer_path, DecisionCurrentPointer)
         except ChangeStoreNotFound:
+            # Only a pointer that is really absent means "no decision";
+            # anything else occupying its place stays an error.
+            if pointer_path.exists() or pointer_path.is_symlink():
+                raise
             return None
         if pointer.plan_id != plan_id:
             raise ChangeStoreCorrupt(

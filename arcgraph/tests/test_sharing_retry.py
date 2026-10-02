@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from arcgraph.change.contracts import PlanDecision
+from arcgraph.change.errors import ChangeStoreNotFound
 from arcgraph.change.store import (
     ChangeStateStore,
     atomic_write_json,
@@ -386,3 +387,15 @@ def test_current_decision_is_none_without_a_pointer(tmp_path: Path) -> None:
     store.write_revision(_revision())
 
     assert store.read_current_decision("plan") is None
+
+
+def test_current_decision_still_rejects_a_directory_in_place_of_the_pointer(
+    tmp_path: Path,
+) -> None:
+    store = ChangeStateStore(tmp_path / "output", repo_id="repo")
+    store.write_revision(_revision())
+    pointer: Path = store._path("plans", "plan", "decision-current.json")
+    pointer.mkdir(parents=True)
+
+    with pytest.raises(ChangeStoreNotFound):
+        store.read_current_decision("plan")
