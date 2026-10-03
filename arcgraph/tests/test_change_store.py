@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,11 @@ from arcgraph.change.contracts import (
     WorkingTreeIdentity,
 )
 from arcgraph.change.errors import ChangeStoreCorrupt
-from arcgraph.change.store import ChangeStateStore
+from arcgraph.change.store import (
+    ChangeStateStore,
+    atomic_write_json,
+    read_json_object,
+)
 
 
 def _revision() -> ChangePlanRevision:
@@ -160,6 +165,43 @@ def test_store_fails_closed_on_a_corrupt_record_header(tmp_path: Path) -> None:
 
     with pytest.raises(ChangeStoreCorrupt):
         store.read_revision("plan", 1)
+
+
+@pytest.mark.parametrize("check", ["is_symlink", "is_file"])
+def test_read_fails_closed_when_the_record_cannot_be_inspected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, check: str
+) -> None:
+    target = tmp_path / "plans" / "plan" / "current.json"
+    atomic_write_json(target, {"revision": 1}, root=tmp_path)
+    original = getattr(Path, check)
+
+    def denied(self: Path, *args: object, **kwargs: object) -> bool:
+        if self.name == "current.json":
+            raise PermissionError(13, "Permission denied", str(self))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, check, denied)
+
+    with pytest.raises(ChangeStoreCorrupt, match="cannot inspect") as caught:
+        read_json_object(target, root=tmp_path)
+    assert isinstance(caught.value.__cause__, PermissionError)
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or os.geteuid() == 0,
+    reason="needs POSIX permissions that apply to the current user",
+)
+def test_read_fails_closed_when_a_parent_directory_denies_search(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "plans" / "plan" / "current.json"
+    atomic_write_json(target, {"revision": 1}, root=tmp_path)
+    target.parent.chmod(0o600)
+    try:
+        with pytest.raises(ChangeStoreCorrupt, match="cannot inspect"):
+            read_json_object(target, root=tmp_path)
+    finally:
+        target.parent.chmod(0o700)
 
 
 def test_health_check_rejects_unsafe_entries_and_cross_plan_events(

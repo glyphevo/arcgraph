@@ -74,7 +74,15 @@ def atomic_write_json(path: Path, payload: dict[str, Any], *, root: Path) -> Non
 
 def read_json_object(path: Path, *, root: Path) -> dict[str, Any]:
     contained = ensure_contained_path(root, path)
-    if contained.is_symlink() or not is_regular_file(contained):
+    try:
+        # pathlib answers "missing" for absent paths but raises other errors,
+        # such as a parent directory that denies search permission.
+        present = not contained.is_symlink() and is_regular_file(contained)
+    except OSError as exc:
+        raise ChangeStoreCorrupt(
+            f"cannot inspect JSON state record {contained.name}"
+        ) from exc
+    if not present:
         raise ChangeStoreNotFound(f"state record does not exist: {contained.name}")
     try:
         payload = json.loads(
