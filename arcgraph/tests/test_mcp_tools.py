@@ -587,7 +587,9 @@ def test_mcp_qualified_caller_ids_remain_distinct_and_resolve(tmp_path: Path) ->
     repo = tmp_path / "repo"
     tests = repo / "tests"
     tests.mkdir(parents=True)
-    (repo / "registry.py").write_text("def get_all_channels():\n    return []\n")
+    (repo / "registry.py").write_text(
+        "def get_all_channels():\n    return []\n", encoding="utf-8"
+    )
     callers = {
         "test_channels": ("TestChannelRegistry", "test_all_channels_registered"),
         "test_doctor": ("TestDoctor", "test_check_all_collects_channel_results"),
@@ -595,7 +597,8 @@ def test_mcp_qualified_caller_ids_remain_distinct_and_resolve(tmp_path: Path) ->
     for module, (cls, method) in callers.items():
         (tests / f"{module}.py").write_text(
             f"from registry import get_all_channels\n\nclass {cls}:\n"
-            f"    def {method}(self):\n        return get_all_channels()\n"
+            f"    def {method}(self):\n        return get_all_channels()\n",
+            encoding="utf-8",
         )
     output = tmp_path / "index"
     ArcGraphIndexer(

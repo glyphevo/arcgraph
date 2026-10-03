@@ -46,7 +46,10 @@ def test_tracked_tree_excludes_private_documentation() -> None:
     # Use HEAD rather than local ignored files; this is also checked after
     # assembling the candidate and filtering its history.
     paths = subprocess.check_output(
-        ["git", "ls-tree", "-r", "--name-only", "HEAD"], cwd=ROOT, text=True
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
     ).splitlines()
     assert not [p for p in paths if p.startswith(PRIVATE_DIRECTORIES)]
     assert "AGENTS.md" not in paths

@@ -1312,6 +1312,7 @@ process.stdout.write(JSON.stringify(result));
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     result = json.loads(completed.stdout)
 
@@ -1363,6 +1364,7 @@ process.stdout.write(JSON.stringify({{ maximum, containmentClaims }}));
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     result = json.loads(completed.stdout)
 
@@ -1405,6 +1407,7 @@ def test_similarity_runner_omitted_allowlist_means_no_filtering() -> None:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         return json.loads(completed.stdout)
 

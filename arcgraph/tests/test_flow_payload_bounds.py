@@ -26,7 +26,8 @@ def tools(tmp_path: Path):
         "def leaf(): pass\ndef middle(): leaf()\n"
         "@app.get('/chain')\ndef route(): middle()\n"
         "def target(): pass\n"
-        + "\n".join(f"def caller{i}(): target()" for i in range(40))
+        + "\n".join(f"def caller{i}(): target()" for i in range(40)),
+        encoding="utf-8",
     )
     index = tmp_path / "index"
     ArcGraphIndexer(repo, index, [SourceRoot(".")]).build()

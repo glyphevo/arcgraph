@@ -14,7 +14,7 @@ class Second:
 
 
 def analyze(tmp_path: Path, source: str):
-    (tmp_path / "sample.py").write_text(HEADER + source)
+    (tmp_path / "sample.py").write_text(HEADER + source, encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -142,7 +142,7 @@ def test_comprehension_in_nested_function(tmp_path: Path):
         HEADER
         + "def outer():\n    def inner(first: list[First], second: list[Second]):\n        [item.act() for item in first]\n        [item.act() for item in second]\n"
     )
-    (tmp_path / "sample.py").write_text(source)
+    (tmp_path / "sample.py").write_text(source, encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -158,7 +158,7 @@ def test_class_comprehension_does_not_capture_class_locals(tmp_path: Path):
         HEADER
         + "class Container:\n    item: First\n    values: list[Second]\n    result = [item.act() for value in values]\n"
     )
-    (tmp_path / "sample.py").write_text(source)
+    (tmp_path / "sample.py").write_text(source, encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -170,7 +170,8 @@ def test_class_comprehension_does_not_capture_class_locals(tmp_path: Path):
 
 def test_comprehension_callable_shadows_module_function(tmp_path: Path):
     (tmp_path / "sample.py").write_text(
-        "def operation(): ...\ndef use(operations):\n    return [operation() for operation in operations]\n"
+        "def operation(): ...\ndef use(operations):\n    return [operation() for operation in operations]\n",
+        encoding="utf-8",
     )
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
@@ -189,10 +190,11 @@ def test_provider_change_refreshes_comprehension_consumer(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
     model = repo / "model.py"
-    model.write_text("class Item:\n    def act(self): ...\n")
+    model.write_text("class Item:\n    def act(self): ...\n", encoding="utf-8")
     consumer = repo / "consumer.py"
     consumer.write_text(
-        "from model import Item\ndef use(items: list[Item]):\n    return [item.act() for item in items]\n"
+        "from model import Item\ndef use(items: list[Item]):\n    return [item.act() for item in items]\n",
+        encoding="utf-8",
     )
     original = consumer.read_bytes()
     output = tmp_path / "index"
@@ -210,7 +212,7 @@ def test_provider_change_refreshes_comprehension_consumer(tmp_path: Path):
     for i, body in enumerate(
         ["class Item: pass\n", "class Item:\n    def act(self): ...\n"]
     ):
-        model.write_text(body)
+        model.write_text(body, encoding="utf-8")
         ArcGraphReindexer(repo, output, roots).reindex_changed()
         full = tmp_path / f"full-{i}"
         ArcGraphIndexer(repo, full, roots).build()
@@ -221,7 +223,8 @@ def test_provider_change_refreshes_comprehension_consumer(tmp_path: Path):
 
 def test_untyped_comprehension_keeps_only_explicit_generic_heuristics(tmp_path: Path):
     (tmp_path / "sample.py").write_text(
-        'class Config:\n    def get(self, key): ...\ndef use(records):\n    return [config.get("key") for config in records]\n'
+        'class Config:\n    def get(self, key): ...\ndef use(records):\n    return [config.get("key") for config in records]\n',
+        encoding="utf-8",
     )
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
@@ -236,7 +239,8 @@ def test_known_or_mixed_elements_cannot_use_string_heuristics(
     tmp_path: Path, annotation: str
 ):
     (tmp_path / "sample.py").write_text(
-        f"def use(items: {annotation}):\n    return [item.strip() for item in items]\n"
+        f"def use(items: {annotation}):\n    return [item.strip() for item in items]\n",
+        encoding="utf-8",
     )
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
@@ -249,7 +253,7 @@ def test_shadowed_self_does_not_read_enclosing_class_field(tmp_path: Path):
         HEADER
         + "class Container:\n    value: First\n    def use(self, others: list[object]):\n        return [self.value.act() for self in others]\n"
     )
-    (tmp_path / "sample.py").write_text(source)
+    (tmp_path / "sample.py").write_text(source, encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -276,7 +280,7 @@ class Container:
     values: list[First]
     def use(self, others: list[Other]):
         return """ + expression + "\n"
-    (tmp_path / "sample.py").write_text(source)
+    (tmp_path / "sample.py").write_text(source, encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )

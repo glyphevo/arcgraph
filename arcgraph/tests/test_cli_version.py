@@ -29,6 +29,7 @@ def test_source_checkout_wrapper_reports_the_same_version() -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
     assert completed.stdout == f"arcgraph {__version__}\n"

@@ -39,9 +39,9 @@ def test_repeated_partial_edits_match_full_build(tmp_path: Path, case: str):
     provider = repo / "provider.py"
     consumer = repo / "consumer.py"
     unrelated = repo / "unrelated.py"
-    provider.write_text(PROVIDER)
-    consumer.write_text(CONSUMERS[case])
-    unrelated.write_text("VALUE = 1\n")
+    provider.write_text(PROVIDER, encoding="utf-8")
+    consumer.write_text(CONSUMERS[case], encoding="utf-8")
+    unrelated.write_text("VALUE = 1\n", encoding="utf-8")
     roots = [SourceRoot(".")]
     index = tmp_path / "index"
     ArcGraphIndexer(repo, index, roots).build()
@@ -61,7 +61,7 @@ def test_repeated_partial_edits_match_full_build(tmp_path: Path, case: str):
         if source is None:
             path.unlink()
         else:
-            path.write_text(source)
+            path.write_text(source, encoding="utf-8")
         ArcGraphReindexer(repo, index, roots).reindex_changed()
         full = tmp_path / f"full-{step}"
         ArcGraphIndexer(repo, full, roots).build()
@@ -79,11 +79,11 @@ def test_repeated_partial_edits_match_full_build(tmp_path: Path, case: str):
 def test_context_nodes_do_not_resurrect_replaced_provider(tmp_path: Path):
     provider = tmp_path / "provider.py"
     consumer = tmp_path / "consumer.py"
-    provider.write_text(PROVIDER)
-    consumer.write_text(CONSUMERS["inherited_comprehension"])
+    provider.write_text(PROVIDER, encoding="utf-8")
+    consumer.write_text(CONSUMERS["inherited_comprehension"], encoding="utf-8")
     roots = [SourceRoot(".")]
     old = PythonGraphAnalyzer().analyze(FileScanner(tmp_path, roots).scan())
-    provider.write_text("class Pet: pass\n")
+    provider.write_text("class Pet: pass\n", encoding="utf-8")
     files = FileScanner(tmp_path, roots).scan()
     # Even an API caller supplying stale context cannot override current files.
     current = PythonGraphAnalyzer().analyze(files, call_context_nodes=old.nodes)
@@ -91,9 +91,13 @@ def test_context_nodes_do_not_resurrect_replaced_provider(tmp_path: Path):
 
 
 def test_explicit_import_does_not_select_unrelated_same_named_class(tmp_path: Path):
-    (tmp_path / "provider.py").write_text("class Other: pass\n")
-    (tmp_path / "unrelated.py").write_text("class Pet:\n    def speak(self): pass\n")
-    (tmp_path / "consumer.py").write_text(CONSUMERS["inherited_comprehension"])
+    (tmp_path / "provider.py").write_text("class Other: pass\n", encoding="utf-8")
+    (tmp_path / "unrelated.py").write_text(
+        "class Pet:\n    def speak(self): pass\n", encoding="utf-8"
+    )
+    (tmp_path / "consumer.py").write_text(
+        CONSUMERS["inherited_comprehension"], encoding="utf-8"
+    )
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -106,14 +110,18 @@ def test_explicit_import_does_not_select_unrelated_same_named_class(tmp_path: Pa
 def test_provider_rename_with_same_named_unrelated_class(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "provider.py").write_text(PROVIDER)
-    (repo / "consumer.py").write_text(CONSUMERS["inherited_comprehension"])
-    (repo / "other.py").write_text("class Pet:\n    def speak(self): pass\n")
+    (repo / "provider.py").write_text(PROVIDER, encoding="utf-8")
+    (repo / "consumer.py").write_text(
+        CONSUMERS["inherited_comprehension"], encoding="utf-8"
+    )
+    (repo / "other.py").write_text(
+        "class Pet:\n    def speak(self): pass\n", encoding="utf-8"
+    )
     roots = [SourceRoot(".")]
     index = tmp_path / "index"
     ArcGraphIndexer(repo, index, roots).build()
     for step, source in enumerate(["class Renamed: pass\n", PROVIDER]):
-        (repo / "provider.py").write_text(source)
+        (repo / "provider.py").write_text(source, encoding="utf-8")
         ArcGraphReindexer(repo, index, roots).reindex_changed()
         full = tmp_path / f"full-{step}"
         ArcGraphIndexer(repo, full, roots).build()
@@ -128,11 +136,13 @@ def test_provider_rename_with_same_named_unrelated_class(tmp_path: Path):
 
 
 def test_parse_error_does_not_reuse_old_context(tmp_path: Path):
-    (tmp_path / "provider.py").write_text(PROVIDER)
-    (tmp_path / "consumer.py").write_text(CONSUMERS["inherited_comprehension"])
+    (tmp_path / "provider.py").write_text(PROVIDER, encoding="utf-8")
+    (tmp_path / "consumer.py").write_text(
+        CONSUMERS["inherited_comprehension"], encoding="utf-8"
+    )
     roots = [SourceRoot(".")]
     old = PythonGraphAnalyzer().analyze(FileScanner(tmp_path, roots).scan())
-    (tmp_path / "provider.py").write_text("class Pet(\n")
+    (tmp_path / "provider.py").write_text("class Pet(\n", encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, roots).scan(), call_context_nodes=old.nodes
     )

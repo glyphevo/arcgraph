@@ -10,7 +10,7 @@ def graph(tmp_path, sources):
     for name, source in sources.items():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source)
+        path.write_text(source, encoding="utf-8")
     return PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -153,14 +153,19 @@ def test_reexports_remain_correct_across_incremental_provider_edits(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "pkg").mkdir()
-    (repo / "pkg/__init__.py").write_text("from .client import Client\n")
+    (repo / "pkg/__init__.py").write_text(
+        "from .client import Client\n", encoding="utf-8"
+    )
     provider = repo / "pkg/client.py"
     source = "class Client:\n    def send(self): pass\n"
-    provider.write_text(source)
+    provider.write_text(source, encoding="utf-8")
     (repo / "consumer.py").write_text(
-        "from pkg import Client\ndef use(c: Client | None):\n    c.send()\n"
+        "from pkg import Client\ndef use(c: Client | None):\n    c.send()\n",
+        encoding="utf-8",
     )
-    (repo / "other.py").write_text("class Client:\n    def send(self): pass\n")
+    (repo / "other.py").write_text(
+        "class Client:\n    def send(self): pass\n", encoding="utf-8"
+    )
     index = tmp_path / "index"
     roots = [SourceRoot(".")]
     ArcGraphIndexer(repo, index, roots).build()
@@ -170,7 +175,7 @@ def test_reexports_remain_correct_across_incremental_provider_edits(tmp_path):
         if src is None:
             provider.unlink()
         else:
-            provider.write_text(src)
+            provider.write_text(src, encoding="utf-8")
         ArcGraphReindexer(repo, index, roots).reindex_changed()
         full = tmp_path / f"full-{i}"
         ArcGraphIndexer(repo, full, roots).build()
@@ -212,14 +217,18 @@ def test_unannotated_reexport_consumers_follow_export_switches(
     (repo / "pkg").mkdir(parents=True)
     roots = [SourceRoot(".")]
     source = "class Client:\n    def send(self): pass\n"
-    (repo / "pkg/client.py").write_text(source)
-    (repo / "pkg/v2.py").write_text(source)
+    (repo / "pkg/client.py").write_text(source, encoding="utf-8")
+    (repo / "pkg/v2.py").write_text(source, encoding="utf-8")
     export = repo / ("pkg/api.py" if multihop else "pkg/__init__.py")
     if multihop:
-        (repo / "pkg/__init__.py").write_text("from .api import Client\n")
-    export.write_text("from .client import Client\n")
-    (repo / "consumer.py").write_text(f"{imports}\ndef run():\n    {body}\n")
-    (repo / "unrelated.py").write_text("VALUE = 1\n")
+        (repo / "pkg/__init__.py").write_text(
+            "from .api import Client\n", encoding="utf-8"
+        )
+    export.write_text("from .client import Client\n", encoding="utf-8")
+    (repo / "consumer.py").write_text(
+        f"{imports}\ndef run():\n    {body}\n", encoding="utf-8"
+    )
+    (repo / "unrelated.py").write_text("VALUE = 1\n", encoding="utf-8")
     inc = tmp_path / "inc"
     ArcGraphIndexer(repo, inc, roots).build()
     edits = [
@@ -257,7 +266,7 @@ def test_unannotated_reexport_consumers_follow_export_switches(
         if code is None:
             path.unlink()
         else:
-            path.write_text(code)
+            path.write_text(code, encoding="utf-8")
         ArcGraphReindexer(repo, inc, roots).reindex_changed()
         full = tmp_path / f"full-{step}"
         ArcGraphIndexer(repo, full, roots).build()
@@ -284,10 +293,11 @@ def test_direct_import_constructor_recovers_missing_provider_method(tmp_path):
     repo.mkdir()
     roots = [SourceRoot(".")]
     (repo / "consumer.py").write_text(
-        "from provider import Client\ndef run():\n    c = Client()\n    return c.send()\n"
+        "from provider import Client\ndef run():\n    c = Client()\n    return c.send()\n",
+        encoding="utf-8",
     )
     provider = repo / "provider.py"
-    provider.write_text("class Client: pass\n")
+    provider.write_text("class Client: pass\n", encoding="utf-8")
     inc = tmp_path / "inc"
     ArcGraphIndexer(repo, inc, roots).build()
     for step, code in enumerate(
@@ -297,7 +307,7 @@ def test_direct_import_constructor_recovers_missing_provider_method(tmp_path):
             "class Client:\n    def send(self): pass\n",
         ]
     ):
-        provider.write_text(code)
+        provider.write_text(code, encoding="utf-8")
         ArcGraphReindexer(repo, inc, roots).reindex_changed()
         full = tmp_path / f"full-{step}"
         ArcGraphIndexer(repo, full, roots).build()

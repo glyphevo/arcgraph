@@ -11,9 +11,12 @@ def test_explicit_failed_target_never_returns_global_diagnostics(tmp_path: Path)
     repo.mkdir()
     (repo / "sample.py").write_text(
         "import pytest\n@pytest.fixture\ndef value():\n    return 1\n"
-        "class Worker:\n    def run(self, unknown):\n        unknown.work()\n"
+        "class Worker:\n    def run(self, unknown):\n        unknown.work()\n",
+        encoding="utf-8",
     )
-    (repo / "other.py").write_text("def run(unknown):\n    unknown.other()\n")
+    (repo / "other.py").write_text(
+        "def run(unknown):\n    unknown.other()\n", encoding="utf-8"
+    )
     output = tmp_path / "index"
     ArcGraphIndexer(repo, output, [SourceRoot(".")]).build()
     engine = QueryEngine(output)

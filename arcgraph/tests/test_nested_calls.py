@@ -213,7 +213,8 @@ def test_reindex_updates_capture_type_and_removes_deleted_nested_symbol(tmp_path
     roots = [SourceRoot(".")]
     source.write_text(
         HEADER
-        + "def outer():\n    eyes = Reporter()\n    def inner():\n        return eyes.report()\n    return inner\n"
+        + "def outer():\n    eyes = Reporter()\n    def inner():\n        return eyes.report()\n    return inner\n",
+        encoding="utf-8",
     )
     ArcGraphIndexer(repo, output, roots, enable_v2_call_resolution=True).build()
 
@@ -225,11 +226,14 @@ def test_reindex_updates_capture_type_and_removes_deleted_nested_symbol(tmp_path
 
     assert "fn:sample.outer.inner" in callers()
     source.write_text(
-        source.read_text().replace("eyes = Reporter()", "eyes = unknown()")
+        source.read_text(encoding="utf-8").replace(
+            "eyes = Reporter()", "eyes = unknown()"
+        ),
+        encoding="utf-8",
     )
     ArcGraphReindexer(repo, output, roots).reindex_changed()
     assert "fn:sample.outer.inner" not in callers()
-    source.write_text(HEADER + "def outer():\n    return None\n")
+    source.write_text(HEADER + "def outer():\n    return None\n", encoding="utf-8")
     ArcGraphReindexer(repo, output, roots).reindex_changed()
     assert not QueryEngine(output).symbol("sample.outer.inner")["matches"]
 

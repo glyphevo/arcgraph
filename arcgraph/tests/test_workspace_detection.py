@@ -223,7 +223,7 @@ def test_setup_cfg_where(tmp_path: Path) -> None:
 def test_package_import_root_deduction(tmp_path: Path) -> None:
     """src/pkg/__init__.py → SourceRoot("src", "")"""
     (tmp_path / "src" / "pkg").mkdir(parents=True)
-    (tmp_path / "src" / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "src" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
     result = _detect_from_packages_and_scripts(tmp_path)
     assert result is not None
     roots, _ = result
@@ -233,7 +233,7 @@ def test_package_import_root_deduction(tmp_path: Path) -> None:
 def test_flat_layout_package(tmp_path: Path) -> None:
     """pkg/__init__.py at repo root → SourceRoot(".", "")"""
     (tmp_path / "pkg").mkdir()
-    (tmp_path / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
     result = _detect_from_packages_and_scripts(tmp_path)
     assert result is not None
     roots, _ = result
@@ -243,7 +243,7 @@ def test_flat_layout_package(tmp_path: Path) -> None:
 def test_non_package_dir_with_prefix(tmp_path: Path) -> None:
     """scripts/foo.py (no __init__.py) → SourceRoot("scripts", "scripts")"""
     (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "foo.py").write_text("# script")
+    (tmp_path / "scripts" / "foo.py").write_text("# script", encoding="utf-8")
     result = _detect_from_packages_and_scripts(tmp_path)
     assert result is not None
     roots, non_pkg_dirs = result
@@ -257,8 +257,8 @@ def test_same_path_conflict_package_wins(tmp_path: Path) -> None:
     # and has standalone .py files
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib" / "pkg").mkdir()
-    (tmp_path / "lib" / "pkg" / "__init__.py").write_text("")
-    (tmp_path / "lib" / "main.py").write_text("# standalone")
+    (tmp_path / "lib" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "lib" / "main.py").write_text("# standalone", encoding="utf-8")
     result = _detect_from_packages_and_scripts(tmp_path)
     assert result is not None
     roots, _ = result

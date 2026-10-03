@@ -20,7 +20,8 @@ from arcgraph.providers.relationship_payload import (
 def query_trial(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "app.py").write_text("""from fastapi import FastAPI
+    (repo / "app.py").write_text(
+        """from fastapi import FastAPI
 from sqlalchemy import update
 from sqlalchemy.orm import DeclarativeBase
 from arq import cron
@@ -40,10 +41,13 @@ class WorkerSettings:
     queue_name = "arq:jobs"
     functions = [job]
     cron_jobs = [cron(poll)]
-""")
+""",
+        encoding="utf-8",
+    )
     (repo / "test_app.py").write_text(
         "from app import target\n"
-        + "\n".join(f"def test_{i}(): target(None)" for i in range(8))
+        + "\n".join(f"def test_{i}(): target(None)" for i in range(8)),
+        encoding="utf-8",
     )
     index = tmp_path / "index"
     ArcGraphIndexer(repo, index, [SourceRoot(".")]).build()

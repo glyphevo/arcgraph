@@ -19,7 +19,7 @@ def analyze(tmp_path: Path, sources: dict[str, str]) -> FrontendGraphFragment:
     for path, text in sources.items():
         file = tmp_path / path
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(text)
+        file.write_text(text, encoding="utf-8")
     files = FileScanner(tmp_path, [SourceRoot(".")]).scan()
     return PythonGraphAnalyzer(adapter_registry=default_adapter_registry()).analyze(
         files
@@ -255,8 +255,10 @@ def test_incremental_provider_change_addition_and_deletion_match_full_build(
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "test_api.py").write_text("def test_status(eyes): eyes.status()\n")
-    (repo / "model.py").write_text(HEADER + OTHER)
+    (repo / "test_api.py").write_text(
+        "def test_status(eyes): eyes.status()\n", encoding="utf-8"
+    )
+    (repo / "model.py").write_text(HEADER + OTHER, encoding="utf-8")
     roots = [SourceRoot(".")]
     index = tmp_path / "incremental"
     ArcGraphIndexer(repo, index, roots).build()
@@ -264,7 +266,8 @@ def test_incremental_provider_change_addition_and_deletion_match_full_build(
     for return_type in ["Client", "Other", None]:
         if return_type:
             provider.write_text(
-                f"import pytest\nfrom model import {return_type}\n@pytest.fixture\ndef eyes(): return {return_type}()\n"
+                f"import pytest\nfrom model import {return_type}\n@pytest.fixture\ndef eyes(): return {return_type}()\n",
+                encoding="utf-8",
             )
         else:
             provider.unlink()
@@ -430,14 +433,15 @@ def test_incremental_new_fixture_consumer_sees_unchanged_provider_class(tmp_path
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "model.py").write_text(HEADER)
+    (repo / "model.py").write_text(HEADER, encoding="utf-8")
     consumer = repo / "test_api.py"
-    consumer.write_text("def test_empty(): pass\n")
+    consumer.write_text("def test_empty(): pass\n", encoding="utf-8")
     roots = [SourceRoot(".")]
     index = tmp_path / "index"
     ArcGraphIndexer(repo, index, roots).build()
     consumer.write_text(
-        "import pytest\nfrom model import Client\n@pytest.fixture\ndef eyes(): return Client()\ndef test_status(eyes): eyes.status()\n"
+        "import pytest\nfrom model import Client\n@pytest.fixture\ndef eyes(): return Client()\ndef test_status(eyes): eyes.status()\n",
+        encoding="utf-8",
     )
     ArcGraphReindexer(repo, index, roots).reindex_changed()
     assert "fn:test_api.test_status" in {
@@ -571,12 +575,12 @@ def test_non_pytest_incremental_edits_only_analyze_changed_file(
     repo = tmp_path / "repo"
     repo.mkdir()
     for i in range(30):
-        (repo / f"m{i}.py").write_text("VALUE = 1\n")
-    (repo / "network.py").write_text(business)
+        (repo / f"m{i}.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repo / "network.py").write_text(business, encoding="utf-8")
     roots = [SourceRoot(".")]
     out = tmp_path / "index"
     ArcGraphIndexer(repo, out, roots).build()
-    (repo / "m0.py").write_text(changed)
+    (repo / "m0.py").write_text(changed, encoding="utf-8")
     batches = []
     original = ArcGraphIndexer.analyze_files
 
@@ -598,9 +602,12 @@ def test_incremental_builtin_override_delete_restore_matches_full(tmp_path):
     repo.mkdir()
     roots = [SourceRoot(".")]
     (repo / "test_api.py").write_text(
-        'def test_run(monkeypatch):\n    monkeypatch.setenv("K", "v")\n'
+        'def test_run(monkeypatch):\n    monkeypatch.setenv("K", "v")\n',
+        encoding="utf-8",
     )
-    (repo / "model.py").write_text("class Custom:\n    def setenv(self, *args): pass\n")
+    (repo / "model.py").write_text(
+        "class Custom:\n    def setenv(self, *args): pass\n", encoding="utf-8"
+    )
     provider = repo / "conftest.py"
     index = tmp_path / "index"
     ArcGraphIndexer(repo, index, roots).build()
@@ -619,7 +626,7 @@ def test_incremental_builtin_override_delete_restore_matches_full(tmp_path):
         if source is None:
             provider.unlink()
         else:
-            provider.write_text(source)
+            provider.write_text(source, encoding="utf-8")
         ArcGraphReindexer(repo, index, roots).reindex_changed()
         full = tmp_path / f"full-{i}"
         ArcGraphIndexer(repo, full, roots).build()
@@ -642,16 +649,18 @@ def test_incremental_builtin_override_delete_restore_matches_full(tmp_path):
 def test_invalid_collection_configuration_is_conservative(tmp_path):
     from arcgraph.adapters.pytest_collection import PytestCollection
 
-    (tmp_path / "pyproject.toml").write_text('[tool.pytest]\nini_options = "invalid"\n')
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.pytest]\nini_options = "invalid"\n', encoding="utf-8"
+    )
     assert not PytestCollection.from_root(tmp_path).file_matches("test_app.py")
 
 
 def test_empty_pytest_ini_takes_precedence_over_pyproject(tmp_path):
     from arcgraph.adapters.pytest_collection import PytestCollection
 
-    (tmp_path / "pytest.ini").write_text("")
+    (tmp_path / "pytest.ini").write_text("", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\npython_files = ["check_*.py"]\n'
+        '[tool.pytest.ini_options]\npython_files = ["check_*.py"]\n', encoding="utf-8"
     )
     assert PytestCollection.from_root(tmp_path).file_matches("test_app.py")
     assert not PytestCollection.from_root(tmp_path).file_matches("check_app.py")

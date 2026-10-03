@@ -870,6 +870,7 @@ def _committed_repo(tmp_path: Path) -> tuple[Path, str]:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     # Neither an untracked file nor an edit may reach the rebuild.
     (repo / "stray.txt").write_text("not committed", encoding="utf-8")
@@ -915,6 +916,7 @@ def _rebuild_with(
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         ).stdout.strip()
         if build_returncode:
             return subprocess.CompletedProcess(command, build_returncode, "", "boom")

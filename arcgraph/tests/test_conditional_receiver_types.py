@@ -14,7 +14,7 @@ HEADER = "class Config:\n    def get(self, key): return key\nclass Other:\n    d
 
 
 def analyze(tmp_path: Path, body: str) -> FrontendGraphFragment:
-    (tmp_path / "sample.py").write_text(HEADER + body)
+    (tmp_path / "sample.py").write_text(HEADER + body, encoding="utf-8")
     files = FileScanner(tmp_path, [SourceRoot(".")]).scan()
     return PythonGraphAnalyzer().analyze(files)
 
@@ -91,12 +91,13 @@ def test_unknown_mixed_shadowed_or_unavailable_values_do_not_invent_calls(
 
 
 def test_imported_constructor_alias_and_optional_parameter(tmp_path: Path) -> None:
-    (tmp_path / "model.py").write_text(HEADER)
+    (tmp_path / "model.py").write_text(HEADER, encoding="utf-8")
     (tmp_path / "consumer.py").write_text(
         "from typing import Optional\nfrom model import Config as C\n"
         "def use(config: Optional[C] = None):\n"
         "    cfg = config if config is not None else C()\n"
-        "    alias = cfg\n    return alias.get('key')\n"
+        "    alias = cfg\n    return alias.get('key')\n",
+        encoding="utf-8",
     )
     result = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
@@ -113,10 +114,11 @@ def test_imported_constructor_alias_and_optional_parameter(tmp_path: Path) -> No
 def test_conditional_join_does_not_reuse_shadowed_import_or_local_type(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "model.py").write_text(HEADER)
+    (tmp_path / "model.py").write_text(HEADER, encoding="utf-8")
     (tmp_path / "consumer.py").write_text(
         "from model import Config\nConfig = unknown()\n"
-        "def use(flag):\n    cfg = Config() if flag else Config()\n    return cfg.get('key')\n"
+        "def use(flag):\n    cfg = Config() if flag else Config()\n    return cfg.get('key')\n",
+        encoding="utf-8",
     )
     result = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
@@ -139,12 +141,13 @@ def test_conditional_join_does_not_reuse_shadowed_import_or_local_type(
 def test_parameter_type_needs_exact_stable_import_identity(
     tmp_path: Path, imports: str, annotation: str
 ) -> None:
-    (tmp_path / "model.py").write_text(HEADER)
+    (tmp_path / "model.py").write_text(HEADER, encoding="utf-8")
     (tmp_path / "consumer.py").write_text(
         "from model import Config as Local\n"
         + imports
         + f"def use(config: {annotation}, flag):\n"
-        "    cfg = config if flag else Local()\n    return cfg.get('key')\n"
+        "    cfg = config if flag else Local()\n    return cfg.get('key')\n",
+        encoding="utf-8",
     )
     result = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
@@ -169,7 +172,8 @@ def test_conditional_join_incremental_replacement_matches_full_build(
     output = tmp_path / "index"
     path.write_text(
         HEADER
-        + "def use(flag):\n    cfg = Config() if flag else Config()\n    return cfg.get('key')\n"
+        + "def use(flag):\n    cfg = Config() if flag else Config()\n    return cfg.get('key')\n",
+        encoding="utf-8",
     )
     ArcGraphIndexer(repo, output, roots).build()
 
@@ -188,7 +192,8 @@ def test_conditional_join_incremental_replacement_matches_full_build(
     ):
         path.write_text(
             HEADER
-            + f"def use(flag, config=None):\n    cfg = {expr}\n    return cfg.get('key')\n"
+            + f"def use(flag, config=None):\n    cfg = {expr}\n    return cfg.get('key')\n",
+            encoding="utf-8",
         )
         ArcGraphReindexer(repo, output, roots).reindex_changed()
         full = tmp_path / f"full-{i}"
@@ -207,10 +212,11 @@ def test_provider_changes_refresh_unchanged_conditional_consumers(
     repo: Path = tmp_path / "repo"
     repo.mkdir()
     model: Path = repo / "model.py"
-    model.write_text("# Class is initially unavailable.\n")
+    model.write_text("# Class is initially unavailable.\n", encoding="utf-8")
     (repo / "consumer.py").write_text(
         "from model import Config\ndef use(flag):\n"
-        "    cfg = Config() if flag else Config()\n    return cfg.get('key')\n"
+        "    cfg = Config() if flag else Config()\n    return cfg.get('key')\n",
+        encoding="utf-8",
     )
     roots = [SourceRoot(".")]
     output = tmp_path / "index"
@@ -227,7 +233,7 @@ def test_provider_changes_refresh_unchanged_conditional_consumers(
     for i, text in enumerate(
         [HEADER, "class Config:\n    def other(self): pass\n", "# Removed\n"]
     ):
-        model.write_text(text)
+        model.write_text(text, encoding="utf-8")
         ArcGraphReindexer(repo, output, roots).reindex_changed()
         full = tmp_path / f"full-{i}"
         ArcGraphIndexer(repo, full, roots).build()

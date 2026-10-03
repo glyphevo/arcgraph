@@ -1587,6 +1587,7 @@ def test_a_forged_dependency_passes_the_content_check_but_not_the_clean_rebuild(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
 
     genuine_wheel, genuine_sdist = _write_archives(tmp_path / "genuine", smoke, members)

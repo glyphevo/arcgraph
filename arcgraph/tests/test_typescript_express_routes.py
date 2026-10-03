@@ -1231,7 +1231,10 @@ app.use("/api", router);
     )
     router_path = tmp_path / "src" / "router.ts"
     router_path.write_text(
-        router_path.read_text(encoding="utf-8").replace("return [];", 'return ["new"];')
+        router_path.read_text(encoding="utf-8").replace(
+            "return [];", 'return ["new"];'
+        ),
+        encoding="utf-8",
     )
 
     with pytest.raises(RuntimeError, match="Express mount context"):

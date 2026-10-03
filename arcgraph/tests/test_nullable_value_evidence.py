@@ -10,7 +10,7 @@ from arcgraph.pipeline.python_frontend import PythonGraphAnalyzer
 
 
 def analyze(tmp_path: Path, source: str) -> FrontendGraphFragment:
-    (tmp_path / "sample.py").write_text(source)
+    (tmp_path / "sample.py").write_text(source, encoding="utf-8")
     return PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -194,9 +194,10 @@ def test_inherited_provider_changes_match_full_build(
         if initial_override
         else "class Child(Parent): pass\n"
     )
-    provider.write_text(parent + child)
+    provider.write_text(parent + child, encoding="utf-8")
     (repo / "consumer.py").write_text(
-        "from model import Child\ndef use(value: Child):\n    return value.fetch()\n"
+        "from model import Child\ndef use(value: Child):\n    return value.fetch()\n",
+        encoding="utf-8",
     )
     roots = [SourceRoot(".")]
     index = tmp_path / "index"
@@ -227,7 +228,7 @@ def test_inherited_provider_changes_match_full_build(
             parent + "class Child(Parent): pass\n",
         ]
     ):
-        provider.write_text(source)
+        provider.write_text(source, encoding="utf-8")
         ArcGraphReindexer(repo, index, roots).reindex_changed()
         full = tmp_path / f"full-{step}"
         ArcGraphIndexer(repo, full, roots).build()

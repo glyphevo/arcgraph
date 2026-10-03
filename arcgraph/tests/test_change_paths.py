@@ -77,6 +77,7 @@ def test_repository_path_rejects_junction_escape_without_symlink_privilege(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if completed.returncode != 0:
         pytest.skip(f"junction creation unavailable: {completed.stderr}")

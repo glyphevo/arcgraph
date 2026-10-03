@@ -17,7 +17,9 @@ GUIDE = Path(__file__).resolve().parents[2] / "docs" / "agent-reading-guide.md"
 def _examples() -> dict[str, dict[str, object]]:
     blocks = [
         json.loads(block)
-        for block in re.findall(r"```json\n(.*?)\n```", GUIDE.read_text(), re.DOTALL)
+        for block in re.findall(
+            r"```json\n(.*?)\n```", GUIDE.read_text(encoding="utf-8"), re.DOTALL
+        )
     ]
     # The guide also holds manual client-config templates in json fences; only
     # blocks that name a tool are executable tool-call examples.

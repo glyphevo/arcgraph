@@ -21,7 +21,8 @@ def test_dynamic_config_keys_are_distinct_and_shared_literals_are_pathless(tmp_p
         (repo / f"{name}.py").write_text(
             "import os\ndef read(key):\n"
             "    os.environ.get(key)\n    os.environ.get(key)\n"
-            "    return os.environ.get('SHARED')\n"
+            "    return os.environ.get('SHARED')\n",
+            encoding="utf-8",
         )
     output = tmp_path / "index"
     roots = [SourceRoot(".")]
@@ -48,12 +49,13 @@ def test_dynamic_config_keys_are_distinct_and_shared_literals_are_pathless(tmp_p
     for step in ("move", "delete", "replace"):
         path = repo / "alpha.py"
         if step == "move":
-            path.write_text("\n\n" + path.read_text())
+            path.write_text("\n\n" + path.read_text(encoding="utf-8"), encoding="utf-8")
         elif step == "delete":
             path.unlink()
         else:
             (repo / "beta.py").write_text(
-                "import os\ndef read(key):\n    return os.getenv('OTHER')\n"
+                "import os\ndef read(key):\n    return os.getenv('OTHER')\n",
+                encoding="utf-8",
             )
         ArcGraphReindexer(repo, output, roots).reindex_changed()
         full = tmp_path / f"full-{step}"

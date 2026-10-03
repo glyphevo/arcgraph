@@ -29,9 +29,9 @@ def consumer(annotation="Cache | None", imports=IMPORT):
 
 
 def analyze(tmp_path, source, provider=PROVIDER):
-    (tmp_path / "provider.py").write_text(provider)
-    (tmp_path / "other.py").write_text(PROVIDER)
-    (tmp_path / "consumer.py").write_text(source)
+    (tmp_path / "provider.py").write_text(provider, encoding="utf-8")
+    (tmp_path / "other.py").write_text(PROVIDER, encoding="utf-8")
+    (tmp_path / "consumer.py").write_text(source, encoding="utf-8")
     return PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -135,10 +135,10 @@ def test_typing_receiver_incremental_tracks_reexport_and_provider_changes(
 ):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "consumer.py").write_text(consumer(annotation))
-    (repo / "v1.py").write_text(PROVIDER)
-    (repo / "v2.py").write_text(PROVIDER)
-    (repo / "provider.py").write_text("from v1 import Cache\n")
+    (repo / "consumer.py").write_text(consumer(annotation), encoding="utf-8")
+    (repo / "v1.py").write_text(PROVIDER, encoding="utf-8")
+    (repo / "v2.py").write_text(PROVIDER, encoding="utf-8")
+    (repo / "provider.py").write_text("from v1 import Cache\n", encoding="utf-8")
     index = tmp_path / "incremental"
     roots = [SourceRoot(".")]
     ArcGraphIndexer(repo, index, roots).build()
@@ -152,7 +152,7 @@ def test_typing_receiver_incremental_tracks_reexport_and_provider_changes(
         ("unrelated.py", "# another comment\n", "v1"),
     ]
     for step, (name, source, target) in enumerate(edits):
-        (repo / name).write_text(source)
+        (repo / name).write_text(source, encoding="utf-8")
         ArcGraphReindexer(repo, index, roots).reindex_changed()
         full = tmp_path / f"full-{step}"
         ArcGraphIndexer(repo, full, roots).build()

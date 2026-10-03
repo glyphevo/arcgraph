@@ -23,7 +23,7 @@ class Other:
 
 
 def analyze(tmp_path: Path, body: str) -> FrontendGraphFragment:
-    (tmp_path / "sample.py").write_text(HEADER + body)
+    (tmp_path / "sample.py").write_text(HEADER + body, encoding="utf-8")
     return PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
@@ -165,9 +165,10 @@ def test_union_provider_change_refreshes_consumer(tmp_path: Path) -> None:
     repo.mkdir()
     model: Path = repo / "model.py"
     consumer: Path = repo / "consumer.py"
-    model.write_text("class Config:\n    def fetch(self): ...\n")
+    model.write_text("class Config:\n    def fetch(self): ...\n", encoding="utf-8")
     consumer.write_text(
-        "from model import Config, Other\ndef use(config: Config | Other):\n    return config.fetch()\n"
+        "from model import Config, Other\ndef use(config: Config | Other):\n    return config.fetch()\n",
+        encoding="utf-8",
     )
     output: Path = tmp_path / "index"
     roots = [SourceRoot(".")]
@@ -187,7 +188,9 @@ def test_union_provider_change_refreshes_consumer(tmp_path: Path) -> None:
         }
 
     for addition in ("class Other:\n    def fetch(self): ...\n", ""):
-        model.write_text("class Config:\n    def fetch(self): ...\n" + addition)
+        model.write_text(
+            "class Config:\n    def fetch(self): ...\n" + addition, encoding="utf-8"
+        )
         ArcGraphReindexer(repo, output, roots).reindex_changed()
         full: Path = tmp_path / ("full-added" if addition else "full-removed")
         ArcGraphIndexer(repo, full, roots).build()
@@ -201,7 +204,8 @@ def test_unresolved_query_exposes_union_reason(tmp_path: Path) -> None:
     repo: Path = tmp_path / "repo"
     repo.mkdir()
     (repo / "sample.py").write_text(
-        HEADER + 'def use(config: Config | Other):\n    return config.get("key")\n'
+        HEADER + 'def use(config: Config | Other):\n    return config.get("key")\n',
+        encoding="utf-8",
     )
     index: Path = tmp_path / "index"
     ArcGraphIndexer(repo, index, [SourceRoot(".")]).build()

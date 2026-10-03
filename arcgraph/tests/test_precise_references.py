@@ -251,6 +251,7 @@ def test_reference_ordering_is_codepoint_stable_not_locale_dependent() -> None:
         capture_output=True,
         text=True,
         check=False,
+        encoding="utf-8",
     )
     if completed.returncode != 0:
         pytest.skip("Node.js is required for reference ordering checks.")

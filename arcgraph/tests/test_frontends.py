@@ -868,6 +868,7 @@ def test_typescript_extractor_emits_profile_rows_only_for_deferred_scoring(
             cwd=str(tmp_path),
             timeout=60,
             check=False,
+            encoding="utf-8",
         )
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout)

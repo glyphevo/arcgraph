@@ -1692,6 +1692,7 @@ def test_bash_blocks_are_valid_bash() -> None:
                 input=_PLACEHOLDER.sub("PLACEHOLDER", body),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
             )
             if result.returncode != 0:
                 first = result.stderr.strip().splitlines()

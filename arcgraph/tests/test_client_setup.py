@@ -44,7 +44,7 @@ def test_real_setup_is_idempotent_and_uses_one_index(tmp_path, monkeypatch, clie
     pytest.importorskip("mcp")
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes profile"))
     (tmp_path / "sample.py").write_text(
-        "def source(): return 1\ndef caller(): return source()\n"
+        "def source(): return 1\ndef caller(): return source()\n", encoding="utf-8"
     )
     first = setup.handle_setup(args(tmp_path, client))
     assert first["status"] == "prepared", first
@@ -61,7 +61,9 @@ def test_real_setup_is_idempotent_and_uses_one_index(tmp_path, monkeypatch, clie
     if client != "pi":
         assert second["protocol_probe"]["tool_count"] == 14
         assert second["protocol_probe"]["index_version"] == second["index_version"]
-    (tmp_path / "sample.py").write_text("def replacement(): return 2\n")
+    (tmp_path / "sample.py").write_text(
+        "def replacement(): return 2\n", encoding="utf-8"
+    )
     third = setup.handle_setup(args(tmp_path, client))
     assert third["status"] == "prepared", third
     assert third["index_version"] != second["index_version"]
@@ -140,7 +142,7 @@ def test_symlink_and_symlink_parent_refused(tmp_path):
 
 
 def test_no_config_written_if_protocol_probe_fails(tmp_path, monkeypatch):
-    (tmp_path / "sample.py").write_text("def f(): pass\n")
+    (tmp_path / "sample.py").write_text("def f(): pass\n", encoding="utf-8")
 
     def fail(*a):
         raise RuntimeError("probe failed")
@@ -158,8 +160,8 @@ def test_foreign_index_is_not_republished_for_another_project(tmp_path):
     second_repo = tmp_path / "second"
     first_repo.mkdir()
     second_repo.mkdir()
-    (first_repo / "sample.py").write_text("def first(): pass\n")
-    (second_repo / "sample.py").write_text("def second(): pass\n")
+    (first_repo / "sample.py").write_text("def first(): pass\n", encoding="utf-8")
+    (second_repo / "sample.py").write_text("def second(): pass\n", encoding="utf-8")
     first = setup.handle_setup(args(first_repo, "pi"))
     assert first["status"] == "prepared", first
     pointer = Path(first["output_dir"]) / "current.json"
