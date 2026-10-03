@@ -2,7 +2,7 @@
 
 ArcGraph includes a local stdio MCP server. Its default analysis, Change Safety,
 and Agent-help surface is read-only. An operator can separately enable one
-privacy-bounded local feedback append tool. The v0.1.0rc7 external trial
+privacy-bounded local feedback append tool. The external trial
 validates the server from an installed wheel; source-checkout use remains
 available for maintainers. Starting the MCP server does not configure clients,
 publish a package, upload feedback, or enable network transport. For explicit
@@ -61,7 +61,7 @@ use private SDK hooks to suppress or reconfigure it.
 | `--output-dir` | `output/arcgraph` | Existing ArcGraph index directory; relative paths resolve under `repo_root`. |
 | `--repo-id` | `default` | Repository id passed by MCP clients. |
 | `--allowed-root` | resolved `repo_root` | May be repeated; requests outside allowed roots are rejected or sanitized. |
-| `--transport` | `stdio` | Only stdio is supported in the rc7 external trial. |
+| `--transport` | `stdio` | Only stdio is supported in the external trial. |
 | `--expose-source-snippets` | off | Source snippets remain disabled unless this flag is explicitly used and the request asks for source. |
 | `--metrics-log` | off | Explicit local JSONL metrics, one event per completed tool call. |
 | `--feedback-log` | off | Absolute private local JSONL path; enables the optional Agent feedback tool. |

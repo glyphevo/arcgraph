@@ -23,8 +23,7 @@ and `arcgraph help` for local diagnostics.
 ## Current Boundaries
 
 - No production support SLA is offered.
-- ArcGraph is published on PyPI only as the 0.1.0rc7 developer-preview
-  pre-release. npm, Docker/GHCR and GitHub Release distribution are not
+- ArcGraph is published on PyPI only as developer-preview pre-releases. npm, Docker/GHCR and GitHub Release distribution are not
   published.
 - The MCP server ships inside the PyPI package (`arcgraph[mcp]`); there is no
   separate packaged MCP distribution.

@@ -145,12 +145,13 @@ What to expect, from those runs:
 
 ## Installation availability
 
-ArcGraph 0.1.0rc7 is published on PyPI as a developer-preview pre-release. Install
+ArcGraph is published on PyPI as a developer-preview pre-release. Install
 it into a persistent tool environment, for example `uv tool install --python
 3.11 "arcgraph[mcp]"`, or with `python -m pip install "arcgraph[mcp]"` into a
-dedicated virtual environment (the exact-version forms were tested on macOS with
-Python 3.11, and the pip-style form with Python 3.12). Pin
-`arcgraph[mcp]==0.1.0rc7` to stay on this version once a stable release exists.
+dedicated virtual environment (with 0.1.0rc7, the exact-version forms were tested
+on macOS with Python 3.11, and the pip-style form with Python 3.12). Pin the exact
+version you tested, for example `arcgraph[mcp]==0.1.0rc8`, to stay on it once a
+stable release exists.
 To install the development version from the repository instead, use
 `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. Then run `arcgraph setup --client CLIENT` in
 each project. The five adapters share the runtime, index logic and protocol;
@@ -165,8 +166,8 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 | MCP server | Supported (alpha) | Stdio only. Protocol `list_tools` discovers the registered surface; analysis/change/help tools are read-only, while optional feedback is a disclosed local append. |
 | Automatic agent configuration via explicit setup | Verified on one machine (see Verified hosts) | `setup --client` supports five client adapters; each was observed once in a real host on macOS with a throwaway project. |
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
-| Local wheel candidate | External-trial path | The v0.1.0rc7 trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
-| PyPI install | Published (pre-release) | 0.1.0rc7 is on PyPI. The hosts above were observed with a build from the GitHub repository (commit `cec768ab`); the uploaded files differ from it only in documentation text. |
+| Local wheel candidate | External-trial path | The external-trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
+| PyPI install | Published (pre-release) | Developer-preview pre-releases are on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
 | npm, Docker/GHCR, GitHub Release | Deferred | Not published. |
 
 CLI and MCP are not feature-equivalent: CLI agents use `arcgraph help`, while

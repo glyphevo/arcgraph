@@ -594,3 +594,48 @@ def test_health_check_flags_an_in_flight_atomic_write_as_corrupt(
 
     with pytest.raises(ChangeStoreCorrupt, match="unrecognized entry"):
         store.health_check()
+
+
+@pytest.mark.parametrize("method", ["diff", "preview_verify"])
+def test_lock_free_read_recovers_once_an_in_flight_write_finishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    # End to end with the real health_check: an atomic write's temporary file
+    # is present at the first check and gone when the retry looks again.
+    service, revision, _output = _activated_service(tmp_path, monkeypatch)
+    in_flight: Path = service.store._path("plans", "plan") / ".change-safety-w.tmp"
+    in_flight.write_text("{}", encoding="utf-8")
+    clock = _FakeClock()
+
+    def finish_write_then_sleep(seconds: float) -> None:
+        in_flight.unlink(missing_ok=True)
+        clock.sleep(seconds)
+
+    monkeypatch.setattr(
+        change_service,
+        "time",
+        SimpleNamespace(monotonic=clock.monotonic, sleep=finish_write_then_sleep),
+    )
+    original_health_check = service.store.health_check
+    checks = [0]
+
+    def counted_health_check() -> None:
+        checks[0] += 1
+        original_health_check()
+
+    monkeypatch.setattr(service.store, "health_check", counted_health_check)
+
+    def stop(*args: object) -> None:
+        raise _StopAfterHealthCheck
+
+    monkeypatch.setattr(service, "_exact_current", stop)
+
+    with pytest.raises(_StopAfterHealthCheck):
+        getattr(service, method)(
+            "plan", revision.revision, revision.plan_content_digest
+        )
+    assert checks[0] == 2
+    assert clock.sleeps == 1
+    assert not in_flight.exists()

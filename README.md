@@ -36,7 +36,7 @@ With ArcGraph:
 
 ## Install
 
-ArcGraph 0.1.0rc7 is published on PyPI as an alpha developer-preview
+ArcGraph is published on PyPI as an alpha developer-preview
 pre-release. Install it into a dedicated virtual environment or tool environment
 and reuse that one `arcgraph` executable across projects:
 
@@ -50,13 +50,14 @@ or, with uv:
 uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
-Python 3.11 or 3.12 is required; pip refuses other versions. Because 0.1.0rc7 is
-currently the only release, pip selects it without `--pre`. Once a stable release
-exists, an unpinned install will choose that instead, so pin
-`arcgraph[mcp]==0.1.0rc7` to stay on this version. The `mcp` extra is only needed
-to run the MCP server. Tested on macOS: `pip install` and `uv tool install` of
-`arcgraph[mcp]==0.1.0rc7` on Python 3.11, and the pip-style install on Python
-3.12; Windows and Linux installs from PyPI have not been tried.
+Python 3.11 or 3.12 is required; pip refuses other versions. Because ArcGraph
+has only published pre-releases so far, pip installs one without `--pre`. Once a
+stable release exists, an unpinned install will choose that instead, so pin the
+exact version you tested, for example `arcgraph[mcp]==0.1.0rc8`. The `mcp` extra
+is only needed to run the MCP server. Tested on macOS with an earlier
+pre-release: `pip install` and `uv tool install` of an exact-version requirement
+on Python 3.11, and the pip-style install on Python 3.12; Windows and Linux
+installs from PyPI have not been tried.
 `arcgraph version --json` reports the commit the installed copy was built from.
 
 To install the development version from this repository instead, replace the
@@ -64,7 +65,7 @@ requirement with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"
 Maintainers and contributors can use an editable source checkout, described
 below. npm, Docker/GHCR and GitHub Releases are not published, and there is no
 separate packaged MCP distribution: the MCP server is part of the PyPI package.
-The v0.1.0rc7 external-trial scope is Python analysis through the installed CLI
+This developer preview's external-trial scope is Python analysis through the installed CLI
 plus local stdio MCP. TypeScript/JavaScript analysis is
 outside that trial's acceptance scope.
 
@@ -381,7 +382,7 @@ For clean-checkout source-install verification, see
 
 See [docs/agent-reading-guide.md](https://github.com/glyphevo/arcgraph/blob/main/docs/agent-reading-guide.md) and
 [docs/change-preflight.md](https://github.com/glyphevo/arcgraph/blob/main/docs/change-preflight.md), plus
-[docs/mcp-usage.md](https://github.com/glyphevo/arcgraph/blob/main/docs/mcp-usage.md). The rc7 external-trial surface includes
+[docs/mcp-usage.md](https://github.com/glyphevo/arcgraph/blob/main/docs/mcp-usage.md). The external-trial surface includes
 the local stdio server from the installed wheel:
 
 ```bash
@@ -457,7 +458,7 @@ ArcGraph reports language capability by tier:
 | Area | Current public-safe wording |
 | --- | --- |
 | Python | L3 native semantic static frontend. |
-| TypeScript / JavaScript | L3 native semantic static frontend when a TypeScript compiler API is resolvable; outside the v0.1.0rc7 external-trial acceptance. |
+| TypeScript / JavaScript | L3 native semantic static frontend when a TypeScript compiler API is resolvable; outside the external-trial acceptance scope. |
 | Next.js / Vue | Framework semantics layered over TypeScript / JavaScript. |
 | Go / C# / Java / Rust / C / C++ / Swift | L3 through validated external semantic extractor payloads. |
 | SCIP | L2 explicit protocol evidence. |
@@ -579,8 +580,8 @@ arcgraph visual smoke --output-dir output/arcgraph/reports/visual-smoke
 
 ## Release And Governance
 
-The 0.1.0rc7 pre-release is published on PyPI; npm, Docker/GHCR and GitHub
-Releases are not. The pre-release gate is a fixed,
+Developer-preview pre-releases are published on PyPI; npm, Docker/GHCR and
+GitHub Releases are not. The pre-release gate is a fixed,
 ordered command sequence that starts from a clean working tree. Run
 `arcgraph docs release-checklist` for the current list rather than copying
 commands from this page, because a hand-copied list drifts from the gate.

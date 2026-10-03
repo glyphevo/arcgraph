@@ -1108,7 +1108,7 @@ def test_cli_docs_reference_topics() -> None:
     assert "python scripts/arcgraph_source_checkout_smoke.py" in smoke_docs
     assert "arcgraph mcp serve --help" in smoke_docs
     assert (
-        "PyPI: the 0.1.0rc7 pre-release is published; this smoke neither publishes nor tests it"
+        "PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them"
         in smoke_docs
     )
     assert "npm package publishing remains private/dev-only" in smoke_docs

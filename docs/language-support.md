@@ -80,7 +80,7 @@ line). GitHub Actions runs this matrix; a passing run is evidence only for the
 commit it ran on. The analyzed project must supply the TypeScript compiler API
 either way, since ArcGraph never bundles it.
 
-The v0.1.0rc7 external-trial acceptance scope is Python analysis through the
+The external-trial acceptance scope is Python analysis through the
 installed CLI plus local stdio MCP. The default MCP analysis/change/help
 surface is read-only; optional local feedback is a separate disclosed append.
 TS/JS may work when its runtime is available, but it is not part of that trial

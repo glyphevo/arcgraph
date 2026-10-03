@@ -53,7 +53,7 @@ def test_tracked_tree_excludes_private_documentation() -> None:
 
 
 def test_public_migration_docs_preserve_rebuild_and_read_limits() -> None:
-    notes = (ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md").read_text(
+    notes = (ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md").read_text(
         encoding="utf-8"
     )
     for required in (

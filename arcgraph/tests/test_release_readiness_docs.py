@@ -551,7 +551,7 @@ def test_source_checkout_smoke_docs_cover_source_checkout_and_package_boundary()
     assert "arcgraph docs package-readiness" in combined
     assert "output/arcgraph" in combined
     assert (
-        "PyPI: the 0.1.0rc7 pre-release is published; this smoke neither publishes nor tests it"
+        "PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them"
         in combined
     )
     assert "npm package publishing remains private/dev-only" in combined
@@ -648,7 +648,10 @@ def test_mcp_readonly_host_example_is_public_safe_and_syntax_valid() -> None:
     assert "preferred alpha command" in source
     assert "arcgraph mcp serve" in source
     assert "docs/examples/mcp_readonly_host.py" in mcp_usage
-    assert "v0.1.0rc7 external trial" in mcp_usage
+    assert (
+        "The external trial validates the server from an installed wheel"
+        in " ".join(mcp_usage.split())
+    )
     assert "installed wheel" in mcp_usage
     assert "stdio transport only" in mcp_usage
     assert "`arcgraph_record_learning` is proposal-only" in mcp_usage
@@ -795,7 +798,7 @@ def test_agent_trial_docs_bind_multi_project_discovery_and_feedback() -> None:
 def test_current_product_docs_do_not_embed_drifting_mcp_tool_counts() -> None:
     documents = [
         (REPO_ROOT / "README.md").read_text(encoding="utf-8"),
-        (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md").read_text(
+        (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md").read_text(
             encoding="utf-8"
         ),
         (REPO_ROOT / "docs" / "mcp-usage.md").read_text(encoding="utf-8"),
@@ -870,7 +873,7 @@ def test_external_trial_docs_bind_python_scope_and_typescript_degradation() -> N
     built_in_package_readiness = render_docs("package-readiness")
     normalized_readme = " ".join(readme.split())
 
-    assert "v0.1.0rc7 external-trial scope" in readme
+    assert "developer preview's external-trial scope" in readme
     assert (
         "Python analysis through the installed CLI plus local stdio MCP"
         in normalized_readme
@@ -886,7 +889,7 @@ def test_external_trial_docs_bind_python_scope_and_typescript_degradation() -> N
     assert "summary.json" in language_support
     assert "diagnostics.jsonl" in language_support
     assert "explicitly Python-only scope" in quickstart
-    assert "acceptable only for the Python-only v0.1.0rc7 trial scope" in (
+    assert "acceptable only for the Python-only external-trial scope" in (
         troubleshooting
     )
     assert "outside that trial's acceptance scope" in cli_reference
@@ -977,8 +980,8 @@ def test_release_checklist_docs_cover_full_gate() -> None:
     assert "python scripts/arcgraph.py ci" in checklist
     assert "python scripts/arcgraph_release_gate.py" in checklist
     assert "python scripts/arcgraph_release_candidate_check.py" in checklist
-    assert "v0.1-rc7-smoke.json" in checklist
-    assert "--sdist dist/arcgraph-0.1.0rc7.tar.gz" in checklist
+    assert "v0.1-rc8-smoke.json" in checklist
+    assert "--sdist dist/arcgraph-0.1.0rc8.tar.gz" in checklist
     assert "`clean-rebuild-identical` check" in checklist
     assert "clones that HEAD into a fresh directory" in checklist
     assert "identical bytes as the two files given" in checklist
@@ -1125,7 +1128,7 @@ def test_readme_points_to_current_release_readiness_workflows() -> None:
 
 
 def test_release_notes_describe_current_public_safe_scope() -> None:
-    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md").read_text(
+    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md").read_text(
         encoding="utf-8"
     )
     stale_python_baseline = "392" + "698b"
@@ -1180,7 +1183,7 @@ def test_governance_docs_do_not_make_release_overclaims() -> None:
 def test_current_migration_notes_preserve_payload_and_index_disclosures() -> None:
     """Public migration guidance preserves observable payload/index changes."""
 
-    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md").read_text(
+    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md").read_text(
         encoding="utf-8"
     )
     notes_flat = " ".join(notes.split())
@@ -1219,7 +1222,7 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     notes_index = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
     strategy = (REPO_ROOT / "docs" / "release-tooling.md").read_text(encoding="utf-8")
-    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md").read_text(
+    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md").read_text(
         encoding="utf-8"
     )
     guide = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(encoding="utf-8")
@@ -1233,17 +1236,17 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     )
     built_in = render_docs("release-checklist") + render_docs("package-readiness")
 
-    assert pyproject["project"]["version"] == "0.1.0rc7"
+    assert pyproject["project"]["version"] == "0.1.0rc8"
     for text in (readme, notes_index, strategy, notes, guide, built_in):
-        assert "0.1.0rc7" in text
+        assert "0.1.0rc8" in text
     assert "arcgraph_external_trial_bundle.py" in readme
     assert "arcgraph_external_trial_bundle.py" in strategy
     assert "--artifact-dir" in package_docs
     assert "--artifact-dir" in render_docs("package-readiness")
     assert "Change Preflight" in notes
     assert "comparison projection to `1.2`" in notes
-    assert guide.count("arcgraph-0.1.0rc7-py3-none-any.whl[mcp]") == 2
-    assert "arcgraph 0.1.0rc7" in guide
+    assert guide.count("arcgraph-0.1.0rc8-py3-none-any.whl[mcp]") == 2
+    assert "arcgraph 0.1.0rc8" in guide
     assert "arcgraph version --json" in guide
     assert "trial setup --client claude --dry-run" in guide
     assert "remote-ci.json" in guide
@@ -1303,7 +1306,7 @@ def test_read_schema_docs_disclose_both_truncation_unknown_kinds() -> None:
         REPO_ROOT / "docs" / "change-preflight.md",
         REPO_ROOT / "docs" / "mcp-usage.md",
         REPO_ROOT / "docs" / "agent-reading-guide.md",
-        REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md",
+        REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md",
     ]
 
     for path in current_contract_docs:
@@ -1341,7 +1344,7 @@ def test_external_trial_commands_keep_one_explicit_index_path() -> None:
 def test_rc5_docs_disclose_private_state_recovery_and_alias_policy() -> None:
     runbook = (REPO_ROOT / "docs" / "runbook.md").read_text(encoding="utf-8")
     guide = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(encoding="utf-8")
-    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc7.md").read_text(
+    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc8.md").read_text(
         encoding="utf-8"
     )
     contract = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(

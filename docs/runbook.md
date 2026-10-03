@@ -1,7 +1,7 @@
 # ArcGraph Runbook
 
 This runbook covers source-checkout operation for CLI and MCP agent workflows.
-It assumes tags and GitHub Releases are not approved; the 0.1.0rc7 pre-release is on PyPI.
+It assumes tags and GitHub Releases are not approved; developer-preview pre-releases are on PyPI.
 
 ## Missing Index
 
