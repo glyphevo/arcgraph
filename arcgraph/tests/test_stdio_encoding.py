@@ -30,8 +30,10 @@ def _non_utf8_env() -> dict[str, str]:
 
 
 def test_cli_json_survives_a_pipe_with_a_non_utf8_locale(tmp_path: Path) -> None:
-    # Agents read CLI JSON through a pipe; with a non-UTF-8 code page, a path
+    # Agents read CLI JSON through a pipe; with a non-UTF-8 code page, a name
     # the code page cannot represent used to raise UnicodeEncodeError.
+    # Paths stay ASCII: under this locale Linux decodes file names as ASCII,
+    # a separate limitation from the one tested here.
     env = _non_utf8_env()
     probe = subprocess.run(
         [sys.executable, "-X", "utf8=0", "-c", _LOCALE_PROBE],
@@ -43,15 +45,15 @@ def test_cli_json_survives_a_pipe_with_a_non_utf8_locale(tmp_path: Path) -> None
     )
     if probe.stdout.strip().replace("-", "").lower() == "utf8":
         pytest.skip("this platform kept a UTF-8 locale encoding")
-    project: Path = tmp_path / "项目"
+    project: Path = tmp_path / "project"
     project.mkdir()
-    (project / "模块.py").write_text(
+    (project / "mod.py").write_text(
         "def 帮助():\n    return 1\n\n\ndef main():\n    return 帮助()\n",
         encoding="utf-8",
     )
 
     outputs = []
-    for command in (["build"], ["current"]):
+    for command in (["build"], ["current"], ["explain", "mod.main"]):
         result = subprocess.run(
             [sys.executable, "-X", "utf8=0", "-c", _CLI, *command],
             cwd=project,
@@ -63,7 +65,7 @@ def test_cli_json_survives_a_pipe_with_a_non_utf8_locale(tmp_path: Path) -> None
         outputs.append(json.loads(result.stdout.decode("utf-8")))
 
     text: str = json.dumps(outputs, ensure_ascii=False)
-    assert not text.isascii()
+    assert "mod.帮助" in text
 
 
 def test_utf8_stdio_reencodes_text_streams(monkeypatch: pytest.MonkeyPatch) -> None:
