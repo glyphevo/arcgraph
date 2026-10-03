@@ -50,14 +50,22 @@ verify a bundle with the steps in the
 
 ## Published Releases
 
+0.1.0rc8 was uploaded to PyPI on 2026-10-03 by a maintainer, from the validated
+candidate built from commit `02f128f5cbe45358900b595d87919d64d2708afc`; the two
+files on PyPI are byte-identical to that candidate (wheel sha256
+`56bc56fa35c810feff84a8bbd71c2a6aa9e8f11cea953ca0688478d44fab7c5d`, sdist
+sha256 `0da1e92bad2a3de62d0830df251ffceaa0172d5ae648e987c35db6202c9fe6d4`). The
+same files were rehearsed on TestPyPI first.
+
 0.1.0rc7 was uploaded to PyPI on 2026-10-02 by a maintainer, from the validated
 candidate built from commit `653f20412237f53658b34cbde813f6060bee64fc`; the two
 files on PyPI are byte-identical to that candidate (wheel sha256
 `51ebc958d43aa21062bab639a15d6fb4bd7fad9a13df876815fbe9fb4f9b6ad2`, sdist
 sha256 `7b2ab2bcc61df4dbb099d1aab885cb718fcaaf5841dfd55bb0a707f0adaa95bc`). The
-same files were rehearsed on TestPyPI first. Compare any download with those
-hashes, and use `arcgraph version --json` to see the commit an installed copy
-was built from.
+same files were rehearsed on TestPyPI first.
+
+Compare any download with the hashes listed for its version, and use
+`arcgraph version --json` to see the commit an installed copy was built from.
 
 A published file cannot be replaced. PyPI never lets a file name be reused, even
 after the file or project is deleted, and deletion is permanent. To withdraw a
