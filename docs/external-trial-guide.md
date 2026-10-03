@@ -1,4 +1,4 @@
-# ArcGraph 0.1.0rc8 Local Installation Guide
+# ArcGraph 0.1.0rc9 Local Installation Guide
 
 Install a supplied, verified wheel in a dedicated environment.
 Local installation does not publish packages or upload repository content. This guide covers
@@ -61,7 +61,7 @@ On macOS or Linux:
 python3 -m venv .arcgraph-trial-venv
 source .arcgraph-trial-venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install 'BUNDLE_DIR/artifacts/arcgraph-0.1.0rc8-py3-none-any.whl[mcp]'
+python -m pip install 'BUNDLE_DIR/artifacts/arcgraph-0.1.0rc9-py3-none-any.whl[mcp]'
 arcgraph --version
 arcgraph version --json
 ```
@@ -72,7 +72,7 @@ On Windows PowerShell:
 python -m venv .arcgraph-trial-venv
 .\.arcgraph-trial-venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install 'BUNDLE_DIR\artifacts\arcgraph-0.1.0rc8-py3-none-any.whl[mcp]'
+python -m pip install 'BUNDLE_DIR\artifacts\arcgraph-0.1.0rc9-py3-none-any.whl[mcp]'
 arcgraph --version
 arcgraph version --json
 ```
@@ -80,7 +80,7 @@ arcgraph version --json
 The version command must print exactly:
 
 ```text
-arcgraph 0.1.0rc8
+arcgraph 0.1.0rc9
 ```
 
 In the JSON result, require `status = "available"`,
@@ -376,7 +376,7 @@ of matching message text:
 Feedback storage messages distinguish an unreadable/replaced directory chain
 from a filesystem that cannot make directory entries durable. Permission
 changes do not fix unsupported directory `fsync`; use a private path on a
-different supporting filesystem. This guide describes the public feedback contract for v0.1.0rc8.
+different supporting filesystem. This guide describes the public feedback contract for v0.1.0rc9.
 
 Raw CLI metrics use a separate, older local-sensitive event contract and may
 contain command failures. Do not share raw CLI or MCP metrics. Use

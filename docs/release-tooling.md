@@ -1,7 +1,7 @@
 # Release tooling
 
 These tools validate local artifacts and assemble a bundle; they do not
-publish packages or change repository settings. The source version is `0.1.0rc8`.
+publish packages or change repository settings. The source version is `0.1.0rc9`.
 A successful run is evidence only for its recorded source and platform.
 
 ## Local Validation Gate

@@ -53,7 +53,7 @@ uv tool install --python 3.11 "arcgraph[mcp]"
 Python 3.11 or 3.12 is required; pip refuses other versions. Because ArcGraph
 has only published pre-releases so far, pip installs one without `--pre`. Once a
 stable release exists, an unpinned install will choose that instead, so pin the
-exact version you tested, for example `arcgraph[mcp]==0.1.0rc8`. The `mcp` extra
+exact version you tested, for example `arcgraph[mcp]==0.1.0rc9`. The `mcp` extra
 is only needed to run the MCP server. Tested on macOS with an earlier
 pre-release: `pip install` and `uv tool install` of an exact-version requirement
 on Python 3.11, and the pip-style install on Python 3.12; Windows and Linux

@@ -57,7 +57,7 @@ def test_package_readiness_smoke_dry_run_plans_package_gate(
     assert payload["status"] == "planned"
     assert payload["install_mode"] == "built-wheel-temporary-venv"
     assert payload["project_metadata"]["name"] == "arcgraph"
-    assert payload["project_metadata"]["version"] == "0.1.0rc8"
+    assert payload["project_metadata"]["version"] == "0.1.0rc9"
     assert payload["project_metadata"]["console_script"] == (
         "arcgraph.interfaces.cli:main"
     )
