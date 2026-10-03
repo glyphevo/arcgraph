@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,11 @@ from arcgraph.change.verdicts import verdict_is_blocking
 from arcgraph.change.verifier import ChangeVerifier
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.operation_lock import arcgraph_operation_lock
+
+# The lock-free read paths (diff, preview_verify) can observe a store mid-way
+# through a locked writer's update; a corrupt verdict there is retried briefly.
+_LOCK_FREE_HEALTH_RETRY_SECONDS = 1.0
+_LOCK_FREE_HEALTH_RETRY_INTERVAL_SECONDS = 0.05
 
 
 class ChangeSafetyService:
@@ -597,15 +603,38 @@ class ChangeSafetyService:
             )
             return report
 
+    def _lock_free_health_check(self) -> None:
+        """Run the store health check without the operation lock.
+
+        A concurrent writer holding the lock can leave the store momentarily
+        between consistent states (an atomic write's temporary file, a record
+        written before its pointer), which the check reports as corrupt.  Such
+        a verdict is retried briefly; corruption that persists is raised.
+        """
+
+        deadline = time.monotonic() + _LOCK_FREE_HEALTH_RETRY_SECONDS
+        while True:
+            try:
+                self.store.health_check()
+                return
+            except ChangeStoreCorrupt:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(_LOCK_FREE_HEALTH_RETRY_INTERVAL_SECONDS)
+
     def diff(
         self,
         plan_id: str,
         revision: int,
         plan_content_digest: str,
     ) -> GraphDelta:
-        """Return a current graph delta without a lifecycle mutation."""
+        """Return a current graph delta without a lifecycle mutation.
 
-        self.store.health_check()
+        Runs without the operation lock; a corrupt verdict caused by a
+        concurrent write is retried briefly before it is reported.
+        """
+
+        self._lock_free_health_check()
         record, _status, _decision = self._exact_current(
             plan_id,
             revision,
@@ -623,10 +652,12 @@ class ChangeSafetyService:
 
         This is the MCP-safe counterpart to ``verify``.  It deliberately shares
         the exact verifier and evidence availability projection but performs no
-        state-store writes and does not acquire a mutation lock.
+        state-store writes and does not acquire a mutation lock.  A corrupt
+        verdict caused by a concurrent write is retried briefly before it is
+        reported.
         """
 
-        self.store.health_check()
+        self._lock_free_health_check()
         record, _status, decision = self._exact_current(
             plan_id,
             revision,

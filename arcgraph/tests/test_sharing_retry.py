@@ -10,6 +10,7 @@ import pytest
 
 from arcgraph.change.contracts import PlanDecision
 from arcgraph.change.errors import ChangeStoreCorrupt, ChangeStoreNotFound
+from arcgraph.change import service as change_service
 from arcgraph.change.store import (
     ChangeStateStore,
     atomic_write_json,
@@ -510,6 +511,86 @@ def test_health_check_still_rejects_a_directory_in_place_of_a_pointer(
     store = ChangeStateStore(tmp_path / "output", repo_id="repo")
     store.write_revision(_revision())
     store._path("plans", "plan", "decision-current.json").mkdir(parents=True)
+
+    with pytest.raises(ChangeStoreCorrupt, match="unrecognized entry"):
+        store.health_check()
+
+
+class _StopAfterHealthCheck(Exception):
+    pass
+
+
+def _flaky_health_check(failures: int) -> tuple[list[int], object]:
+    calls = [0]
+
+    def health_check() -> None:
+        calls[0] += 1
+        if calls[0] <= failures:
+            raise ChangeStoreCorrupt(
+                "plan state directory contains an unrecognized entry"
+            )
+
+    return calls, health_check
+
+
+@pytest.fixture
+def service_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
+    clock = _FakeClock()
+    monkeypatch.setattr(
+        change_service,
+        "time",
+        SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep),
+    )
+    return clock
+
+
+@pytest.mark.parametrize("method", ["diff", "preview_verify"])
+def test_lock_free_reads_retry_a_store_caught_mid_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    service_clock: _FakeClock,
+    method: str,
+) -> None:
+    service, revision, _output = _activated_service(tmp_path, monkeypatch)
+    calls, health_check = _flaky_health_check(failures=2)
+    monkeypatch.setattr(service.store, "health_check", health_check)
+
+    def stop(*args: object) -> None:
+        raise _StopAfterHealthCheck
+
+    monkeypatch.setattr(service, "_exact_current", stop)
+
+    with pytest.raises(_StopAfterHealthCheck):
+        getattr(service, method)(
+            "plan", revision.revision, revision.plan_content_digest
+        )
+    assert calls[0] == 3
+    assert service_clock.sleeps == 2
+
+
+def test_lock_free_reads_report_corruption_that_persists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    service_clock: _FakeClock,
+) -> None:
+    service, revision, _output = _activated_service(tmp_path, monkeypatch)
+    _calls, health_check = _flaky_health_check(failures=10**6)
+    monkeypatch.setattr(service.store, "health_check", health_check)
+
+    with pytest.raises(ChangeStoreCorrupt, match="unrecognized entry"):
+        service.preview_verify("plan", revision.revision, revision.plan_content_digest)
+    assert service_clock.now >= change_service._LOCK_FREE_HEALTH_RETRY_SECONDS
+
+
+def test_health_check_flags_an_in_flight_atomic_write_as_corrupt(
+    tmp_path: Path,
+) -> None:
+    # The strict check the lock-free retry compensates for: an atomic write's
+    # temporary file is an unrecognized entry while the write is in flight.
+    store = ChangeStateStore(tmp_path / "output", repo_id="repo")
+    store.write_revision(_revision())
+    plan_dir: Path = store._path("plans", "plan")
+    (plan_dir / ".change-safety-inflight.tmp").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ChangeStoreCorrupt, match="unrecognized entry"):
         store.health_check()
