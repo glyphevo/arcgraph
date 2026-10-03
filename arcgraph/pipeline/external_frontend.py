@@ -310,6 +310,8 @@ class ExternalSemanticExtractorFrontend(LanguageFrontend):
                 self.command,
                 input=request.model_dump_json(),
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 cwd=str(self._repo_root_for(files)),
                 timeout=self.timeout_seconds,

@@ -14,6 +14,7 @@ from arcgraph import __version__
 from arcgraph.interfaces.agent_capabilities import mcp_capability_names
 from arcgraph.interfaces.local_state import local_state_paths_alias
 from arcgraph.interfaces.metrics import MCPMetricsRecorder
+from arcgraph.interfaces.stdio_encoding import use_utf8_stdio
 from arcgraph.interfaces.mcp_tools import (
     ArcGraphMCPConfig,
     ArcGraphMCPToolGroup,
@@ -214,6 +215,7 @@ def serve(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    use_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

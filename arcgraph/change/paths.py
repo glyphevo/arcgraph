@@ -194,6 +194,8 @@ def _repository_case_sensitive(repo_root: str) -> bool:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError):

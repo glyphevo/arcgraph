@@ -64,6 +64,8 @@ def typescript_language_service_references(
             ["node", str(script)],
             input=json.dumps(payload),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             check=False,
             timeout=max(1.0, min(timeout_seconds, 120.0)),

@@ -90,6 +90,7 @@ from arcgraph.interfaces.project_probe import (
     detect_project_languages,
     source_file_counts,
 )
+from arcgraph.interfaces.stdio_encoding import use_utf8_stdio
 from arcgraph.interfaces.reports import (
     classify_unresolved_records,
     render_ci_markdown,
@@ -203,6 +204,7 @@ class _ArcGraphArgumentParser(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
+    use_utf8_stdio()
     parser = build_parser()
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     try:
@@ -1890,6 +1892,8 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=10,
                 )
             except subprocess.TimeoutExpired:
@@ -1920,6 +1924,8 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=10,
                 )
             except subprocess.TimeoutExpired:

@@ -277,6 +277,8 @@ def _run_subprocess_command(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_seconds,
             env=_subprocess_env(repo_root),
         )

@@ -249,7 +249,14 @@ def _write_config(path: Path, old: bytes | None, new: bytes) -> str | None:
 
 def _run_json(command: list[str], timeout: float, repo: Path) -> dict[str, Any]:
     result = subprocess.run(
-        command, cwd=repo, capture_output=True, text=True, timeout=timeout, check=False
+        command,
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=False,
     )
     if result.returncode:
         raise RuntimeError(
@@ -270,7 +277,9 @@ def _probe(server: dict[str, Any], timeout: float) -> dict[str, Any]:
 
     async def check() -> dict[str, Any]:
         with anyio.fail_after(timeout):
-            with tempfile.TemporaryFile(mode="w+") as errors:
+            with tempfile.TemporaryFile(
+                mode="w+", encoding="utf-8", errors="replace"
+            ) as errors:
                 params = StdioServerParameters(
                     command=server["command"], args=server["args"]
                 )
