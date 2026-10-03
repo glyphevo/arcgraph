@@ -53,15 +53,32 @@ def is_regular_file(path: Path) -> bool:
         return True
     if not _RETRY_SHARING_VIOLATIONS or path.is_dir():
         return False
+    mode = retry_sharing_violation(lambda: _opened_mode(path))
+    return mode is not None and stat.S_ISREG(mode)
 
-    def probe() -> bool:
-        try:
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
-        except (FileNotFoundError, NotADirectoryError):
-            return False
-        try:
-            return stat.S_ISREG(os.fstat(descriptor).st_mode)
-        finally:
-            os.close(descriptor)
 
-    return retry_sharing_violation(probe)
+def path_exists(path: Path) -> bool:
+    """Return ``path.exists()``, confirming a negative answer on Windows.
+
+    Same reasoning as :func:`is_regular_file`, for callers that must keep
+    treating a non-file in that place as present.
+    """
+
+    if path.exists():
+        return True
+    if not _RETRY_SHARING_VIOLATIONS:
+        return False
+    return retry_sharing_violation(lambda: _opened_mode(path)) is not None
+
+
+def _opened_mode(path: Path) -> int | None:
+    """Open ``path`` and return its mode, or ``None`` when it is missing."""
+
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    try:
+        return os.fstat(descriptor).st_mode
+    finally:
+        os.close(descriptor)

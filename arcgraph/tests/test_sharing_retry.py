@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from arcgraph.change.contracts import PlanDecision
-from arcgraph.change.errors import ChangeStoreNotFound
+from arcgraph.change.errors import ChangeStoreCorrupt, ChangeStoreNotFound
 from arcgraph.change.store import (
     ChangeStateStore,
     atomic_write_json,
@@ -19,6 +19,7 @@ from arcgraph.core import sharing_retry
 from arcgraph.core.cleanup import arcgraph_output_storage_status
 from arcgraph.core.graph_store import GraphStoreReader, GraphStoreWriter
 from arcgraph.core.schemas import IndexMetadata
+from arcgraph.tests.test_change_lifecycle import _activated_service
 from arcgraph.tests.test_change_store import _revision
 
 
@@ -399,3 +400,116 @@ def test_current_decision_still_rejects_a_directory_in_place_of_the_pointer(
 
     with pytest.raises(ChangeStoreNotFound):
         store.read_current_decision("plan")
+
+
+def test_path_exists_confirms_a_windows_false_negative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    target: Path = tmp_path / "pointer.json"
+    target.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    assert sharing_retry.path_exists(target) is True
+    assert windows_retry.sleeps == 0
+
+
+def test_path_exists_answers_a_missing_file_without_waiting(
+    tmp_path: Path,
+    windows_retry: _FakeClock,
+) -> None:
+    assert sharing_retry.path_exists(tmp_path / "missing.json") is False
+    assert windows_retry.sleeps == 0
+
+
+def test_path_exists_retries_an_open_blocked_by_a_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    target: Path = tmp_path / "pointer.json"
+    target.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    original_open = os.open
+    blocked = 0
+
+    def open_blocked(path: object, flags: int, *args: object) -> int:
+        nonlocal blocked
+        if Path(str(path)) == target and blocked < 2:
+            blocked += 1
+            raise _sharing_violation()
+        return original_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", open_blocked)
+
+    assert sharing_retry.path_exists(target) is True
+    assert windows_retry.sleeps == 2
+
+
+def test_path_exists_is_plain_exists_outside_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sharing_retry, "_RETRY_SHARING_VIOLATIONS", False)
+    target: Path = tmp_path / "pointer.json"
+    target.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    assert sharing_retry.path_exists(target) is False
+
+
+def _hide_from_exists(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    original_exists = Path.exists
+
+    def exists(self: Path) -> bool:
+        if self.name == name:
+            return False
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", exists)
+
+
+def test_health_check_does_not_report_a_replaced_decision_pointer_as_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    service, _revision_record, _output = _activated_service(tmp_path, monkeypatch)
+    _hide_from_exists(monkeypatch, "decision-current.json")
+
+    service.store.health_check()
+
+
+def test_health_check_still_checks_a_replaced_current_pointer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    windows_retry: _FakeClock,
+) -> None:
+    service, _revision_record, _output = _activated_service(tmp_path, monkeypatch)
+    store = service.store
+    _hide_from_exists(monkeypatch, "current.json")
+    original_read_model = store._read_model
+    read: list[str] = []
+
+    def read_model(path: Path, model_type: type) -> object:
+        read.append(path.name)
+        return original_read_model(path, model_type)
+
+    monkeypatch.setattr(store, "_read_model", read_model)
+
+    store.health_check()
+
+    assert "current.json" in read
+    assert "decision-current.json" in read
+
+
+def test_health_check_still_rejects_a_directory_in_place_of_a_pointer(
+    tmp_path: Path,
+) -> None:
+    store = ChangeStateStore(tmp_path / "output", repo_id="repo")
+    store.write_revision(_revision())
+    store._path("plans", "plan", "decision-current.json").mkdir(parents=True)
+
+    with pytest.raises(ChangeStoreCorrupt, match="unrecognized entry"):
+        store.health_check()

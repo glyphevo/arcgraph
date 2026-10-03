@@ -34,7 +34,11 @@ from arcgraph.change.errors import (
 from arcgraph.change.evidence import redact_sensitive_text
 from arcgraph.change.paths import ensure_contained_path, resolve_under_root
 from arcgraph.core.schemas import SCHEMA_VERSION
-from arcgraph.core.sharing_retry import is_regular_file, retry_sharing_violation
+from arcgraph.core.sharing_retry import (
+    is_regular_file,
+    path_exists,
+    retry_sharing_violation,
+)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -290,8 +294,9 @@ class ChangeStateStore:
             pointer = self._read_model(pointer_path, DecisionCurrentPointer)
         except ChangeStoreNotFound:
             # Only a pointer that is really absent means "no decision";
-            # anything else occupying its place stays an error.
-            if pointer_path.exists() or pointer_path.is_symlink():
+            # anything else occupying its place stays an error.  _path has
+            # already resolved symlinks, so this checks what the name targets.
+            if pointer_path.exists():
                 raise
             return None
         if pointer.plan_id != plan_id:
@@ -772,7 +777,9 @@ class ChangeStateStore:
                 )
             pointer = self._path("plans", plan_id, "current.json")
             current: ChangeCurrentPointer | None = None
-            if pointer.exists():
+            # Both pointers are replaced in place; path_exists keeps a Windows
+            # replace from reading as a missing pointer on these lock-free paths.
+            if path_exists(pointer):
                 current = self._read_model(pointer, ChangeCurrentPointer)
                 revision = self.read_revision(plan_id, current.plan_revision)
                 if (
@@ -784,11 +791,11 @@ class ChangeStateStore:
                         "current pointer does not match its immutable revision"
                     )
             decision_pointer = self._path("plans", plan_id, "decision-current.json")
-            if current is not None and not decision_pointer.exists():
+            if current is not None and not path_exists(decision_pointer):
                 raise ChangeStoreCorrupt(
                     "visible current revision has no decision current pointer"
                 )
-            if decision_pointer.exists():
+            if path_exists(decision_pointer):
                 current_decision = self._read_model(
                     decision_pointer, DecisionCurrentPointer
                 )
