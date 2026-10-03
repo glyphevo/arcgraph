@@ -1151,6 +1151,8 @@ def _origin_repository(repo: Path) -> tuple[str, str, str]:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1239,6 +1241,8 @@ def _canonical_github_origin_host(host: str, *, allow_ssh_alias: bool) -> str:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1289,6 +1293,8 @@ def _origin_main_commit(repo: Path) -> str:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1306,6 +1312,8 @@ def _head_commit(repo: Path) -> str:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1358,6 +1366,8 @@ def _remote_main_commit(repo: Path) -> str:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:

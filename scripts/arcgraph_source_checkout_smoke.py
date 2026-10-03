@@ -211,6 +211,8 @@ def _run_arcgraph(args: list[str]) -> subprocess.CompletedProcess[str]:
         [sys.executable, str(ARCGRAPH_WRAPPER), *args],
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=90,
         check=False,

@@ -646,6 +646,8 @@ def _git(repo: Path, *arguments: str) -> str | None:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             env=_subprocess_env(),
         )
@@ -749,6 +751,8 @@ def _run_process(
         check=check,
         capture_output=capture_output,
         text=text,
+        encoding="utf-8" if text else None,
+        errors="replace" if text else None,
         timeout=timeout,
         env=env,
     )

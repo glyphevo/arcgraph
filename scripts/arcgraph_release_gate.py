@@ -146,6 +146,8 @@ def run_arcgraph_json(args: list[str]) -> dict[str, Any]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if completed.returncode != 0:
         if completed.stdout:
@@ -303,6 +305,8 @@ def build_arcgraph_wheel(dist_dir: Path) -> Path:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if completed.returncode != 0:
         if completed.stdout:
