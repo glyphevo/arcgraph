@@ -476,9 +476,7 @@ def test_agent_cli_contract_docs_cover_subprocess_json_boundary() -> None:
     assert "feedback append tool" in contract
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in contract
     assert "docs/examples/mcp_readonly_host.py" in contract
-    assert (
-        "npm, Docker/GHCR, and GitHub Release distribution remain deferred" in contract
-    )
+    assert "npm and Docker/GHCR distribution remain deferred" in contract
     assert "ArcGraph does not auto-configure" in contract
     assert "A stable public product release remains unapproved" in contract
     assert "No language is claimed as L4" in contract
@@ -556,7 +554,7 @@ def test_source_checkout_smoke_docs_cover_source_checkout_and_package_boundary()
     )
     assert "npm package publishing remains private/dev-only" in combined
     assert "Docker/GHCR publishing remains unapproved" in combined
-    assert "GitHub Release and tag creation remain unapproved" in combined
+    assert "GitHub Releases and tags mirror published PyPI pre-releases" in combined
     assert "separate package readiness gate" in combined
     assert "Automatic agent config installers" in combined
 

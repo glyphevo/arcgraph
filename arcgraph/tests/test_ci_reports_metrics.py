@@ -994,9 +994,7 @@ def test_cli_docs_reference_topics() -> None:
     package_docs = render_docs("package-readiness")
 
     assert "source checkout" in cli_reference
-    assert "npm, Docker/GHCR, and GitHub Release package paths are not published" in (
-        quickstart_docs
-    )
+    assert "npm and Docker/GHCR package paths are not published" in (quickstart_docs)
     assert "arcgraph doctor" in quickstart_docs
     assert "arcgraph init --dry-run" in quickstart_docs
     assert "arcgraph status" in quickstart_docs
@@ -1090,9 +1088,7 @@ def test_cli_docs_reference_topics() -> None:
     assert "`arcgraph ci` can return nonzero" in agent_cli_docs
     assert "docs/examples/mcp_readonly_host.py" in agent_cli_docs
     assert "installed-wheel local stdio server" in agent_cli_docs
-    assert "npm, Docker/GHCR, and GitHub Release distribution remain deferred" in (
-        agent_cli_docs
-    )
+    assert "npm and Docker/GHCR distribution remain deferred" in (agent_cli_docs)
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in (
         mcp_server_docs
     )

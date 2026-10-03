@@ -5,9 +5,9 @@ without publishing a package or changing repository visibility.
 
 ## Install Assumption
 
-This smoke installs ArcGraph from a source checkout, not from PyPI. npm,
-Docker/GHCR, and GitHub Release paths remain unpublished; the PyPI
-pre-release is not exercised here.
+This smoke installs ArcGraph from a source checkout, not from PyPI. npm and
+Docker/GHCR paths remain unpublished; the PyPI pre-release and its matching
+GitHub Release are not exercised here.
 
 ```bash
 python3 -m venv .venv
@@ -134,7 +134,7 @@ not be committed.
 - PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them.
 - npm package publishing remains private/dev-only unless separately authorized.
 - Docker/GHCR publishing remains unapproved.
-- GitHub Release and tag creation remain unapproved.
+- GitHub Releases and tags mirror published PyPI pre-releases; this smoke creates neither, and each new one requires separate human approval.
 - Any future package channel requires a separate package readiness gate.
 - Automatic agent config installers and HTTP/network MCP transport remain
   deferred.

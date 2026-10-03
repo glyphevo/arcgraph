@@ -64,6 +64,9 @@ files on PyPI are byte-identical to that candidate (wheel sha256
 sha256 `7b2ab2bcc61df4dbb099d1aab885cb718fcaaf5841dfd55bb0a707f0adaa95bc`). The
 same files were rehearsed on TestPyPI first.
 
+Each of these versions also has a Git tag (`v0.1.0rc8`, `v0.1.0rc7`) pointing at
+that commit and a GitHub pre-release carrying the same two files.
+
 Compare any download with the hashes listed for its version, and use
 `arcgraph version --json` to see the commit an installed copy was built from.
 

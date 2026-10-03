@@ -63,8 +63,10 @@ installs from PyPI have not been tried.
 To install the development version from this repository instead, replace the
 requirement with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`.
 Maintainers and contributors can use an editable source checkout, described
-below. npm, Docker/GHCR and GitHub Releases are not published, and there is no
-separate packaged MCP distribution: the MCP server is part of the PyPI package.
+below. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub
+pre-release that carries the same two files. npm and Docker/GHCR are not
+published, and there is no separate packaged MCP distribution: the MCP server is
+part of the PyPI package.
 This developer preview's external-trial scope is Python analysis through the installed CLI
 plus local stdio MCP. TypeScript/JavaScript analysis is
 outside that trial's acceptance scope.
@@ -397,7 +399,7 @@ and the distinction between protocol verification and actual model use.
 The installed package also provides `arcgraph docs client-setup`.
 For a standalone protocol example, see
 [the minimal read-only host](https://github.com/glyphevo/arcgraph/blob/main/docs/examples/mcp_readonly_host.py).
-npm, Docker/GHCR and GitHub Release distribution remain separate release decisions.
+npm and Docker/GHCR distribution remain separate release decisions.
 
 Optional per-tool MCP metrics are local and disabled by default. Start the
 server with `--metrics-log /private/local/path/mcp.jsonl` to opt in. Events
@@ -580,8 +582,9 @@ arcgraph visual smoke --output-dir output/arcgraph/reports/visual-smoke
 
 ## Release And Governance
 
-Developer-preview pre-releases are published on PyPI; npm, Docker/GHCR and
-GitHub Releases are not. The pre-release gate is a fixed,
+Developer-preview pre-releases are published on PyPI, each with a matching Git
+tag and GitHub pre-release carrying the same files; npm and Docker/GHCR are not.
+The pre-release gate is a fixed,
 ordered command sequence that starts from a clean working tree. Run
 `arcgraph docs release-checklist` for the current list rather than copying
 commands from this page, because a hand-copied list drifts from the gate.

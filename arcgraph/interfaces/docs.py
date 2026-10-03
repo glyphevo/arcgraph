@@ -51,7 +51,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Prepare One Project",
                     "items": [
-                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is published on PyPI as a developer-preview pre-release: install it with `uv tool install --python 3.11 "arcgraph[mcp]"` or `python -m pip install "arcgraph[mcp]"` (with an earlier pre-release, exact-version forms tested on macOS with Python 3.11, pip-style on 3.12; pin the exact version you tested, for example `arcgraph[mcp]==0.1.0rc8`, to stay on it once a stable release exists), or from the GitHub repository with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. A disposable uvx environment is not managed by setup. npm, Docker/GHCR and GitHub Releases are not published.',
+                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is published on PyPI as a developer-preview pre-release: install it with `uv tool install --python 3.11 "arcgraph[mcp]"` or `python -m pip install "arcgraph[mcp]"` (with an earlier pre-release, exact-version forms tested on macOS with Python 3.11, pip-style on 3.12; pin the exact version you tested, for example `arcgraph[mcp]==0.1.0rc8`, to stay on it once a stable release exists), or from the GitHub repository with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. A disposable uvx environment is not managed by setup. Each PyPI pre-release also has a matching Git tag and GitHub pre-release with the same files; npm and Docker/GHCR are not published.',
                         "From the target project, run `arcgraph setup --client claude|codex|cursor|hermes|pi`, selecting one client. It explicitly builds or refreshes the index, probes the runtime, then writes one client entry.",
                         "Use `--dry-run` for a plan without writes, indexing or subprocesses; `--client-config PATH` overrides the destination, not client discovery; `--timeout SECONDS` sets a positive per-step timeout.",
                         "Global options precede setup: `arcgraph --repo-root /path/to/project --output-dir /path/to/index setup --client codex`. Default output is project/output/arcgraph. Indexing, MCP and CLI guidance share the same absolute paths. Source scope follows ordinary project configuration and detection; inspect it with doctor.",
@@ -199,7 +199,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Local Install And Upgrade",
                     "items": [
-                        "ArcGraph is on PyPI as a developer-preview pre-release and can also be installed from a source checkout; npm, Docker/GHCR, and GitHub Release package paths are not published.",
+                        "ArcGraph is on PyPI as a developer-preview pre-release and can also be installed from a source checkout. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub pre-release that carries the same two files. npm and Docker/GHCR package paths are not published.",
                         "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`). Create and activate a virtual environment before installing when you want an isolated local tool.",
                         "From a source checkout, run `python -m pip install --upgrade -e .` in the ArcGraph project directory to install or refresh the `arcgraph` CLI.",
                         'For development and local validation, run `python -m pip install -e ".[dev]"`; use the analyzed project\'s locked npm install when TypeScript/JavaScript analysis is required.',
@@ -393,7 +393,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "MCP And Release Boundaries",
                     "items": [
                         "The external-trial surface includes an installed-wheel local stdio server: `arcgraph mcp serve --repo-root . --output-dir output/arcgraph`.",
-                        "The default MCP analysis/change/help surface is read-only. An operator can separately enable one privacy-bounded local feedback append tool; npm, Docker/GHCR, and GitHub Release distribution remain deferred.",
+                        "The default MCP analysis/change/help surface is read-only. An operator can separately enable one privacy-bounded local feedback append tool; npm and Docker/GHCR distribution remain deferred.",
                         "`docs/examples/mcp_readonly_host.py` remains a lower-level read-only host example; it is not the feedback-enabled trial configuration.",
                         "Outside explicit `arcgraph setup --client`, ArcGraph does not auto-configure agent clients. Setup supports Claude Code, Codex, Cursor, Hermes and a Pi CLI skill; client approval and model use remain separate checks. Use `arcgraph docs mcp-server` and the Client Integration Examples section of `docs/agent-reading-guide.md` for manual examples.",
                         "A stable public product release remains unapproved; developer-preview pre-releases are on PyPI, and further PyPI uploads, npm, Docker/GHCR, GitHub Releases, tags, and repository visibility changes require separate human approval.",
@@ -558,7 +558,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them.",
                         "npm package publishing remains private/dev-only unless separately authorized.",
                         "Docker/GHCR publishing remains unapproved.",
-                        "GitHub Release and tag creation remain unapproved.",
+                        "GitHub Releases and tags mirror published PyPI pre-releases; this smoke creates neither, and each new one requires separate human approval.",
                         "A future package channel requires a separate package readiness gate.",
                         "Run `arcgraph docs package-readiness` for the local wheel/sdist readiness gate that does not publish anything.",
                         "The external-trial scope includes the installed-wheel local stdio server; npm and Docker/GHCR distribution remain separately unapproved.",
@@ -850,7 +850,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "The external-trial guarantee is Python analysis through the installed CLI plus local stdio MCP with default read-only analysis/change/help tools and optional disclosed local feedback; TS/JS remains outside its acceptance scope.",
                         "Run `python -m pip install -e '.[mcp]'` only when you need to start the alpha local MCP server.",
                         "If the `arcgraph` executable is not on PATH, use `python scripts/arcgraph.py <command>` from the source checkout.",
-                        "ArcGraph is on PyPI as a developer-preview pre-release; npm, Docker/GHCR, and GitHub Release package paths are not published.",
+                        "ArcGraph is on PyPI as a developer-preview pre-release. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub pre-release that carries the same two files. npm and Docker/GHCR package paths are not published.",
                     ],
                 },
                 {
@@ -1084,7 +1084,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "TypeScript/JavaScript analysis requires Node.js and a resolvable TypeScript compiler API at runtime. The Python wheel includes the `.mjs` extractor but not `node_modules/typescript`; use the analyzed project's locked npm install when TS/JS is required.",
                         "Without that runtime, a build should succeed while recording `typescript_frontend_unavailable` in its `summary.json` and `diagnostics.jsonl`. This is acceptable only for the Python-only external-trial scope.",
                         "npm package publishing remains unapproved; installing a project-local compiler runtime does not turn npm into an ArcGraph distribution channel.",
-                        "ArcGraph can be installed from PyPI as a developer-preview pre-release; npm, Docker/GHCR, and GitHub Release installation paths are not published; use a source checkout for development.",
+                        "ArcGraph can be installed from PyPI as a developer-preview pre-release. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub pre-release that carries the same two files. npm and Docker/GHCR installation paths are not published; use a source checkout for development.",
                     ],
                 },
                 {

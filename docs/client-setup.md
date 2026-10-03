@@ -171,7 +171,8 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The external-trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
 | PyPI install | Published (pre-release) | Developer-preview pre-releases are on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
-| npm, Docker/GHCR, GitHub Release | Deferred | Not published. |
+| GitHub Release | Published (pre-release) | Each PyPI pre-release has a Git tag (`v0.1.0rcN`) and a GitHub pre-release carrying the same two files. |
+| npm, Docker/GHCR | Deferred | Not published. |
 
 CLI and MCP are not feature-equivalent: CLI agents use `arcgraph help`, while
 MCP agents discover the registered surface through `list_tools` and call
