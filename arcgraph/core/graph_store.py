@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,6 +25,33 @@ from arcgraph.core.schemas import (
     SemanticFact,
 )
 from arcgraph.core.sharing_retry import retry_sharing_violation
+
+
+def _builds_path(output_dir: Path, *names: str) -> Path | None:
+    """Return ``output_dir/builds/<names>`` unless a symlink lies below the output.
+
+    The output directory itself may sit behind symlinks.  Below it, resolving
+    can change the path only by following a symlink (Windows resolution also
+    normalizes case), which would read or write a build other than the one
+    named; ``None`` reports that, a symlink loop, or a name that leaves
+    ``builds/``.
+    """
+
+    try:
+        builds_root = output_dir.resolve() / "builds"
+        named = builds_root.joinpath(*names)
+        resolved = named.resolve(strict=False)
+    except RuntimeError:
+        # pathlib reports a symlink loop as RuntimeError.
+        return None
+    if os.path.normcase(str(resolved)) != os.path.normcase(str(named)):
+        return None
+    try:
+        # A name such as "C:" can replace the root on Windows.
+        resolved.relative_to(builds_root)
+    except ValueError:
+        return None
+    return resolved
 
 
 class GraphStoreWriter:
@@ -54,6 +82,11 @@ class GraphStoreWriter:
 
         with self._write_lock():
             diagnostics = self._apply_diagnostic_lifecycle(metadata, diagnostics)
+            if _builds_path(self.output_dir, metadata.index_version) is None:
+                raise RuntimeError(
+                    "ArcGraph build path is outside builds/ or passes through "
+                    f"a symlink: {self.output_dir / 'builds'}"
+                )
             build_dir = self.output_dir / "builds" / metadata.index_version
             build_dir.mkdir(parents=True, exist_ok=False)
 
@@ -758,15 +791,12 @@ class GraphStoreReader:
             or index_version in {".", ".."}
         ):
             raise FileNotFoundError("ArcGraph build index version is unsafe")
-        output_root = output_dir.resolve()
-        builds_root = (output_root / "builds").resolve(strict=False)
-        build_dir = (builds_root / index_version).resolve(strict=False)
-        try:
-            build_dir.relative_to(builds_root)
-        except ValueError as exc:
+        build_dir = _builds_path(output_dir, index_version)
+        if build_dir is None:
             raise FileNotFoundError(
-                "ArcGraph build path is outside builds root"
-            ) from exc
+                "ArcGraph build path is outside builds/ or passes through a "
+                f"symlink: builds/{index_version}"
+            )
         return cls.from_build_path(build_dir)
 
     @classmethod

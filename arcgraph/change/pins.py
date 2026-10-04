@@ -15,7 +15,11 @@ from arcgraph.change.contracts import (
     CHANGE_CONTRACT_VERSION,
     PinReleaseEvent,
 )
-from arcgraph.change.errors import ChangeStoreCorrupt, ChangeStoreNotFound
+from arcgraph.change.errors import (
+    ChangeStoreCorrupt,
+    ChangeStoreNotFound,
+    OutputContainmentError,
+)
 from arcgraph.change.paths import resolve_under_root
 from arcgraph.change.store import atomic_write_json, read_json_object
 from arcgraph.core.schemas import SCHEMA_VERSION
@@ -281,14 +285,15 @@ class BuildPinManager:
         parts = Path(pin.build_relative_path).parts
         if parts != ("builds", pin.index_version):
             raise ChangeStoreCorrupt("pin build path must be builds/<index_version>")
-        build_dir = (self.output_dir / Path(*parts)).resolve(strict=False)
         try:
-            build_dir.relative_to((self.output_dir / "builds").resolve(strict=False))
-        except ValueError as exc:
+            # Rejects a symlink at builds/ or builds/<index_version> as well.
+            build_dir = resolve_under_root(self.output_dir, *parts)
+        except OutputContainmentError as exc:
             raise ChangeStoreCorrupt(
                 "pin build path escapes output builds root"
             ) from exc
-        if build_dir.is_symlink() or not (build_dir / "index.sqlite").is_file():
+        sqlite_path = build_dir / "index.sqlite"
+        if sqlite_path.is_symlink() or not sqlite_path.is_file():
             raise ChangeStoreCorrupt("cannot pin a missing or unsafe graph build")
 
     def _active_path(self) -> Path:
