@@ -133,6 +133,7 @@ from arcgraph.interfaces.cli_visual import (  # noqa: F401
 from arcgraph.interfaces.cli_support import (  # noqa: F401
     print_json,
     query_engine,
+    write_json_output,
     _print_cli_error_payload,
 )
 from arcgraph.interfaces.client_setup import add_setup_parser
@@ -2019,11 +2020,7 @@ def handle_semantic_stats(args: argparse.Namespace) -> dict[str, Any]:
         else output_dir / "metrics" / "semantic-stats.json"
     )
     payload["metrics_path"] = str(output_path.resolve())
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    write_json_output(output_path, payload, named_by_user=bool(args.output))
     return payload
 
 

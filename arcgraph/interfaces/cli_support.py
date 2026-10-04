@@ -15,6 +15,7 @@ from typing import Any
 from arcgraph import SCHEMA_VERSION
 from arcgraph.change.errors import ChangeSafetyError
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
+from arcgraph.core.utils import replace_text_file
 
 
 def query_engine(args: argparse.Namespace) -> QueryEngine:
@@ -24,6 +25,23 @@ def query_engine(args: argparse.Namespace) -> QueryEngine:
 
 def print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def write_json_output(
+    path: Path, payload: dict[str, Any], *, named_by_user: bool
+) -> None:
+    """Write a command's JSON output file.
+
+    A path the user named is written like any other ``--output`` file.  A
+    default path is one ArcGraph chose, so a symlink standing there is
+    replaced rather than written through.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
+    if named_by_user:
+        path.write_text(text, encoding="utf-8")
+    else:
+        replace_text_file(path, text)
 
 
 _CLI_ERROR_CODES: dict[type[BaseException], str] = {

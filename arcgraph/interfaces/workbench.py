@@ -13,7 +13,11 @@ from typing import Any
 from arcgraph.core.force_graph_export import FORCE_GRAPH_SCHEMA, FORCE_GRAPH_VERSION
 from arcgraph.core.query_engine import QueryEngine
 from arcgraph.core.schemas import ContextRequest
-from arcgraph.core.utils import strip_source_snippets
+from arcgraph.core.utils import (
+    replace_bytes_file,
+    replace_text_file,
+    strip_source_snippets,
+)
 from arcgraph.interfaces.ci import run_ci_checks
 from arcgraph.providers.context_provider import ContextProvider
 
@@ -217,13 +221,13 @@ def write_workbench(
     _copy_assets(output_dir)
     graph_path = output_dir / "graph_data.json"
     status_path = output_dir / "status_data.json"
-    graph_path.write_text(
+    replace_text_file(
+        graph_path,
         json.dumps(graph_payload, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
     )
-    status_path.write_text(
+    replace_text_file(
+        status_path,
         json.dumps(status_payload, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
     )
     return {
         "schema": "ArcGraphWorkbench",
@@ -323,7 +327,7 @@ def _copy_tree(source: Any, target: Path) -> None:
         if child.is_dir():
             _copy_tree(child, destination)
         else:
-            destination.write_bytes(child.read_bytes())
+            replace_bytes_file(destination, child.read_bytes())
 
 
 def _check_by_name(ci: dict[str, Any], name: str) -> dict[str, Any] | None:

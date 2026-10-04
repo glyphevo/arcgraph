@@ -13,6 +13,8 @@ from arcgraph.core.evidence_manifest import (
 )
 from arcgraph.tests.test_build_store_symlinks import _link, _write_build
 
+FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
+
 
 def _outside(tmp_path: Path) -> Path:
     target = tmp_path / "outside.txt"
@@ -122,3 +124,97 @@ def test_replace_text_file_removes_its_temp_file_when_the_rename_fails(
 
     assert destination.read_text(encoding="utf-8") == "old"
     assert [p.name for p in tmp_path.iterdir()] == ["current.json"]
+
+
+def test_publishing_current_replaces_a_symlinked_current_pointer(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "arcgraph"
+    _write_build(output, "index-1")
+    target = _outside(tmp_path)
+    (output / "current.json").unlink()
+    _link(output / "current.json", target)
+
+    _write_build(output, "index-2")
+
+    assert target.read_text(encoding="utf-8") == "keep"
+    assert not (output / "current.json").is_symlink()
+    assert '"index_version": "index-2"' in (output / "current.json").read_text(
+        encoding="utf-8"
+    )
+
+
+def _built_fixture(tmp_path: Path) -> Path:
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    output_dir = tmp_path / "arcgraph"
+    ArcGraphIndexer(
+        repo_root=FIXTURE_ROOT,
+        output_dir=output_dir,
+        source_roots=[SourceRoot("src"), SourceRoot("tests", "tests")],
+    ).build()
+    return output_dir
+
+
+def _semantic_stats(output_dir: Path, *extra: str) -> int:
+    from arcgraph.interfaces.cli import main
+
+    return main(
+        [
+            "--repo-root",
+            str(FIXTURE_ROOT),
+            "--output-dir",
+            str(output_dir),
+            "semantic-stats",
+            *extra,
+        ]
+    )
+
+
+def test_default_semantic_stats_file_replaces_a_link(tmp_path: Path) -> None:
+    output_dir = _built_fixture(tmp_path)
+    stats = output_dir / "metrics" / "semantic-stats.json"
+    stats.parent.mkdir(parents=True, exist_ok=True)
+    target = _outside(tmp_path)
+    _link(stats, target)
+
+    assert _semantic_stats(output_dir) == 0
+
+    assert target.read_text(encoding="utf-8") == "keep"
+    assert not stats.is_symlink()
+    assert stats.stat().st_size > 0
+
+
+def test_semantic_stats_output_named_by_the_user_is_still_written_in_place(
+    tmp_path: Path,
+) -> None:
+    output_dir = _built_fixture(tmp_path)
+    target = _outside(tmp_path)
+    named = tmp_path / "named-stats.json"
+    _link(named, target)
+
+    assert _semantic_stats(output_dir, "--output", str(named)) == 0
+
+    assert named.is_symlink()
+    assert target.read_text(encoding="utf-8") != "keep"
+
+
+def test_workbench_replaces_links_at_its_own_file_names(tmp_path: Path) -> None:
+    from arcgraph.interfaces.workbench import write_workbench
+
+    workbench = tmp_path / "workbench"
+    workbench.mkdir()
+    targets = {}
+    for name in ("graph_data.json", "status_data.json", "index.html"):
+        target = tmp_path / f"outside-{name}"
+        target.write_text("keep", encoding="utf-8")
+        _link(workbench / name, target)
+        targets[name] = target
+
+    write_workbench(output_dir=workbench, graph_payload={}, status_payload={})
+
+    for name, target in targets.items():
+        assert target.read_text(encoding="utf-8") == "keep", name
+        assert not (workbench / name).is_symlink(), name
+    assert (workbench / "index.html").stat().st_size > len("keep")

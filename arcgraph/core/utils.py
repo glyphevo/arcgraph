@@ -21,24 +21,42 @@ def replace_text_file(path: Path, text: str) -> None:
     with mode 0o666 under the process umask, as ``Path.write_text`` would.
     """
 
-    for _ in range(100):
-        temp_path = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-        try:
-            descriptor = os.open(temp_path, _TEMP_FLAGS, 0o666)
-            break
-        except FileExistsError:
-            continue
-    else:
-        raise FileExistsError(f"Could not create a temporary file next to {path}")
+    descriptor, temp_path = _exclusive_temp_next_to(path)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(text)
         retry_sharing_violation(lambda: os.replace(temp_path, path))
     finally:
+        _discard(temp_path)
+
+
+def replace_bytes_file(path: Path, data: bytes) -> None:
+    """Binary counterpart of :func:`replace_text_file`."""
+
+    descriptor, temp_path = _exclusive_temp_next_to(path)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+        retry_sharing_violation(lambda: os.replace(temp_path, path))
+    finally:
+        _discard(temp_path)
+
+
+def _exclusive_temp_next_to(path: Path) -> tuple[int, Path]:
+    for _ in range(100):
+        temp_path = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
         try:
-            temp_path.unlink()
-        except FileNotFoundError:
-            pass
+            return os.open(temp_path, _TEMP_FLAGS, 0o666), temp_path
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Could not create a temporary file next to {path}")
+
+
+def _discard(temp_path: Path) -> None:
+    try:
+        temp_path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def symlink_below(root: Path, named: Path) -> bool:
