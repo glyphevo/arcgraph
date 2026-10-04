@@ -54,6 +54,23 @@ def _builds_path(output_dir: Path, *names: str) -> Path | None:
     return resolved
 
 
+def current_pointer_path(output_dir: Path) -> Path | None:
+    """Return ``output_dir/current.json`` unless the pointer is a symlink.
+
+    A linked pointer would select a build through another file; ``None``
+    reports that, including a symlink loop.  Same rule as ``_builds_path``.
+    """
+
+    try:
+        named = output_dir.resolve() / "current.json"
+        resolved = named.resolve(strict=False)
+    except RuntimeError:
+        return None
+    if os.path.normcase(str(resolved)) != os.path.normcase(str(named)):
+        return None
+    return resolved
+
+
 class GraphStoreWriter:
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
@@ -756,6 +773,10 @@ class GraphStoreReader:
     @classmethod
     def from_current(cls, output_dir: Path) -> "GraphStoreReader":
         current_path = output_dir / "current.json"
+        if current_pointer_path(output_dir) is None:
+            raise FileNotFoundError(
+                f"ArcGraph current index pointer is a symlink: {current_path}"
+            )
         # Read instead of checking exists() first: on Windows a stat can miss
         # the file while a build replaces it, but the read is retried.
         try:

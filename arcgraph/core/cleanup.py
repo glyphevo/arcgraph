@@ -12,6 +12,7 @@ from typing import Any
 
 from arcgraph.change.contracts import CHANGE_CONTRACT_VERSION
 from arcgraph.core.evidence_manifest import evidence_manifest_path
+from arcgraph.core.graph_store import current_pointer_path
 from arcgraph.core.operation_lock import arcgraph_operation_lock
 from arcgraph.core.schemas import SCHEMA_VERSION
 from arcgraph.core.sharing_retry import retry_sharing_violation
@@ -451,6 +452,8 @@ def _current_build(
     output_dir: Path, builds_root: Path
 ) -> tuple[Path | None, str | None]:
     current_path = output_dir / "current.json"
+    if current_pointer_path(output_dir) is None:
+        return None, f"Refusing a symlinked current.json at {current_path}"
     try:
         current = json.loads(
             retry_sharing_violation(lambda: current_path.read_text(encoding="utf-8"))
