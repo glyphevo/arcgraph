@@ -150,8 +150,9 @@ it into a persistent tool environment, for example `uv tool install --python
 3.11 "arcgraph[mcp]"`, or with `python -m pip install "arcgraph[mcp]"` into a
 dedicated virtual environment. Tested on macOS: with 0.1.0rc7, the
 exact-version forms on Python 3.11 and the pip-style form on Python 3.12; with
-0.1.0rc8, pip installs of the exact version and of the unpinned requirement on
-Python 3.11 and 3.12, and `uv tool install --python 3.11` of the exact version.
+0.1.0rc8 and 0.1.0rc9, pip installs of the exact version and of the unpinned
+requirement on Python 3.11 and 3.12, and `uv tool install --python 3.11` of the
+exact version.
 Windows and Linux installs from PyPI have not been tried. Pin the exact
 version you tested, for example `arcgraph[mcp]==0.1.0rc9`, to stay on it once a
 stable release exists.
