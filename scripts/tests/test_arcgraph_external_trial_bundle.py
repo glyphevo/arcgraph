@@ -106,10 +106,10 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
     repo = tmp_path / "repo"
     (repo / "docs" / "release_notes").mkdir(parents=True)
     (repo / "pyproject.toml").write_text(
-        '[project]\nname = "arcgraph"\nversion = "0.1.0rc9"\n',
+        '[project]\nname = "arcgraph"\nversion = "0.1.0rc10"\n',
         encoding="utf-8",
     )
-    (repo / bundle.RELEASE_NOTES).write_text("rc9 notes\n", encoding="utf-8")
+    (repo / bundle.RELEASE_NOTES).write_text("rc10 notes\n", encoding="utf-8")
     (repo / bundle.TRIAL_GUIDE).write_text("trial guide\n", encoding="utf-8")
     (repo / bundle.TRIAL_AGENT_GUIDE).write_text(
         "agent trial guide\n", encoding="utf-8"
@@ -125,8 +125,8 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
     ) -> dict[str, Any]:
         del repo, timeout_seconds
         artifacts_dir.mkdir(parents=True)
-        wheel = artifacts_dir / "arcgraph-0.1.0rc9-py3-none-any.whl"
-        sdist = artifacts_dir / "arcgraph-0.1.0rc9.tar.gz"
+        wheel = artifacts_dir / "arcgraph-0.1.0rc10-py3-none-any.whl"
+        sdist = artifacts_dir / "arcgraph-0.1.0rc10.tar.gz"
         wheel.write_bytes(b"wheel")
         sdist.write_bytes(b"sdist")
         return {
@@ -147,7 +147,7 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
             },
             "project_metadata": {
                 "name": "arcgraph",
-                "version": "0.1.0rc9",
+                "version": "0.1.0rc10",
                 "requires_python": ">=3.11",
                 "console_script": "arcgraph.interfaces.cli:main",
                 "has_mcp_extra": True,
@@ -183,7 +183,7 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
                 "sdist_sha256": bundle._sha256_file(sdist),
                 "sdist_size": sdist.stat().st_size,
                 "project_name": "arcgraph",
-                "version": "0.1.0rc9",
+                "version": "0.1.0rc10",
                 "requires_python": ">=3.11",
                 "wheel_tag": "py3-none-any",
                 "install_mode": "built-wheel-temporary-venv",
@@ -364,14 +364,14 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
 
     assert result["status"] == "pass"
     assert result["schema_version"] == "1.1"
-    assert result["candidate_version"] == "0.1.0rc9"
+    assert result["candidate_version"] == "0.1.0rc10"
     assert result["external_actions"] == {
         "scope": "bundle_assembler_execution",
         "performed": [],
     }
     assert (target / "artifacts" / result["wheel"]).read_bytes() == b"wheel"
     assert (target / "artifacts" / result["sdist"]).read_bytes() == b"sdist"
-    assert (target / "v0.1.0-rc9.md").read_text(encoding="utf-8") == "rc9 notes\n"
+    assert (target / "v0.1.0-rc10.md").read_text(encoding="utf-8") == "rc10 notes\n"
     assert (target / "external-trial-guide.md").read_text(
         encoding="utf-8"
     ) == "trial guide\n"
@@ -449,8 +449,8 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
     assert str(repo) not in distributable_text
     assert str(target) not in distributable_text
     manifest = (target / "SHA256SUMS").read_text(encoding="utf-8")
-    assert "artifacts/arcgraph-0.1.0rc9-py3-none-any.whl" in manifest
-    assert "artifacts/arcgraph-0.1.0rc9.tar.gz" in manifest
+    assert "artifacts/arcgraph-0.1.0rc10-py3-none-any.whl" in manifest
+    assert "artifacts/arcgraph-0.1.0rc10.tar.gz" in manifest
     assert "package-readiness.json" in manifest
     assert "release-candidate-smoke.json" in manifest
     assert "remote-ci.json" in manifest
@@ -467,7 +467,7 @@ def test_external_trial_bundle_assembles_exact_validated_artifacts(
         )
 
 
-def test_external_trial_bundle_requires_rc9_identity(tmp_path: Path) -> None:
+def test_external_trial_bundle_requires_rc10_identity(tmp_path: Path) -> None:
     bundle = load_bundle_module()
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -476,7 +476,7 @@ def test_external_trial_bundle_requires_rc9_identity(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(RuntimeError, match="requires 0.1.0rc9"):
+    with pytest.raises(RuntimeError, match="requires 0.1.0rc10"):
         bundle.build_external_trial_bundle(
             repo_root=repo,
             bundle_dir=tmp_path / "bundle",
@@ -583,7 +583,7 @@ def test_invalid_remote_evidence_fails_before_package_smoke(
     repo = tmp_path / "repo"
     (repo / "docs" / "release_notes").mkdir(parents=True)
     (repo / "pyproject.toml").write_text(
-        '[project]\nname = "arcgraph"\nversion = "0.1.0rc9"\n',
+        '[project]\nname = "arcgraph"\nversion = "0.1.0rc10"\n',
         encoding="utf-8",
     )
     for relative in (
@@ -746,7 +746,7 @@ def test_bundle_candidate_requires_multi_project_and_cli_feedback_evidence() -> 
     payload = {
         "status": "pass",
         "package_readiness_verdict": "PACKAGE_READY_CANDIDATE",
-        "project_metadata": {"version": "0.1.0rc9"},
+        "project_metadata": {"version": "0.1.0rc10"},
         "source_provenance": {"working_tree_clean": True},
         "mcp_protocol": {
             "status": "pass",
@@ -835,7 +835,7 @@ def test_security_evidence_freezes_candidate_runtime_before_installing_tools(
     bundle = load_bundle_module()
     repo = tmp_path / "repo"
     repo.mkdir()
-    wheel = tmp_path / "arcgraph-0.1.0rc9-py3-none-any.whl"
+    wheel = tmp_path / "arcgraph-0.1.0rc10-py3-none-any.whl"
     wheel.write_bytes(b"candidate-wheel")
     output_dir = tmp_path / "security"
     observed: list[tuple[str, list[str]]] = []
@@ -864,7 +864,7 @@ def test_security_evidence_freezes_candidate_runtime_before_installing_tools(
                         "metadata": {
                             "component": {
                                 "name": "arcgraph",
-                                "version": "0.1.0rc9",
+                                "version": "0.1.0rc10",
                             }
                         }
                     }
@@ -994,8 +994,8 @@ def test_external_trial_bundle_rejects_a_dangling_destination_symlink(
 
 
 def _rc_evidence(bundle: Any, tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    wheel = tmp_path / "arcgraph-0.1.0rc9-py3-none-any.whl"
-    sdist = tmp_path / "arcgraph-0.1.0rc9.tar.gz"
+    wheel = tmp_path / "arcgraph-0.1.0rc10-py3-none-any.whl"
+    sdist = tmp_path / "arcgraph-0.1.0rc10.tar.gz"
     wheel.write_bytes(b"wheel")
     sdist.write_bytes(b"sdist")
     persisted = {
@@ -1072,8 +1072,8 @@ def test_bundle_hands_the_persisted_sdist_to_the_candidate_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bundle = load_bundle_module()
-    wheel = tmp_path / "arcgraph-0.1.0rc9-py3-none-any.whl"
-    sdist = tmp_path / "arcgraph-0.1.0rc9.tar.gz"
+    wheel = tmp_path / "arcgraph-0.1.0rc10-py3-none-any.whl"
+    sdist = tmp_path / "arcgraph-0.1.0rc10.tar.gz"
     output = tmp_path / "rc.json"
     seen: list[list[str]] = []
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arcgraph"
-version = "0.1.0rc9"
+version = "0.1.0rc10"
 description = "Local-first code semantic graph engine for AI agents and code intelligence."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"

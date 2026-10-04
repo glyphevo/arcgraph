@@ -1,7 +1,7 @@
 # Package Readiness Gate
 
 ArcGraph package readiness is a local evidence gate for a future human release
-decision. It builds and installs local artifacts for source version `0.1.0rc9`,
+decision. It builds and installs local artifacts for source version `0.1.0rc10`,
 but it does not publish anything.
 
 Package readiness smoke for local wheel/sdist build checks that a wheel and

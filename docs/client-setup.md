@@ -154,7 +154,7 @@ exact-version forms on Python 3.11 and the pip-style form on Python 3.12; with
 requirement on Python 3.11 and 3.12, and `uv tool install --python 3.11` of the
 exact version.
 Windows and Linux installs from PyPI have not been tried. Pin the exact
-version you tested, for example `arcgraph[mcp]==0.1.0rc9`, to stay on it once a
+version you tested, for example `arcgraph[mcp]==0.1.0rc10`, to stay on it once a
 stable release exists.
 To install the development version from the repository instead, use
 `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. Then run `arcgraph setup --client CLIENT` in
