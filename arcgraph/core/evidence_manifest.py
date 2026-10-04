@@ -12,6 +12,7 @@ from typing import Any
 from defusedxml import ElementTree as ET
 
 from arcgraph.core.schemas import SCHEMA_VERSION
+from arcgraph.core.utils import replace_text_file
 
 EVIDENCE_MANIFEST_RELATIVE_PATH = Path("evidence") / "manifest.json"
 EVIDENCE_HEALTH_STATUSES = {
@@ -66,10 +67,7 @@ def write_evidence_sidecar(
         "scope": "repository",
     }
     sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-    sidecar_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    replace_text_file(sidecar_path, json.dumps(payload, indent=2, sort_keys=True))
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "written",
@@ -194,10 +192,7 @@ def build_evidence_manifest(
     if write_live:
         path = evidence_manifest_path(output_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        replace_text_file(path, json.dumps(manifest, indent=2, sort_keys=True))
     return manifest
 
 

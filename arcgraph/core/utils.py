@@ -5,7 +5,40 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import secrets
 from typing import Any
+
+from arcgraph.core.sharing_retry import retry_sharing_violation
+
+_TEMP_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+
+
+def replace_text_file(path: Path, text: str) -> None:
+    """Write *text* to *path* through a new file renamed over it.
+
+    The new file is created exclusively next to *path*, so a symlink already
+    standing at *path* is replaced instead of written through.  It is created
+    with mode 0o666 under the process umask, as ``Path.write_text`` would.
+    """
+
+    for _ in range(100):
+        temp_path = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+        try:
+            descriptor = os.open(temp_path, _TEMP_FLAGS, 0o666)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise FileExistsError(f"Could not create a temporary file next to {path}")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        retry_sharing_violation(lambda: os.replace(temp_path, path))
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def symlink_below(root: Path, named: Path) -> bool:

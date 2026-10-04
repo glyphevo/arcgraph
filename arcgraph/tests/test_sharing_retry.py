@@ -108,24 +108,24 @@ def test_publish_current_retries_a_replace_blocked_by_a_reader(
         repo_root=str(tmp_path),
         source_roots=["src"],
     )
-    original_replace = Path.replace
+    original_replace = os.replace
     blocked = 0
 
-    def replace(self: Path, target: Path) -> Path:
+    def replace(source: object, target: object) -> None:
         nonlocal blocked
         if Path(target).name == "current.json" and blocked < 2:
             blocked += 1
             raise _sharing_violation()
-        return original_replace(self, target)
+        original_replace(source, target)
 
-    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(os, "replace", replace)
 
     GraphStoreWriter(output_dir).write(metadata, [], [], [], [])
 
     assert blocked == 2
     current = json.loads((output_dir / "current.json").read_text(encoding="utf-8"))
     assert current["build_dir"] == "builds/test-index"
-    assert not (output_dir / "current.json.tmp").exists()
+    assert not list(output_dir.glob("*.tmp"))
 
 
 def test_from_current_retries_a_read_during_publication(

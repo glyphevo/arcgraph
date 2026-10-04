@@ -25,7 +25,7 @@ from arcgraph.core.schemas import (
     SemanticFact,
 )
 from arcgraph.core.sharing_retry import retry_sharing_violation
-from arcgraph.core.utils import symlink_below
+from arcgraph.core.utils import replace_text_file, symlink_below
 
 
 def _builds_path(output_dir: Path, *names: str) -> Path | None:
@@ -422,11 +422,7 @@ class GraphStoreWriter:
             "build_dir": build_dir.relative_to(self.output_dir).as_posix(),
             "summary_path": f"{build_dir.relative_to(self.output_dir).as_posix()}/summary.json",
         }
-        temp_path = current_path.with_suffix(".json.tmp")
-        temp_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
-        )
-        retry_sharing_violation(lambda: temp_path.replace(current_path))
+        replace_text_file(current_path, json.dumps(payload, indent=2, sort_keys=True))
 
     @staticmethod
     def _write_sqlite(
