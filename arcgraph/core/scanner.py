@@ -7,6 +7,7 @@ import hashlib
 import mmap
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1038,6 +1039,26 @@ def _fallback_repo_root_resolved(repo_root: Path) -> ResolvedSourceRoots:
     )
 
 
+def require_decodable_path(path: Path) -> None:
+    """Fail clearly when a path name could not be decoded.
+
+    Where Python's file-system encoding is not UTF-8 (on Linux, only when
+    both locale coercion and UTF-8 mode are turned off under a C or POSIX
+    locale), a non-ASCII name decodes to lone surrogates that cannot be
+    hashed or written as UTF-8 later in the build.
+    """
+
+    text = str(path)
+    if not any("\udc80" <= char <= "\udcff" for char in text):
+        return
+    shown = text.encode("utf-8", "backslashreplace").decode("utf-8")
+    raise RuntimeError(
+        f"Cannot index {shown}: the name is not valid in the file-system "
+        f"encoding ({sys.getfilesystemencoding()}). Run ArcGraph under a "
+        "UTF-8 locale or with PYTHONUTF8=1."
+    )
+
+
 # -- Parent-child dedup ------------------------------------------------------
 
 
@@ -1178,6 +1199,7 @@ class FileScanner:
         file_extensions: tuple[str, ...] = (".py",),
     ) -> None:
         self.repo_root = repo_root.resolve()
+        require_decodable_path(self.repo_root)
         self.source_roots = (
             tuple(source_roots)
             if source_roots
@@ -1383,6 +1405,7 @@ class FileScanner:
     def _record_for(
         self, path: Path, root_path: Path, source_root: SourceRoot
     ) -> FileRecord:
+        require_decodable_path(path)
         content = path.read_bytes()
         text = content.decode("utf-8", errors="replace")
         module = self._module_name(path, root_path, source_root)
