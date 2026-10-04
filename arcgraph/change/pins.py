@@ -289,8 +289,9 @@ class BuildPinManager:
             # Rejects a symlink at builds/ or builds/<index_version> as well.
             build_dir = resolve_under_root(self.output_dir, *parts)
         except OutputContainmentError as exc:
+            # Covers both an unsafe index_version name and an escape.
             raise ChangeStoreCorrupt(
-                "pin build path escapes output builds root"
+                "pin build path is not a safe location under output builds root"
             ) from exc
         sqlite_path = build_dir / "index.sqlite"
         if sqlite_path.is_symlink() or not sqlite_path.is_file():

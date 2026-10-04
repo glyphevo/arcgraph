@@ -124,3 +124,16 @@ def test_pin_accepts_a_regular_build(tmp_path: Path) -> None:
     )
 
     manager._validate_build(pin)
+
+
+def test_pin_reports_an_unsafe_build_name_without_claiming_an_escape(
+    tmp_path: Path,
+) -> None:
+    manager = BuildPinManager(tmp_path / "arcgraph", repo_id="repo")
+    pin = BuildPin.model_construct(
+        build_relative_path="builds/-bad", index_version="-bad"
+    )
+
+    with pytest.raises(ChangeStoreCorrupt, match="not a safe location") as caught:
+        manager._validate_build(pin)
+    assert "escapes" not in str(caught.value)
