@@ -16,7 +16,11 @@ import subprocess
 import sys
 from typing import Iterable
 
-from arcgraph.change.errors import OutputContainmentError, RepositoryPathError
+from arcgraph.change.errors import (
+    ChangeStoreCorrupt,
+    OutputContainmentError,
+    RepositoryPathError,
+)
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -126,11 +130,13 @@ def resolve_under_root(root: Path, *components: str) -> Path:
 
     Identifiers such as plan, evidence, and pin IDs are passed as individual
     components.  A component never gets to introduce a directory separator.
+    The root itself may sit behind symlinks; below it, a symlink in any
+    existing component is reported as store corruption, because following it
+    would read or overwrite a different record than the one named.
     """
 
     if not components:
         raise OutputContainmentError("a contained path needs at least one component")
-    root_resolved = root.resolve(strict=False)
     for component in components:
         if (
             not isinstance(component, str)
@@ -142,9 +148,19 @@ def resolve_under_root(root: Path, *components: str) -> Path:
             or not _SAFE_COMPONENT.fullmatch(component)
         ):
             raise OutputContainmentError(f"unsafe output path component {component!r}")
-    candidate = root_resolved.joinpath(*components).resolve(strict=False)
+    try:
+        root_resolved = root.resolve(strict=False)
+        named = root_resolved.joinpath(*components)
+        candidate = named.resolve(strict=False)
+    except RuntimeError as exc:
+        # pathlib reports a symlink loop as RuntimeError.
+        raise ChangeStoreCorrupt("output store path contains a symlink loop") from exc
     if not _is_relative_to(candidate, root_resolved):
         raise OutputContainmentError("output path escapes its containment root")
+    # The components are plain names, so resolving can change the path only
+    # by following a symlink.  Windows resolution also normalizes case.
+    if os.path.normcase(str(candidate)) != os.path.normcase(str(named)):
+        raise ChangeStoreCorrupt("output store path contains a symlink")
     return candidate
 
 

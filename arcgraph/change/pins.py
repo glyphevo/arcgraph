@@ -16,7 +16,7 @@ from arcgraph.change.contracts import (
     PinReleaseEvent,
 )
 from arcgraph.change.errors import ChangeStoreCorrupt, ChangeStoreNotFound
-from arcgraph.change.paths import ensure_contained_path, resolve_under_root
+from arcgraph.change.paths import resolve_under_root
 from arcgraph.change.store import atomic_write_json, read_json_object
 from arcgraph.core.schemas import SCHEMA_VERSION
 
@@ -32,7 +32,7 @@ class BuildPinManager:
     def __init__(self, output_dir: Path, *, repo_id: str) -> None:
         self.output_dir = output_dir.resolve()
         self.repo_id = repo_id
-        self.root = ensure_contained_path(self.output_dir, self.output_dir / "pins")
+        self.root = resolve_under_root(self.output_dir, "pins")
 
     def make_pin(
         self,

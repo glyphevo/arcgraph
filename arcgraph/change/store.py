@@ -76,7 +76,9 @@ def read_json_object(path: Path, *, root: Path) -> dict[str, Any]:
     contained = ensure_contained_path(root, path)
     try:
         # pathlib answers "missing" for absent paths but raises other errors,
-        # such as a parent directory that denies search permission.
+        # such as a parent directory that denies search permission.  Store
+        # paths reject symlinks when they are named, so is_symlink() only
+        # catches one created since.
         present = not contained.is_symlink() and is_regular_file(contained)
     except OSError as exc:
         raise ChangeStoreCorrupt(
@@ -108,9 +110,7 @@ class ChangeStateStore:
     def __init__(self, output_dir: Path, *, repo_id: str) -> None:
         self.output_dir = output_dir.resolve()
         self.repo_id = repo_id
-        self.root = ensure_contained_path(
-            self.output_dir, self.output_dir / "change-safety"
-        )
+        self.root = resolve_under_root(self.output_dir, "change-safety")
 
     def write_revision(self, revision: ChangePlanRevision) -> Path:
         self._require_repo(revision.repo_id)
@@ -303,7 +303,7 @@ class ChangeStateStore:
         except ChangeStoreNotFound:
             # Only a pointer that is really absent means "no decision";
             # anything else occupying its place stays an error.  _path has
-            # already resolved symlinks, so this checks what the name targets.
+            # already rejected a symlink in that place.
             if pointer_path.exists():
                 raise
             return None
