@@ -50,6 +50,13 @@ verify a bundle with the steps in the
 
 ## Published Releases
 
+0.1.0rc10 was uploaded to PyPI on 2026-10-04 by a maintainer, from the validated
+candidate built from commit `bd9864250ea9f46815cf08ef426a1d5873dfce60`; the two
+files on PyPI are byte-identical to that candidate (wheel sha256
+`41350d26f29f65d0364ca0b91441a1f8b6201e5f77b8fd6018b380e125138d18`, sdist
+sha256 `d61f7e132530b37eecfb620292069c1482a398e05759992a8d0244e1a275a54d`). The
+same files were rehearsed on TestPyPI first.
+
 0.1.0rc9 was uploaded to PyPI on 2026-10-03 by a maintainer, from the validated
 candidate built from commit `66c8e76f1078cfcbed1e37c8ed56aceb88381a82`; the two
 files on PyPI are byte-identical to that candidate (wheel sha256
@@ -71,9 +78,9 @@ files on PyPI are byte-identical to that candidate (wheel sha256
 sha256 `7b2ab2bcc61df4dbb099d1aab885cb718fcaaf5841dfd55bb0a707f0adaa95bc`). The
 same files were rehearsed on TestPyPI first.
 
-Each of these versions also has a Git tag (`v0.1.0rc9`, `v0.1.0rc8`,
-`v0.1.0rc7`) pointing at that commit and a GitHub pre-release carrying the same
-two files.
+Each of these versions also has a Git tag (`v0.1.0rc10`, `v0.1.0rc9`,
+`v0.1.0rc8`, `v0.1.0rc7`) pointing at that commit and a GitHub pre-release
+carrying the same two files.
 
 Compare any download with the hashes listed for its version, and use
 `arcgraph version --json` to see the commit an installed copy was built from.
