@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 import tomllib
 
@@ -128,12 +127,14 @@ def test_changed_config_refused_before_replacement(tmp_path):
     assert path.read_bytes() == b"new user edit"
 
 
-@pytest.mark.skipif(os.name != "posix", reason="symlink privileges vary on Windows")
 def test_symlink_and_symlink_parent_refused(tmp_path):
     actual = tmp_path / "actual"
     actual.mkdir()
     link = tmp_path / "link"
-    link.symlink_to(actual, target_is_directory=True)
+    try:
+        link.symlink_to(actual, target_is_directory=True)
+    except OSError:
+        pytest.skip("this account cannot create symlinks")
     result = setup.handle_setup(
         args(tmp_path, "claude", config=link / "config", dry=True)
     )
