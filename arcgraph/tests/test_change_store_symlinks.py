@@ -71,7 +71,9 @@ def test_store_path_reports_a_symlink_loop_as_corruption(tmp_path: Path) -> None
     loop = root / "loop"
     _link(loop, loop)
 
-    with pytest.raises(ChangeStoreCorrupt, match="loop"):
+    # Where resolve() raises for the loop the message says so; Python 3.12+
+    # on Windows leaves the loop in place and the link check reports it.
+    with pytest.raises(ChangeStoreCorrupt, match="symlink"):
         resolve_under_root(root, "loop", "record.json")
 
 
@@ -207,3 +209,21 @@ def test_store_rejects_a_junction_as_its_root(tmp_path: Path) -> None:
 
     with pytest.raises(ChangeStoreCorrupt, match="symlink"):
         ChangeStateStore(output, repo_id="repo")
+
+
+def test_store_path_rejects_a_link_that_resolution_leaves_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Python 3.12+ on Windows returns a path through a symlink loop unchanged
+    # instead of raising; simulate that so every platform covers the check.
+    root = tmp_path.resolve() / "store"
+    root.mkdir()
+    target = root / "target.json"
+    target.write_text("{}", encoding="utf-8")
+    _link(root / "record.json", target)
+    monkeypatch.setattr(
+        Path, "resolve", lambda self, strict=False: Path(os.path.abspath(self))
+    )
+
+    with pytest.raises(ChangeStoreCorrupt, match="symlink"):
+        resolve_under_root(root, "record.json")

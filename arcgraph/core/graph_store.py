@@ -25,6 +25,7 @@ from arcgraph.core.schemas import (
     SemanticFact,
 )
 from arcgraph.core.sharing_retry import retry_sharing_violation
+from arcgraph.core.utils import symlink_below
 
 
 def _builds_path(output_dir: Path, *names: str) -> Path | None:
@@ -48,8 +49,10 @@ def _builds_path(output_dir: Path, *names: str) -> Path | None:
         return None
     try:
         # A name such as "C:" can replace the root on Windows.
-        resolved.relative_to(builds_root)
+        named.relative_to(builds_root)
     except ValueError:
+        return None
+    if symlink_below(output_dir.resolve(), named):
         return None
     return resolved
 
@@ -67,6 +70,8 @@ def current_pointer_path(output_dir: Path) -> Path | None:
     except RuntimeError:
         return None
     if os.path.normcase(str(resolved)) != os.path.normcase(str(named)):
+        return None
+    if symlink_below(output_dir.resolve(), named):
         return None
     return resolved
 

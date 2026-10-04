@@ -21,6 +21,7 @@ from arcgraph.change.errors import (
     OutputContainmentError,
     RepositoryPathError,
 )
+from arcgraph.core.utils import symlink_below
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -159,7 +160,9 @@ def resolve_under_root(root: Path, *components: str) -> Path:
         raise OutputContainmentError("output path escapes its containment root")
     # The components are plain names, so resolving can change the path only
     # by following a symlink.  Windows resolution also normalizes case.
-    if os.path.normcase(str(candidate)) != os.path.normcase(str(named)):
+    if os.path.normcase(str(candidate)) != os.path.normcase(
+        str(named)
+    ) or symlink_below(root_resolved, named):
         raise ChangeStoreCorrupt("output store path contains a symlink")
     return candidate
 

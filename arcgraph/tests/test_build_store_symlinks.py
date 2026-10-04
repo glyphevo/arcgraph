@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -137,3 +138,25 @@ def test_pin_reports_an_unsafe_build_name_without_claiming_an_escape(
     with pytest.raises(ChangeStoreCorrupt, match="not a safe location") as caught:
         manager._validate_build(pin)
     assert "escapes" not in str(caught.value)
+
+
+def test_build_paths_reject_links_that_resolution_leaves_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Same simulation as the change-store test: resolve() keeps the link.
+    output = tmp_path.resolve() / "arcgraph"
+    build = _write_build(output, "index-1")
+    moved = build.with_name("moved")
+    build.rename(moved)
+    _link(build, moved)
+    current = output / "current.json"
+    current.rename(output / "elsewhere.json")
+    _link(current, output / "elsewhere.json")
+    monkeypatch.setattr(
+        Path, "resolve", lambda self, strict=False: Path(os.path.abspath(self))
+    )
+
+    with pytest.raises(FileNotFoundError, match="symlink"):
+        GraphStoreReader.from_build(output, "index-1")
+    with pytest.raises(FileNotFoundError, match="symlink"):
+        GraphStoreReader.from_current(output)
