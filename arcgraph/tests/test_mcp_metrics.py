@@ -612,10 +612,16 @@ def test_mcp_metric_tool_name_rejects_names_outside_server_mode(
 
 def test_default_mcp_metrics_redact_unregistered_feedback_tool(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from arcgraph.interfaces import mcp_server
     from arcgraph.interfaces.mcp_server import create_mcp_app
     from mcp.server.mcpserver.exceptions import ToolError
 
+    # The call returns once the write bound expires even if the best-effort
+    # write is still running; a slow first file creation on a CI runner made
+    # the read below race it.  This test checks redaction, not the bound.
+    monkeypatch.setattr(mcp_server, "METRICS_WRITE_BOUND_SECONDS", 60.0)
     metrics_path = tmp_path / "mcp.jsonl"
     app = create_mcp_app(
         repo_root=tmp_path,
