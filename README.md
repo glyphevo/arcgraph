@@ -53,14 +53,12 @@ uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
 Python 3.11 or 3.12 is required; pip refuses other versions. Pin the exact
-version you tested; once 0.1.0 is published, that is `arcgraph[mcp]==0.1.0`.
-While PyPI holds only the 0.1.0rc7–0.1.0rc10 pre-releases, an unpinned install
-picks the newest of them; once a final release such as 0.1.0 is published, pip
-installs a pre-release only when you name its version or pass `--pre`. The
-`mcp` extra is only needed to run the MCP server. Installs from PyPI were tested
-with 0.1.0rc10: pip with the `mcp` extra on macOS, Windows and Linux (Ubuntu
-24.04 under WSL), each with Python 3.11 and 3.12, and
-`uv tool install --python 3.11` on macOS.
+version you tested, for example `arcgraph[mcp]==0.1.0`. An unpinned install
+picks 0.1.0; pip installs one of the earlier 0.1.0rc7–0.1.0rc10 pre-releases
+only when you name its version or pass `--pre`. The `mcp` extra is only needed
+to run the MCP server. Installs of 0.1.0 from PyPI were tested: pip with the
+`mcp` extra on macOS, Windows and Linux (Ubuntu 24.04 under WSL), each with
+Python 3.11 and 3.12, and `uv tool install --python 3.11` on macOS.
 `arcgraph version --json` reports the commit the installed copy was built from.
 
 To install the development version from this repository instead, replace the

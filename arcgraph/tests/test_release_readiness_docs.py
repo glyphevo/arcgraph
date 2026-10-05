@@ -2328,7 +2328,7 @@ def test_docs_do_not_call_the_declared_version_published_before_it_is() -> None:
     index = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
     row = next(line for line in index.splitlines() if line.startswith(f"| {version} |"))
     if "not yet published" not in row:
-        assert "Published on PyPI" in row, row
+        assert "published on pypi" in row.lower(), row
         return
 
     assert unpublished_version_claims(_current_public_texts(), version) == []

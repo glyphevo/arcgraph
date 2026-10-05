@@ -146,16 +146,17 @@ What to expect, from those runs:
 ## Installation availability
 
 ArcGraph is published on PyPI, and [RELEASE_NOTES.md](../RELEASE_NOTES.md)
-lists the published versions; 0.1.0 is a beta release. Install it into a persistent tool environment, for example `uv tool install --python
-3.11 "arcgraph[mcp]"`, or with `python -m pip install "arcgraph[mcp]"` into a
-dedicated virtual environment. Tested on macOS: with 0.1.0rc7, the
-exact-version forms on Python 3.11 and the pip-style form on Python 3.12; with
-0.1.0rc8, 0.1.0rc9 and 0.1.0rc10, pip installs of the exact version and of the
-unpinned requirement on Python 3.11 and 3.12, and `uv tool install --python
-3.11` of the exact version.
-Installs of 0.1.0rc10 from PyPI were also tested on Windows and Linux (Ubuntu
-24.04 under WSL) with Python 3.11 and 3.12. Pin the exact version you tested;
-once 0.1.0 is published, that is `arcgraph[mcp]==0.1.0`.
+lists the published versions; 0.1.0 is a beta release. Install it into a
+persistent tool environment, for example
+`uv tool install --python 3.11 "arcgraph[mcp]"`, or with
+`python -m pip install "arcgraph[mcp]"` into a dedicated virtual environment.
+Tested on macOS: with 0.1.0rc7, the exact-version forms on Python 3.11 and the
+pip-style form on Python 3.12; with 0.1.0rc8, 0.1.0rc9, 0.1.0rc10 and 0.1.0,
+pip installs of the exact version and of the unpinned requirement on Python 3.11
+and 3.12, and `uv tool install --python 3.11` of the exact version.
+Installs of 0.1.0rc10 and 0.1.0 from PyPI were also tested on Windows and Linux
+(Ubuntu 24.04 under WSL) with Python 3.11 and 3.12. Pin the exact version you
+tested, for example `arcgraph[mcp]==0.1.0`.
 To install the development version from the repository instead, use
 `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. Then run `arcgraph setup --client CLIENT` in
 each project. The five adapters share the runtime, index logic and protocol;
