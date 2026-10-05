@@ -308,8 +308,6 @@ def test_visual_smoke_replaces_links_at_its_own_file_names(
 def test_visual_smoke_screenshots_replace_links_at_their_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import re
-
     from arcgraph.interfaces import visual_smoke
     from arcgraph.tests.test_visual_smoke import _fake_runner, _FakeServer
 
@@ -354,5 +352,5 @@ def test_visual_smoke_screenshots_replace_links_at_their_names(
     )
     assert not [p for p in smoke.iterdir() if p.name.startswith(".")]
     packages = {c[c.index("--package") + 1] for c in commands if "--package" in c}
-    assert len(packages) == 1
-    assert re.fullmatch(r"@playwright/cli@\d+\.\d+\.\d+", packages.pop())
+    # Releases after 0.1.22 must be checked for link-following writes before use.
+    assert packages == {"@playwright/cli@0.1.22"}

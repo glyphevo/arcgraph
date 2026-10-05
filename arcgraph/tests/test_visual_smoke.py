@@ -63,6 +63,60 @@ def test_visual_smoke_runner_records_browser_assertions(
     assert stored["schema"] == "ArcGraphVisualSmoke"
 
 
+def _screenshot_failing_runner(commands: list[list[str]], *, exit_code: int):
+    base = _fake_runner(commands)
+
+    class Runner:
+        def run(
+            self, command: list[str], *, timeout_s: float
+        ) -> subprocess.CompletedProcess[str]:
+            if "screenshot" in command and "focus-drawer" in " ".join(command):
+                commands.append(command)
+                return subprocess.CompletedProcess(command, exit_code, "", "")
+            return base.run(command, timeout_s=timeout_s)
+
+    return Runner()
+
+
+def test_visual_smoke_fails_and_omits_a_screenshot_that_was_not_written(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    for exit_code in (1, 0):  # failed command; success without a file
+        output_dir = tmp_path / f"exit-{exit_code}"
+        output_dir.mkdir()
+        (output_dir / "focus-drawer.png").write_bytes(b"older image")
+        monkeypatch.setattr(visual_smoke.shutil, "which", lambda name: "npx")
+        monkeypatch.setattr(
+            visual_smoke,
+            "create_visual_workbench_server",
+            lambda *args, **kwargs: _FakeServer(),
+        )
+
+        result = run_visual_smoke(
+            object(),  # type: ignore[arg-type]
+            options=VisualSmokeOptions(output_dir=output_dir),
+            command_runner=_screenshot_failing_runner([], exit_code=exit_code),
+        )
+
+        assert result["status"] == "failed", exit_code
+        assert result["_exit_code"] == 1
+        written = next(
+            item
+            for item in result["assertions"]
+            if item["name"] == "screenshots_written"
+        )
+        assert written["status"] == "fail"
+        assert written["details"] == {
+            "overview_screenshot": True,
+            "focus_drawer_screenshot": False,
+        }
+        assert "focus_drawer_screenshot" not in result["artifacts"]
+        assert "overview_screenshot" in result["artifacts"]
+        assert (output_dir / "focus-drawer.png").read_bytes() == b"older image"
+        assert not [p for p in output_dir.iterdir() if p.name.startswith(".")]
+
+
 def test_visual_smoke_documents_synthetic_thresholds() -> None:
     expectations = synthetic_large_graph_expectations()
 
@@ -110,6 +164,8 @@ def _fake_runner(
                 stdout = "### Result\nTotal messages: 0 (Errors: 0, Warnings: 0)\n"
             else:
                 stdout = ""
+            if "screenshot" in command:
+                Path(command[command.index("--filename") + 1]).write_bytes(b"PNG")
             return subprocess.CompletedProcess(command, 0, stdout, "")
 
     return FakeRunner()

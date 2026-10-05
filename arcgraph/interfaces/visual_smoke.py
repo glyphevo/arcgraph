@@ -211,14 +211,35 @@ def run_visual_smoke(
         )
         result["steps"].append(_step("console_errors", console))
         console_has_errors = "Errors: 0" not in console.stdout
-        assertions = _visual_assertions(parsed, console_has_errors)
-        result["assertions"] = assertions
-        result["artifacts"] = {
-            "overview_screenshot": str(_located(overview_screenshot)),
-            "focus_drawer_screenshot": str(_located(focus_screenshot)),
-            "scenario_js": str(_located(scenario_file)),
-            "result_json": str(_located(options.output_dir / "result.json")),
+        screenshots = {
+            name: (path, _step_succeeded(result, name))
+            for name, path in (
+                ("overview_screenshot", overview_screenshot),
+                ("focus_drawer_screenshot", focus_screenshot),
+            )
         }
+        assertions = _visual_assertions(parsed, console_has_errors)
+        assertions.append(
+            _assertion(
+                "screenshots_written",
+                all(written for _, written in screenshots.values()),
+                {name: written for name, (_, written) in screenshots.items()},
+            )
+        )
+        result["assertions"] = assertions
+        # A screenshot that was not written is left out rather than reported at
+        # a name that holds nothing, or an older image.
+        result["artifacts"] = {
+            name: str(_located(path))
+            for name, (path, written) in screenshots.items()
+            if written
+        }
+        result["artifacts"].update(
+            {
+                "scenario_js": str(_located(scenario_file)),
+                "result_json": str(_located(options.output_dir / "result.json")),
+            }
+        )
         failed = [item for item in assertions if item.get("status") != "pass"]
         result["status"] = "failed" if failed else "pass"
         result["_exit_code"] = 1 if failed else 0
@@ -322,12 +343,17 @@ def _screenshot(
             runner=runner,
             timeout_s=timeout_s,
         )
-        if (
-            completed.returncode == 0
-            and temporary.is_file()
-            and not temporary.is_symlink()
-        ):
-            retry_sharing_violation(lambda: os.replace(temporary, target))
+        if completed.returncode != 0:
+            return completed
+        if not temporary.is_file() or temporary.is_symlink():
+            return subprocess.CompletedProcess(
+                completed.args,
+                1,
+                completed.stdout,
+                (completed.stderr or "")
+                + f"\nscreenshot did not produce a regular file at {temporary.name}",
+            )
+        retry_sharing_violation(lambda: os.replace(temporary, target))
         return completed
     finally:
         try:
@@ -590,6 +616,12 @@ def _step(
         "stdout_tail": (result.stdout or "")[-2000:],
         "stderr_tail": (result.stderr or "")[-2000:],
     }
+
+
+def _step_succeeded(result: dict[str, Any], name: str) -> bool:
+    return any(
+        step["name"] == name and step["returncode"] == 0 for step in result["steps"]
+    )
 
 
 def _parse_raw_json(stdout: str) -> dict[str, Any]:
