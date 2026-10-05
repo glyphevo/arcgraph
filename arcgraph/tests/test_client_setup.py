@@ -2,8 +2,11 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
+import stat
 import tomllib
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -182,3 +185,46 @@ def test_invalid_timeout_has_no_effect(tmp_path, timeout):
     options.timeout = timeout
     assert setup.handle_setup(options)["status"] == "blocked"
     assert list(tmp_path.iterdir()) == []
+
+
+def _fake_reparse_tag(monkeypatch, directory, tag):
+    real_lstat = os.lstat
+
+    def lstat(path, *args, **kwargs):
+        if os.path.abspath(os.fspath(path)) == os.path.abspath(directory):
+            return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_reparse_tag=tag)
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+
+
+def test_a_junction_parent_is_refused_like_a_symlink(tmp_path, monkeypatch):
+    redirected = tmp_path / "redirected"
+    redirected.mkdir()
+    _fake_reparse_tag(monkeypatch, redirected, 0xA0000003)  # IO_REPARSE_TAG_MOUNT_POINT
+
+    with pytest.raises(ValueError, match="junctioned"):
+        setup._no_links(redirected / ".cursor" / "mcp.json")
+
+
+def test_other_reparse_points_such_as_cloud_folders_are_allowed(tmp_path, monkeypatch):
+    cloud = tmp_path / "cloud"
+    cloud.mkdir()
+    _fake_reparse_tag(monkeypatch, cloud, 0x9000601A)  # IO_REPARSE_TAG_CLOUD_6
+
+    setup._no_links(cloud / ".cursor" / "mcp.json")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="NTFS junctions are Windows-only")
+def test_a_real_junction_parent_is_refused(tmp_path):
+    import _winapi
+
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    junction = tmp_path / "junction"
+    _winapi.CreateJunction(str(actual), str(junction))
+    result = setup.handle_setup(
+        args(tmp_path, "claude", config=junction / "config", dry=True)
+    )
+    assert result["status"] == "blocked"
+    assert not (actual / "config").exists()

@@ -48,10 +48,28 @@ def add_setup_parser(subparsers: Any) -> None:
     parser.set_defaults(handler=handle_setup)
 
 
+# An NTFS junction redirects a directory like a symlink, but is_symlink() is
+# False for it. Other reparse points, such as cloud-file placeholders, are
+# ordinary directories and stay allowed.
+_IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
+
+
+def _is_link(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    try:
+        tag = getattr(os.lstat(path), "st_reparse_tag", 0)
+    except OSError:
+        return False
+    return tag == _IO_REPARSE_TAG_MOUNT_POINT
+
+
 def _no_links(path: Path) -> None:
     for item in (path, *path.parents):
-        if item.is_symlink():
-            raise ValueError("Setup refuses symlinked configuration or output paths")
+        if _is_link(item):
+            raise ValueError(
+                "Setup refuses symlinked or junctioned configuration or output paths"
+            )
         if item.exists() and item != path and not item.is_dir():
             raise ValueError("A setup parent is not a directory")
     if path.exists() and not path.is_file():

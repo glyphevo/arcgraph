@@ -303,3 +303,56 @@ def test_visual_smoke_replaces_links_at_its_own_file_names(
         assert target.read_text(encoding="utf-8") == "keep", name
         assert not (smoke / name).is_symlink(), name
     assert Path(result["artifacts"]["result_json"]) == smoke.resolve() / "result.json"
+
+
+def test_visual_smoke_screenshots_replace_links_at_their_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import re
+
+    from arcgraph.interfaces import visual_smoke
+    from arcgraph.tests.test_visual_smoke import _fake_runner, _FakeServer
+
+    commands: list[list[str]] = []
+    base = _fake_runner(commands)
+
+    class WritingRunner:
+        """Writes the screenshot the way Node's writeFile does: through links."""
+
+        def run(self, command: list[str], *, timeout_s: float):
+            completed = base.run(command, timeout_s=timeout_s)
+            if "screenshot" in command:
+                with open(command[command.index("--filename") + 1], "wb") as handle:
+                    handle.write(b"PNG")
+            return completed
+
+    smoke = tmp_path / "smoke"
+    smoke.mkdir()
+    targets = {}
+    for name in ("overview.png", "focus-drawer.png"):
+        target = tmp_path / f"outside-{name}"
+        target.write_text("keep", encoding="utf-8")
+        _link(smoke / name, target)
+        targets[name] = target
+    monkeypatch.setattr(visual_smoke.shutil, "which", lambda name: "npx")
+    monkeypatch.setattr(
+        visual_smoke, "create_visual_workbench_server", lambda *a, **k: _FakeServer()
+    )
+
+    result = visual_smoke.run_visual_smoke(
+        object(),  # type: ignore[arg-type]
+        options=visual_smoke.VisualSmokeOptions(output_dir=smoke),
+        command_runner=WritingRunner(),
+    )
+
+    for name, target in targets.items():
+        assert target.read_text(encoding="utf-8") == "keep", name
+        assert not (smoke / name).is_symlink(), name
+        assert (smoke / name).read_bytes() == b"PNG", name
+    assert Path(result["artifacts"]["overview_screenshot"]) == (
+        smoke.resolve() / "overview.png"
+    )
+    assert not [p for p in smoke.iterdir() if p.name.startswith(".")]
+    packages = {c[c.index("--package") + 1] for c in commands if "--package" in c}
+    assert len(packages) == 1
+    assert re.fullmatch(r"@playwright/cli@\d+\.\d+\.\d+", packages.pop())

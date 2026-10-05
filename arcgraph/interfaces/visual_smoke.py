@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import shutil
 import subprocess
 import threading
@@ -13,11 +15,14 @@ from typing import Any, Protocol
 
 from arcgraph.core.force_graph_export import ForceGraphExportOptions
 from arcgraph.core.query_engine import QueryEngine
+from arcgraph.core.sharing_retry import retry_sharing_violation
 from arcgraph.core.utils import replace_text_file
 from arcgraph.interfaces.visual_server import create_visual_workbench_server
 
 VISUAL_SMOKE_SCHEMA = "ArcGraphVisualSmoke"
 VISUAL_SMOKE_VERSION = 1
+# Pinned so a smoke run fetches the same CLI each time instead of the latest.
+PLAYWRIGHT_CLI_PACKAGE = "@playwright/cli@0.1.22"
 DEFAULT_VISUAL_SMOKE_TARGET = "arcgraph.interfaces.cli.handle_visual_workbench"
 
 
@@ -129,14 +134,10 @@ def run_visual_smoke(
         result["steps"].append(
             _step(
                 "overview_screenshot",
-                _playwright(
+                _screenshot(
                     npx_path,
                     session,
-                    [
-                        "screenshot",
-                        "--filename",
-                        str(overview_screenshot),
-                    ],
+                    overview_screenshot,
                     runner=runner,
                     timeout_s=options.timeout_s,
                 ),
@@ -192,14 +193,10 @@ def run_visual_smoke(
         result["steps"].append(
             _step(
                 "focus_drawer_screenshot",
-                _playwright(
+                _screenshot(
                     npx_path,
                     session,
-                    [
-                        "screenshot",
-                        "--filename",
-                        str(focus_screenshot),
-                    ],
+                    focus_screenshot,
                     runner=runner,
                     timeout_s=options.timeout_s,
                 ),
@@ -217,10 +214,10 @@ def run_visual_smoke(
         assertions = _visual_assertions(parsed, console_has_errors)
         result["assertions"] = assertions
         result["artifacts"] = {
-            "overview_screenshot": str(overview_screenshot.resolve()),
-            "focus_drawer_screenshot": str(focus_screenshot.resolve()),
-            "scenario_js": str(scenario_file.resolve()),
-            "result_json": str((options.output_dir / "result.json").resolve()),
+            "overview_screenshot": str(_located(overview_screenshot)),
+            "focus_drawer_screenshot": str(_located(focus_screenshot)),
+            "scenario_js": str(_located(scenario_file)),
+            "result_json": str(_located(options.output_dir / "result.json")),
         }
         failed = [item for item in assertions if item.get("status") != "pass"]
         result["status"] = "failed" if failed else "pass"
@@ -289,7 +286,7 @@ def _playwright(
                 npx_path,
                 "--yes",
                 "--package",
-                "@playwright/cli",
+                PLAYWRIGHT_CLI_PACKAGE,
                 "playwright-cli",
                 f"-s={session}",
                 *args,
@@ -298,6 +295,50 @@ def _playwright(
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(str(exc)) from exc
+
+
+def _screenshot(
+    npx_path: str,
+    session: str,
+    target: Path,
+    *,
+    runner: CommandRunner,
+    timeout_s: float,
+) -> subprocess.CompletedProcess[str]:
+    """Take a screenshot into a fresh file, then rename it over *target*.
+
+    The Playwright CLI writes the file with Node's ``writeFile``, which follows
+    a symlink standing at the name it is given; an unpredictable temporary
+    name keeps a link left at *target* from redirecting the image.
+    """
+    temporary = target.with_name(
+        f".{target.stem}.{secrets.token_hex(8)}{target.suffix}"
+    )
+    try:
+        completed = _playwright(
+            npx_path,
+            session,
+            ["screenshot", "--filename", str(temporary)],
+            runner=runner,
+            timeout_s=timeout_s,
+        )
+        if (
+            completed.returncode == 0
+            and temporary.is_file()
+            and not temporary.is_symlink()
+        ):
+            retry_sharing_violation(lambda: os.replace(temporary, target))
+        return completed
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _located(path: Path) -> Path:
+    # Files here are replaced in place, so a symlink at the name is not followed.
+    return path.parent.resolve() / path.name
 
 
 def _browser_scenario(target: str) -> str:
@@ -575,8 +616,7 @@ def _write_result(output_dir: Path, result: dict[str, Any]) -> dict[str, Any]:
     result_path = output_dir / "result.json"
     result["artifacts"] = {
         **result.get("artifacts", {}),
-        # The file is replaced in place, so a symlink there is not followed.
-        "result_json": str(result_path.parent.resolve() / result_path.name),
+        "result_json": str(_located(result_path)),
     }
     replace_text_file(
         result_path, json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False)
