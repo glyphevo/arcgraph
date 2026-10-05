@@ -1,8 +1,9 @@
 # ArcGraph Runbook
 
 This runbook covers source-checkout operation for CLI and MCP agent workflows.
-ArcGraph is on PyPI, each version with a matching Git tag and GitHub release;
-creating further tags or Releases requires separate approval.
+ArcGraph is on PyPI. Git tags and GitHub releases carry the same two files as
+the matching version on PyPI; creating further tags or Releases requires
+separate approval.
 
 ## Missing Index
 

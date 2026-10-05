@@ -2222,33 +2222,34 @@ def test_scope_contract_accepts_the_generated_count_free_item() -> None:
 
 
 def _current_public_texts() -> dict[str, str]:
-    """Documents, built-in docs and help that describe the version being built.
+    """Tracked documents, built-in docs and help that describe the version built.
 
     Release notes for earlier versions and their rows in RELEASE_NOTES.md keep the
-    status they had when published, and docs/_internal is local and ignored.
+    status they had when published, so they are left out.
     """
 
-    root_docs = (
-        "README.md",
-        "CONTRIBUTING.md",
-        "SECURITY.md",
-        "SUPPORT.md",
-        "CODE_OF_CONDUCT.md",
-    )
-    paths = [REPO_ROOT / name for name in root_docs]
-    paths += sorted((REPO_ROOT / ".github").rglob("*.md"))
-    paths += sorted(
-        path
-        for path in (REPO_ROOT / "docs").rglob("*")
-        if path.is_file()
-        and path.suffix in {".md", ".py"}
-        and "_internal" not in path.relative_to(REPO_ROOT / "docs").parts
-        and not path.name.startswith("v0.1.0-rc")
-    )
-    texts = {
-        str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8")
-        for path in paths
-    }
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.split("\0")
+    names = [
+        name
+        for name in tracked
+        if (
+            ("/" not in name and name.endswith(".md") and name != "RELEASE_NOTES.md")
+            or (name.startswith(".github/") and name.endswith(".md"))
+            or (
+                name.startswith("docs/")
+                and name.endswith((".md", ".py"))
+                and not name.startswith("docs/release_notes/v0.1.0-rc")
+            )
+        )
+    ]
+    texts = {name: (REPO_ROOT / name).read_text(encoding="utf-8") for name in names}
     texts.update({f"docs {topic}": render_docs(topic) for topic in DOC_TOPICS})
     texts["cli --help"] = build_parser().format_help()
     texts["mcp --help"] = build_mcp_parser().format_help()
@@ -2258,33 +2259,60 @@ def _current_public_texts() -> dict[str, str]:
 def test_current_docs_state_one_maturity_and_no_developer_preview() -> None:
     """0.1.0 is beta; maturity is stated in a few places, not as a passing adjective."""
 
-    for name, text in _current_public_texts().items():
+    texts = _current_public_texts()
+    assert "CODE_OF_CONDUCT.md" in texts and "docs/runbook.md" in texts
+    assert re.search(r"\bbeta\b", texts["README.md"])
+    for name, text in texts.items():
         assert not re.search(r"developer[- ]preview", text, re.IGNORECASE), name
         assert not re.search(r"\balpha\b", text, re.IGNORECASE), name
+
+
+def _clauses(text: str) -> list[str]:
+    # Paragraphs, list items, headings and table rows end a clause before the
+    # text is flattened, so a heading does not run into the next sentence.
+    blocks = re.split(r"\n\s*\n|\n(?=\s*(?:[-*#|>]|\d+\.)\s)", text)
+    return [
+        clause
+        for block in blocks
+        for clause in re.split(r"(?<=[.;:])\s+", " ".join(block.split()))
+        if clause
+    ]
 
 
 def unpublished_version_claims(
     texts: dict[str, str], version: str
 ) -> list[tuple[str, str]]:
-    """Sentences that say *version* is on PyPI, or name its tag, before it is.
+    """Clauses that say *version* is on PyPI, or can be installed, before it is.
 
-    A clause that names the version together with "on PyPI", "published" or
-    "now installs" is a claim unless it is conditional (once, until, while, not
-    yet). A tag written as `` `v<version>` `` is a claim on its own.
+    A clause is a claim if it names the version with "on PyPI", "published",
+    "uploaded" or "now installs", pins it with ``==version``, or names its tag as
+    `` `v<version>` ``, unless it opens with once, until, while, if, before or
+    after, or is negated. This is a heuristic: a claim split over two sentences,
+    a bare v<version>, or a sentence that never names the version is not caught.
     """
 
     mention = re.compile(rf"(?<![\d.]){re.escape(version)}(?!-?rc|\d)")
+    pin = re.compile(rf"=={re.escape(version)}(?![\w.])")
     tag = re.compile(rf"`v{re.escape(version)}`")
-    claim = re.compile(r"\bon PyPI\b|\bpublished\b|\bnow installs\b", re.IGNORECASE)
-    conditional = re.compile(r"\b(?:once|until|while|not yet)\b", re.IGNORECASE)
+    claim = re.compile(
+        r"\bon PyPI\b|\bpublished\b|\buploaded\b|\bnow installs\b", re.IGNORECASE
+    )
+    conditional = re.compile(
+        r"[^A-Za-z]*(?:once|until|while|if|before|after)\b", re.IGNORECASE
+    )
+    negated = re.compile(
+        r"\b(?:is|are|was|were|has|have|had) not\b|\bnot yet\b|\bnever\b",
+        re.IGNORECASE,
+    )
     found = []
     for name, text in texts.items():
-        for clause in re.split(r"(?<=[.;:])\s+", " ".join(text.split())):
-            if tag.search(clause) or (
-                mention.search(clause)
-                and claim.search(clause)
-                and not conditional.search(clause)
-            ):
+        for clause in _clauses(text):
+            stated = (
+                tag.search(clause)
+                or pin.search(clause)
+                or (mention.search(clause) and claim.search(clause))
+            )
+            if stated and not conditional.match(clause) and not negated.search(clause):
                 found.append((name, clause))
     return found
 
@@ -2292,7 +2320,7 @@ def unpublished_version_claims(
 def test_docs_do_not_call_the_declared_version_published_before_it_is() -> None:
     """The prepare commit is pushed before the upload, so its documents must hold
     then too. RELEASE_NOTES.md records publication; until it does, nothing else
-    may say the declared version is on PyPI or tagged."""
+    may say the declared version is on PyPI, installable or tagged."""
 
     version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"

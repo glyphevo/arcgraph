@@ -53,21 +53,22 @@ uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
 Python 3.11 or 3.12 is required; pip refuses other versions. Pin the exact
-version you tested, for example `arcgraph[mcp]==0.1.0`. While PyPI holds only
-the 0.1.0rc7–0.1.0rc10 pre-releases, an unpinned install picks the newest of
-them; once a final release such as 0.1.0 is published, pip installs a
-pre-release only when you name its version or pass `--pre`. The `mcp` extra is
-only needed to run the MCP server. Installs from PyPI were tested with 0.1.0rc10: pip with the `mcp` extra
-on macOS, Windows and Linux (Ubuntu 24.04 under WSL), each with Python 3.11 and
-3.12, and `uv tool install --python 3.11` on macOS.
+version you tested; once 0.1.0 is published, that is `arcgraph[mcp]==0.1.0`.
+While PyPI holds only the 0.1.0rc7–0.1.0rc10 pre-releases, an unpinned install
+picks the newest of them; once a final release such as 0.1.0 is published, pip
+installs a pre-release only when you name its version or pass `--pre`. The
+`mcp` extra is only needed to run the MCP server. Installs from PyPI were tested
+with 0.1.0rc10: pip with the `mcp` extra on macOS, Windows and Linux (Ubuntu
+24.04 under WSL), each with Python 3.11 and 3.12, and
+`uv tool install --python 3.11` on macOS.
 `arcgraph version --json` reports the commit the installed copy was built from.
 
 To install the development version from this repository instead, replace the
 requirement with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`.
 Maintainers and contributors can use an editable source checkout, described
-below. Each version published on PyPI also has a Git tag (`v` followed by the
-version) and a GitHub release carrying the same two files. npm and
-Docker/GHCR are not published, and there is no separate packaged MCP
+below. Git tags (`v` followed by the version) and GitHub releases carry the
+same two files as the matching version on PyPI. npm and Docker/GHCR are not
+published, and there is no separate packaged MCP
 distribution: the MCP server is part of the PyPI package.
 The external-trial scope is Python analysis through the installed CLI
 plus local stdio MCP. TypeScript/JavaScript analysis is
@@ -584,9 +585,9 @@ arcgraph visual smoke --output-dir output/arcgraph/reports/visual-smoke
 
 ## Release And Governance
 
-Releases are published on PyPI, each with a matching Git tag and GitHub
-release carrying the same files (GitHub pre-releases for the 0.1.0rcN
-versions); npm and Docker/GHCR are not. The release gate is a fixed,
+Releases are published on PyPI; Git tags and GitHub releases (GitHub
+pre-releases for the 0.1.0rcN versions) carry the same files, and npm and
+Docker/GHCR are not used. The release gate is a fixed,
 ordered command sequence that starts from a clean working tree. Run
 `arcgraph docs release-checklist` for the current list rather than copying
 commands from this page, because a hand-copied list drifts from the gate.

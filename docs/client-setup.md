@@ -154,8 +154,8 @@ exact-version forms on Python 3.11 and the pip-style form on Python 3.12; with
 unpinned requirement on Python 3.11 and 3.12, and `uv tool install --python
 3.11` of the exact version.
 Installs of 0.1.0rc10 from PyPI were also tested on Windows and Linux (Ubuntu
-24.04 under WSL) with Python 3.11 and 3.12. Pin the exact version you tested,
-for example `arcgraph[mcp]==0.1.0`.
+24.04 under WSL) with Python 3.11 and 3.12. Pin the exact version you tested;
+once 0.1.0 is published, that is `arcgraph[mcp]==0.1.0`.
 To install the development version from the repository instead, use
 `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. Then run `arcgraph setup --client CLIENT` in
 each project. The five adapters share the runtime, index logic and protocol;
@@ -172,7 +172,7 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The external-trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
 | PyPI install | Published | `RELEASE_NOTES.md` lists the versions on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
-| GitHub Release | Published | Each version published on PyPI has a Git tag and a GitHub release (a pre-release for 0.1.0rcN) carrying the same two files. |
+| GitHub Release | Published | Git tags and GitHub releases (pre-releases for 0.1.0rcN) carry the same two files as the matching version on PyPI. |
 | npm, Docker/GHCR | Deferred | Not published. |
 
 CLI and MCP are not feature-equivalent: CLI agents use `arcgraph help`, while
