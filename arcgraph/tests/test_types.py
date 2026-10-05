@@ -457,3 +457,64 @@ def test_type_ref_analyzer_follows_documented_path_operations() -> None:
         assert refs[name][0]["strategy"] == strategy, name
     for name in ("maybe_joined", "ratio", "unknown_joined"):
         assert "type_id" not in (refs.get(name) or [{}])[0], name
+
+
+def test_path_join_needs_an_operand_pathlib_accepts_as_a_segment() -> None:
+    """pathlib joins str and os.PathLike segments; other operands do not give a Path.
+
+    ``root / 2`` raises TypeError, and an operand with ``__rtruediv__`` decides
+    the result itself, so neither may be labelled as a path.
+    """
+
+    source = "\n".join(
+        [
+            "import os",
+            "from pathlib import Path",
+            "from typing import Optional, Union",
+            "",
+            "class Ratio:",
+            "    def __rtruediv__(self, other): return 1.0",
+            "",
+            "def build(root: Path, name: str, sub: Path, like: os.PathLike,",
+            "          either: Union[str, Path], maybe: Optional[str],",
+            "          count: int, ratio: Ratio, unknown):",
+            "    by_name = root / name",
+            "    by_path = root / sub",
+            "    by_like = root / like",
+            "    by_either = root / either",
+            "    by_unknown = root / unknown",
+            "    by_text = root / f'{count}.txt'",
+            "    by_count = root / count",
+            "    by_ratio = root / ratio",
+            "    by_number = root / 2",
+            "    by_maybe = root / maybe",
+            "    return by_name",
+        ]
+    )
+    tree = ast.parse(source)
+    file_record = _file_record()
+    nodes = [
+        _node(module_id("pkg.service"), "module"),
+        *SymbolAnalyzer().analyze(file_record, tree).nodes,
+    ]
+    module_names = {"pkg.service"}
+
+    BindingAnalyzer().analyze(file_record, tree, module_names).attach_to_nodes(nodes)
+    TypeRefAnalyzer().analyze(file_record, tree, nodes, module_names).attach_to_nodes(
+        nodes
+    )
+
+    refs = _type_refs_by_name(
+        _node_by_id(nodes, "fn:pkg.service.build").properties["type_refs"]
+    )
+    for name in (
+        "by_name",
+        "by_path",
+        "by_like",
+        "by_either",
+        "by_unknown",
+        "by_text",
+    ):
+        assert refs[name][0]["type_id"] == "extsym:pathlib.Path", name
+    for name in ("by_count", "by_ratio", "by_number", "by_maybe"):
+        assert "type_id" not in (refs.get(name) or [{}])[0], name

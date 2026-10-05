@@ -100,6 +100,7 @@ _PATH_TYPE_IDS = frozenset(
         "WindowsPath",
     )
 )
+_PATH_SEGMENT_TYPE_IDS = _PATH_TYPE_IDS | {"builtin:str", "extsym:os.PathLike"}
 _EXTERNAL_METHOD_RETURN_OWNERS = frozenset(
     owner for owner, _ in _EXTERNAL_METHOD_RETURN_TYPES
 )
@@ -911,10 +912,35 @@ class _TypeContext:
             return self._resolve_call(node, local_types, scope_node=scope_node)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             left = self.resolve_scoped_value(node.left, scope_node, local_types)
-            if left is not None and left.get("type_id") in _PATH_TYPE_IDS:
+            if (
+                left is not None
+                and left.get("type_id") in _PATH_TYPE_IDS
+                and self._may_be_path_segment(node.right, scope_node, local_types)
+            ):
                 return self._path_value_type(left, node, strategy="path_join")
             return None
         return self.resolve_value(node, local_types)
+
+    def _may_be_path_segment(
+        self,
+        node: ast.expr,
+        scope_node: Node,
+        local_types: dict[str, dict[str, Any]],
+    ) -> bool:
+        # pathlib joins str and os.PathLike segments. Any other operand raises
+        # TypeError or hands the result to its own ``__rtruediv__``. A segment
+        # of unknown type is usually an unannotated string.
+        if isinstance(node, ast.Constant):
+            return isinstance(node.value, str)
+        if isinstance(node, ast.JoinedStr):
+            return True
+        ref = self.resolve_scoped_value(node, scope_node, local_types)
+        members = union_alternatives(ref)
+        if members is None:
+            members = [ref] if ref and ref.get("type_id") else []
+        return all(
+            member.get("type_id") in _PATH_SEGMENT_TYPE_IDS for member in members
+        )
 
     def _path_value_type(
         self,
