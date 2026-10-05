@@ -516,5 +516,10 @@ def test_path_join_needs_an_operand_pathlib_accepts_as_a_segment() -> None:
         "by_text",
     ):
         assert refs[name][0]["type_id"] == "extsym:pathlib.Path", name
+    # A segment of unknown type also joins, so by_like alone would not show that
+    # os.PathLike is accepted; the parameter must resolve, and resolved types
+    # outside the accepted set (by_ratio) do not join.
+    assert refs["like"][0]["type_id"] == "extsym:os.PathLike"
+    assert refs["name"][0]["type_id"] == "builtin:str"
     for name in ("by_count", "by_ratio", "by_number", "by_maybe"):
         assert "type_id" not in (refs.get(name) or [{}])[0], name

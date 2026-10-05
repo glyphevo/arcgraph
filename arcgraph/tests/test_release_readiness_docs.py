@@ -552,7 +552,7 @@ def test_source_checkout_smoke_docs_cover_source_checkout_and_package_boundary()
     assert "arcgraph docs package-readiness" in combined
     assert "output/arcgraph" in combined
     assert (
-        "PyPI: 0.1.0 and the earlier pre-releases are published; this smoke neither publishes nor tests them"
+        "PyPI: the published versions are listed in RELEASE_NOTES.md; this smoke neither publishes nor tests them"
         in combined
     )
     assert "npm package publishing remains private/dev-only" in combined
@@ -2221,31 +2221,86 @@ def test_scope_contract_accepts_the_generated_count_free_item() -> None:
     assert _scope_item_contract_errors(expected, TARGET_SCOPED_CLI_COMMANDS) == []
 
 
-def test_current_docs_state_one_maturity_and_no_developer_preview() -> None:
-    """0.1.0 is beta; maturity is stated in a few places, not as a passing adjective.
+def _current_public_texts() -> dict[str, str]:
+    """Documents, built-in docs and help that describe the version being built.
 
     Release notes for earlier versions and their rows in RELEASE_NOTES.md keep the
-    status they had when published, so they are not checked here.
+    status they had when published, and docs/_internal is local and ignored.
     """
 
-    current = [
-        REPO_ROOT / "README.md",
-        REPO_ROOT / "CONTRIBUTING.md",
-        REPO_ROOT / "SECURITY.md",
-        REPO_ROOT / "SUPPORT.md",
-        REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md",
-        *sorted((REPO_ROOT / "docs").glob("*.md")),
-        *sorted(
-            path
-            for path in (REPO_ROOT / "docs" / "examples").iterdir()
-            if path.is_file() and path.suffix in {".md", ".py"}
-        ),
-    ]
-    texts = {str(path): path.read_text(encoding="utf-8") for path in current}
+    root_docs = (
+        "README.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "CODE_OF_CONDUCT.md",
+    )
+    paths = [REPO_ROOT / name for name in root_docs]
+    paths += sorted((REPO_ROOT / ".github").rglob("*.md"))
+    paths += sorted(
+        path
+        for path in (REPO_ROOT / "docs").rglob("*")
+        if path.is_file()
+        and path.suffix in {".md", ".py"}
+        and "_internal" not in path.relative_to(REPO_ROOT / "docs").parts
+        and not path.name.startswith("v0.1.0-rc")
+    )
+    texts = {
+        str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8")
+        for path in paths
+    }
     texts.update({f"docs {topic}": render_docs(topic) for topic in DOC_TOPICS})
     texts["cli --help"] = build_parser().format_help()
     texts["mcp --help"] = build_mcp_parser().format_help()
+    return texts
 
-    for name, text in texts.items():
+
+def test_current_docs_state_one_maturity_and_no_developer_preview() -> None:
+    """0.1.0 is beta; maturity is stated in a few places, not as a passing adjective."""
+
+    for name, text in _current_public_texts().items():
         assert not re.search(r"developer[- ]preview", text, re.IGNORECASE), name
         assert not re.search(r"\balpha\b", text, re.IGNORECASE), name
+
+
+def unpublished_version_claims(
+    texts: dict[str, str], version: str
+) -> list[tuple[str, str]]:
+    """Sentences that say *version* is on PyPI, or name its tag, before it is.
+
+    A clause that names the version together with "on PyPI", "published" or
+    "now installs" is a claim unless it is conditional (once, until, while, not
+    yet). A tag written as `` `v<version>` `` is a claim on its own.
+    """
+
+    mention = re.compile(rf"(?<![\d.]){re.escape(version)}(?!-?rc|\d)")
+    tag = re.compile(rf"`v{re.escape(version)}`")
+    claim = re.compile(r"\bon PyPI\b|\bpublished\b|\bnow installs\b", re.IGNORECASE)
+    conditional = re.compile(r"\b(?:once|until|while|not yet)\b", re.IGNORECASE)
+    found = []
+    for name, text in texts.items():
+        for clause in re.split(r"(?<=[.;:])\s+", " ".join(text.split())):
+            if tag.search(clause) or (
+                mention.search(clause)
+                and claim.search(clause)
+                and not conditional.search(clause)
+            ):
+                found.append((name, clause))
+    return found
+
+
+def test_docs_do_not_call_the_declared_version_published_before_it_is() -> None:
+    """The prepare commit is pushed before the upload, so its documents must hold
+    then too. RELEASE_NOTES.md records publication; until it does, nothing else
+    may say the declared version is on PyPI or tagged."""
+
+    version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["version"]
+    index = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+    row = next(line for line in index.splitlines() if line.startswith(f"| {version} |"))
+    if "not yet published" not in row:
+        assert "Published on PyPI" in row, row
+        return
+
+    assert unpublished_version_claims(_current_public_texts(), version) == []

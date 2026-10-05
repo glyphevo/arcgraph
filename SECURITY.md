@@ -19,8 +19,9 @@ follow-up.
 
 ## Supported Versions
 
-ArcGraph's public package releases are on PyPI, starting with 0.1.0; the
-earlier 0.1.0rcN versions were pre-releases. Security fixes are handled on
+ArcGraph's public package releases are on PyPI;
+[RELEASE_NOTES.md](RELEASE_NOTES.md) lists the published versions. Security
+fixes are handled on
 the main repository line until a formal version support policy is published.
 
 ## Reporting A Vulnerability

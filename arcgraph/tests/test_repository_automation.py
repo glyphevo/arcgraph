@@ -272,7 +272,7 @@ FINAL_VERSION = re.compile(r"\d+\.\d+\.\d+")
 # fails until someone decides it is history rather than a stale label.
 EARLIER_PRERELEASE_MENTIONS = (
     "pip installs of 0.1.0rc10 from PyPI were tested",
-    "The earlier 0.1.0rc7–0.1.0rc10 pre-releases remain on PyPI",
+    "While PyPI holds only the 0.1.0rc7–0.1.0rc10 pre-releases",
     "Installs from PyPI were tested with 0.1.0rc10",
 )
 # The surfaces above that name the version being run, not just its features.

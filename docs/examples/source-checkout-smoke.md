@@ -131,7 +131,7 @@ not be committed.
 
 ## Package And Release Decisions
 
-- PyPI: 0.1.0 and the earlier pre-releases are published; this smoke neither publishes nor tests them.
+- PyPI: the published versions are listed in RELEASE_NOTES.md; this smoke neither publishes nor tests them.
 - npm package publishing remains private/dev-only unless separately authorized.
 - Docker/GHCR publishing remains unapproved.
 - GitHub Releases and tags mirror published PyPI versions; this smoke creates neither, and each new one requires separate human approval.

@@ -37,7 +37,7 @@ Examples of unacceptable behavior:
 
 ## Enforcement Responsibilities
 
-ArcGraph is currently an alpha-stage, single-maintainer project. Until a
+ArcGraph is currently a beta-stage, single-maintainer project. Until a
 dedicated moderation team exists, the project maintainer is responsible for
 clarifying and enforcing these standards and will take appropriate and fair
 corrective action in response to any behavior deemed inappropriate, threatening,

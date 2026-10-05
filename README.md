@@ -36,9 +36,11 @@ With ArcGraph:
 
 ## Install
 
-ArcGraph is published on PyPI; 0.1.0 is a beta release. Install it into a
-dedicated virtual environment or tool environment and reuse that one
-`arcgraph` executable across projects:
+ArcGraph is published on PyPI, and
+[RELEASE_NOTES.md](https://github.com/glyphevo/arcgraph/blob/main/RELEASE_NOTES.md)
+lists the published versions. This source version, 0.1.0, is a beta release.
+Install ArcGraph into a dedicated virtual environment or tool environment and
+reuse that one `arcgraph` executable across projects:
 
 ```bash
 python -m pip install "arcgraph[mcp]"
@@ -51,10 +53,11 @@ uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
 Python 3.11 or 3.12 is required; pip refuses other versions. Pin the exact
-version you tested, for example `arcgraph[mcp]==0.1.0`. The earlier
-0.1.0rc7–0.1.0rc10 pre-releases remain on PyPI; pip installs one only when you
-name its version or pass `--pre`. The `mcp` extra is only needed to run the MCP
-server. Installs from PyPI were tested with 0.1.0rc10: pip with the `mcp` extra
+version you tested, for example `arcgraph[mcp]==0.1.0`. While PyPI holds only
+the 0.1.0rc7–0.1.0rc10 pre-releases, an unpinned install picks the newest of
+them; once a final release such as 0.1.0 is published, pip installs a
+pre-release only when you name its version or pass `--pre`. The `mcp` extra is
+only needed to run the MCP server. Installs from PyPI were tested with 0.1.0rc10: pip with the `mcp` extra
 on macOS, Windows and Linux (Ubuntu 24.04 under WSL), each with Python 3.11 and
 3.12, and `uv tool install --python 3.11` on macOS.
 `arcgraph version --json` reports the commit the installed copy was built from.
@@ -62,8 +65,8 @@ on macOS, Windows and Linux (Ubuntu 24.04 under WSL), each with Python 3.11 and
 To install the development version from this repository instead, replace the
 requirement with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`.
 Maintainers and contributors can use an editable source checkout, described
-below. Each version on PyPI also has a Git tag (`v0.1.0`, or `v0.1.0rcN` for a
-pre-release) and a GitHub release carrying the same two files. npm and
+below. Each version published on PyPI also has a Git tag (`v` followed by the
+version) and a GitHub release carrying the same two files. npm and
 Docker/GHCR are not published, and there is no separate packaged MCP
 distribution: the MCP server is part of the PyPI package.
 The external-trial scope is Python analysis through the installed CLI
@@ -212,9 +215,9 @@ go install github.com/scip-code/scip/cmd/scip@v0.7.1
 
 The first command provides `scip-python`, `pyright`, and `pyright-langserver`;
 the second requires a local Go toolchain and provides `scip`. Then pass the
-generated JSON artifacts to `arcgraph build`. GitHub Actions is currently
-disabled and does not install these tools, so it is not a working fallback
-for generating this evidence right now.
+generated JSON artifacts to `arcgraph build`. The GitHub Actions `CI`
+workflow does not install these tools, so it is not a fallback for generating
+this evidence.
 
 ## Quickstart
 

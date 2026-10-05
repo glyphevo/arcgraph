@@ -145,8 +145,8 @@ What to expect, from those runs:
 
 ## Installation availability
 
-ArcGraph is published on PyPI; 0.1.0 is a beta release. Install
-it into a persistent tool environment, for example `uv tool install --python
+ArcGraph is published on PyPI, and [RELEASE_NOTES.md](../RELEASE_NOTES.md)
+lists the published versions; 0.1.0 is a beta release. Install it into a persistent tool environment, for example `uv tool install --python
 3.11 "arcgraph[mcp]"`, or with `python -m pip install "arcgraph[mcp]"` into a
 dedicated virtual environment. Tested on macOS: with 0.1.0rc7, the
 exact-version forms on Python 3.11 and the pip-style form on Python 3.12; with
@@ -171,8 +171,8 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 | Automatic agent configuration via explicit setup | Verified on one machine (see Verified hosts) | `setup --client` supports five client adapters; each was observed once in a real host on macOS with a throwaway project. |
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The external-trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
-| PyPI install | Published | 0.1.0 and the earlier 0.1.0rcN pre-releases are on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
-| GitHub Release | Published | Each version on PyPI has a Git tag and a GitHub release (a pre-release for 0.1.0rcN) carrying the same two files. |
+| PyPI install | Published | `RELEASE_NOTES.md` lists the versions on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
+| GitHub Release | Published | Each version published on PyPI has a Git tag and a GitHub release (a pre-release for 0.1.0rcN) carrying the same two files. |
 | npm, Docker/GHCR | Deferred | Not published. |
 
 CLI and MCP are not feature-equivalent: CLI agents use `arcgraph help`, while
