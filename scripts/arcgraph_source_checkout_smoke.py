@@ -1,4 +1,4 @@
-"""Alpha source-checkout smoke for ArcGraph."""
+"""Source-checkout smoke for ArcGraph."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ sys.path.insert(0, repo_root_path)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the alpha ArcGraph source-checkout smoke in a temporary "
+            "Run the ArcGraph source-checkout smoke in a temporary "
             "project. Generated output is cleaned up automatically."
         )
     )

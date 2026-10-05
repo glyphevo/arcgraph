@@ -1,9 +1,9 @@
 # Contributing To ArcGraph
 
-ArcGraph is an alpha-stage, local-first code semantic graph engine.
+ArcGraph is a beta-stage, local-first code semantic graph engine.
 Contributions should preserve the current public-safe boundaries:
 source-checkout install, local execution, accurate package claims (ArcGraph is
-on PyPI only as developer-preview pre-releases), and no claims of a
+on PyPI as 0.1.0 and the earlier 0.1.0rcN pre-releases), and no claims of a
 separate MCP distribution.
 
 ## Before Opening A Pull Request
@@ -19,8 +19,8 @@ separate MCP distribution.
   Ubuntu/Windows/macOS matrix as passing.
 - Do not commit generated output, `dist`, `node_modules`, caches, smoke outputs,
   credentials, private repository contents, or local process notes.
-- Keep docs honest about current maturity. Describe ArcGraph as an alpha
-  developer preview until its release status actually changes.
+- Keep docs honest about current maturity. Describe ArcGraph as beta
+  software until its release status actually changes.
 
 ## Local Checks
 

@@ -1,8 +1,8 @@
 # ArcGraph Runbook
 
 This runbook covers source-checkout operation for CLI and MCP agent workflows.
-Developer-preview pre-releases are on PyPI, each with a matching Git tag and GitHub
-pre-release; creating further tags or Releases requires separate approval.
+ArcGraph is on PyPI, each version with a matching Git tag and GitHub release;
+creating further tags or Releases requires separate approval.
 
 ## Missing Index
 
@@ -217,7 +217,7 @@ forwarding them to external systems.
 
 ## Clean-Checkout Smoke
 
-Use the clean-checkout smoke when you need to prove the alpha
+Use the clean-checkout smoke when you need to prove the
 source-checkout path from committed repository state instead of the current
 working tree:
 

@@ -1,9 +1,9 @@
 # Support
 
-ArcGraph is currently an alpha developer-preview source candidate. It is not
-a published package or a cross-platform support claim. Support is best effort
-and focused on source-checkout usage, local CLI workflows, documentation gaps,
-and reproducible bugs.
+ArcGraph is beta software published on PyPI. Publication is not a
+cross-platform support claim. Support is best effort and focused on
+source-checkout usage, local CLI workflows, documentation gaps, and
+reproducible bugs.
 
 ## Before Asking
 
@@ -23,9 +23,9 @@ and `arcgraph help` for local diagnostics.
 ## Current Boundaries
 
 - No production support SLA is offered.
-- ArcGraph is published on PyPI only as developer-preview pre-releases. Each
-  also has a Git tag and a GitHub pre-release carrying the same two files. npm
-  and Docker/GHCR distribution are not published.
+- ArcGraph is published on PyPI as 0.1.0 and the earlier 0.1.0rcN
+  pre-releases. Each version also has a Git tag and a GitHub release carrying
+  the same two files. npm and Docker/GHCR distribution are not published.
 - The MCP server ships inside the PyPI package (`arcgraph[mcp]`); there is no
   separate packaged MCP distribution.
 - GitHub Actions runs the `CI` workflow. A passing run is evidence only for the

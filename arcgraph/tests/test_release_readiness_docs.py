@@ -478,11 +478,14 @@ def test_agent_cli_contract_docs_cover_subprocess_json_boundary() -> None:
     assert "docs/examples/mcp_readonly_host.py" in contract
     assert "npm and Docker/GHCR distribution remain deferred" in contract
     assert "ArcGraph does not auto-configure" in contract
-    assert "A stable public product release remains unapproved" in contract
+    assert (
+        "Each PyPI upload, including 0.1.0, is made by a maintainer after separate human approval"
+        in contract
+    )
     assert "No language is claimed as L4" in contract
 
 
-def test_mcp_server_docs_cover_alpha_server_boundary() -> None:
+def test_mcp_server_docs_cover_server_boundary() -> None:
     docs = render_docs("mcp-server")
 
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in docs
@@ -504,7 +507,7 @@ def test_agent_workflows_doc_includes_subprocess_example() -> None:
     )
     normalized_workflows = " ".join(workflows.split())
 
-    assert "## Alpha CLI Contract" in workflows
+    assert "## CLI Contract" in workflows
     assert '["arcgraph", "--repo-root", str(repo), *args]' in workflows
     assert "subprocess.run" in workflows
     assert "json.loads" in workflows
@@ -512,8 +515,8 @@ def test_agent_workflows_doc_includes_subprocess_example() -> None:
     assert "arcgraph build" in workflows
     assert "Avoid `--include-source` by" in workflows
     assert "Generated indexes" in workflows
-    assert "The commands above are the recommended alpha" in workflows
-    assert "## Alpha MCP Server" in workflows
+    assert "The commands above are the recommended product-facing agent" in workflows
+    assert "## MCP Server" in workflows
     assert "arcgraph mcp serve --repo-root . --output-dir output/arcgraph" in workflows
     assert "does not auto-build indexes" in normalized_workflows
     assert "## Client Integration Examples" in workflows
@@ -549,12 +552,12 @@ def test_source_checkout_smoke_docs_cover_source_checkout_and_package_boundary()
     assert "arcgraph docs package-readiness" in combined
     assert "output/arcgraph" in combined
     assert (
-        "PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them"
+        "PyPI: 0.1.0 and the earlier pre-releases are published; this smoke neither publishes nor tests them"
         in combined
     )
     assert "npm package publishing remains private/dev-only" in combined
     assert "Docker/GHCR publishing remains unapproved" in combined
-    assert "GitHub Releases and tags mirror published PyPI pre-releases" in combined
+    assert "GitHub Releases and tags mirror published PyPI versions" in combined
     assert "separate package readiness gate" in combined
     assert "Automatic agent config installers" in combined
 
@@ -643,7 +646,7 @@ def test_mcp_readonly_host_example_is_public_safe_and_syntax_valid() -> None:
     assert "create_tool_group" in source
     assert "expose_source_snippets=False" in source
     assert "allowed_roots" in source
-    assert "preferred alpha command" in source
+    assert "preferred command is now `arcgraph mcp serve`" in source
     assert "arcgraph mcp serve" in source
     assert "docs/examples/mcp_readonly_host.py" in mcp_usage
     assert (
@@ -796,7 +799,7 @@ def test_agent_trial_docs_bind_multi_project_discovery_and_feedback() -> None:
 def test_current_product_docs_do_not_embed_drifting_mcp_tool_counts() -> None:
     documents = [
         (REPO_ROOT / "README.md").read_text(encoding="utf-8"),
-        (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md").read_text(
+        (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
             encoding="utf-8"
         ),
         (REPO_ROOT / "docs" / "mcp-usage.md").read_text(encoding="utf-8"),
@@ -814,7 +817,7 @@ def test_current_product_docs_do_not_embed_drifting_mcp_tool_counts() -> None:
     assert all(drifting_count.search(document) is None for document in documents)
 
 
-def test_alpha_operational_docs_cover_agent_boundaries() -> None:
+def test_operational_docs_cover_agent_boundaries() -> None:
     integrations = (REPO_ROOT / "docs" / "agent-reading-guide.md").read_text(
         encoding="utf-8"
     )
@@ -871,7 +874,7 @@ def test_external_trial_docs_bind_python_scope_and_typescript_degradation() -> N
     built_in_package_readiness = render_docs("package-readiness")
     normalized_readme = " ".join(readme.split())
 
-    assert "developer preview's external-trial scope" in readme
+    assert "The external-trial scope is" in readme
     assert (
         "Python analysis through the installed CLI plus local stdio MCP"
         in normalized_readme
@@ -978,8 +981,8 @@ def test_release_checklist_docs_cover_full_gate() -> None:
     assert "python scripts/arcgraph.py ci" in checklist
     assert "python scripts/arcgraph_release_gate.py" in checklist
     assert "python scripts/arcgraph_release_candidate_check.py" in checklist
-    assert "v0.1-rc10-smoke.json" in checklist
-    assert "--sdist dist/arcgraph-0.1.0rc10.tar.gz" in checklist
+    assert "v0.1.0-smoke.json" in checklist
+    assert "--sdist dist/arcgraph-0.1.0.tar.gz" in checklist
     assert "`clean-rebuild-identical` check" in checklist
     assert "clones that HEAD into a fresh directory" in checklist
     assert "identical bytes as the two files given" in checklist
@@ -1126,7 +1129,7 @@ def test_readme_points_to_current_release_readiness_workflows() -> None:
 
 
 def test_release_notes_describe_current_public_safe_scope() -> None:
-    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md").read_text(
+    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
         encoding="utf-8"
     )
     stale_python_baseline = "392" + "698b"
@@ -1181,7 +1184,7 @@ def test_governance_docs_do_not_make_release_overclaims() -> None:
 def test_current_migration_notes_preserve_payload_and_index_disclosures() -> None:
     """Public migration guidance preserves observable payload/index changes."""
 
-    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md").read_text(
+    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
         encoding="utf-8"
     )
     notes_flat = " ".join(notes.split())
@@ -1220,7 +1223,7 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     notes_index = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
     strategy = (REPO_ROOT / "docs" / "release-tooling.md").read_text(encoding="utf-8")
-    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md").read_text(
+    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
         encoding="utf-8"
     )
     guide = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(encoding="utf-8")
@@ -1234,17 +1237,18 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     )
     built_in = render_docs("release-checklist") + render_docs("package-readiness")
 
-    assert pyproject["project"]["version"] == "0.1.0rc10"
+    assert pyproject["project"]["version"] == "0.1.0"
+    assert "Development Status :: 4 - Beta" in pyproject["project"]["classifiers"]
     for text in (readme, notes_index, strategy, notes, guide, built_in):
-        assert "0.1.0rc10" in text
+        assert re.search(r"0\.1\.0(?!rc|\d)", text)
     assert "arcgraph_external_trial_bundle.py" in readme
     assert "arcgraph_external_trial_bundle.py" in strategy
     assert "--artifact-dir" in package_docs
     assert "--artifact-dir" in render_docs("package-readiness")
     assert "Change Preflight" in notes
     assert "comparison projection to `1.2`" in notes
-    assert guide.count("arcgraph-0.1.0rc10-py3-none-any.whl[mcp]") == 2
-    assert "arcgraph 0.1.0rc10" in guide
+    assert guide.count("arcgraph-0.1.0-py3-none-any.whl[mcp]") == 2
+    assert "arcgraph 0.1.0\n" in guide
     assert "arcgraph version --json" in guide
     assert "trial setup --client claude --dry-run" in guide
     assert "remote-ci.json" in guide
@@ -1304,7 +1308,7 @@ def test_read_schema_docs_disclose_both_truncation_unknown_kinds() -> None:
         REPO_ROOT / "docs" / "change-preflight.md",
         REPO_ROOT / "docs" / "mcp-usage.md",
         REPO_ROOT / "docs" / "agent-reading-guide.md",
-        REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md",
+        REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md",
     ]
 
     for path in current_contract_docs:
@@ -1342,7 +1346,7 @@ def test_external_trial_commands_keep_one_explicit_index_path() -> None:
 def test_rc5_docs_disclose_private_state_recovery_and_alias_policy() -> None:
     runbook = (REPO_ROOT / "docs" / "runbook.md").read_text(encoding="utf-8")
     guide = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(encoding="utf-8")
-    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md").read_text(
+    release_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
         encoding="utf-8"
     )
     contract = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(
@@ -2215,3 +2219,33 @@ def test_scope_contract_accepts_the_generated_count_free_item() -> None:
     expected = _expected_scope_item(TARGET_SCOPED_CLI_COMMANDS)
 
     assert _scope_item_contract_errors(expected, TARGET_SCOPED_CLI_COMMANDS) == []
+
+
+def test_current_docs_state_one_maturity_and_no_developer_preview() -> None:
+    """0.1.0 is beta; maturity is stated in a few places, not as a passing adjective.
+
+    Release notes for earlier versions and their rows in RELEASE_NOTES.md keep the
+    status they had when published, so they are not checked here.
+    """
+
+    current = [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "CONTRIBUTING.md",
+        REPO_ROOT / "SECURITY.md",
+        REPO_ROOT / "SUPPORT.md",
+        REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md",
+        *sorted((REPO_ROOT / "docs").glob("*.md")),
+        *sorted(
+            path
+            for path in (REPO_ROOT / "docs" / "examples").iterdir()
+            if path.is_file() and path.suffix in {".md", ".py"}
+        ),
+    ]
+    texts = {str(path): path.read_text(encoding="utf-8") for path in current}
+    texts.update({f"docs {topic}": render_docs(topic) for topic in DOC_TOPICS})
+    texts["cli --help"] = build_parser().format_help()
+    texts["mcp --help"] = build_mcp_parser().format_help()
+
+    for name, text in texts.items():
+        assert not re.search(r"developer[- ]preview", text, re.IGNORECASE), name
+        assert not re.search(r"\balpha\b", text, re.IGNORECASE), name

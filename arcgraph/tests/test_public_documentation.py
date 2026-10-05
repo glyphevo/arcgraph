@@ -56,9 +56,7 @@ def test_tracked_tree_excludes_private_documentation() -> None:
 
 
 def test_public_migration_docs_preserve_rebuild_and_read_limits() -> None:
-    notes = (ROOT / "docs" / "release_notes" / "v0.1.0-rc10.md").read_text(
-        encoding="utf-8"
-    )
+    notes = (ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(encoding="utf-8")
     for required in (
         "Rebuild existing indexes",
         "analysis_truncated_scope",

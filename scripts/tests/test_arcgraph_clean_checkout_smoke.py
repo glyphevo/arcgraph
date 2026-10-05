@@ -48,7 +48,7 @@ def test_clean_checkout_smoke_script_is_syntax_valid() -> None:
     )
 
 
-def test_clean_checkout_smoke_dry_run_plans_alpha_matrix(
+def test_clean_checkout_smoke_dry_run_plans_matrix(
     capsys: Any,
 ) -> None:
     smoke = load_clean_checkout_module()

@@ -29,7 +29,7 @@ except ModuleNotFoundError:  # Direct execution adds only scripts/ to sys.path.
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_SCHEMA_VERSION = "1.1"
-EXPECTED_VERSION = "0.1.0rc10"
+EXPECTED_VERSION = "0.1.0"
 # The candidate check compares the shipped wheel and sdist with a clean rebuild
 # of the candidate commit; only the tool facts, never a host path, are shared.
 REBUILD_CHECK = "clean-rebuild-identical"
@@ -51,7 +51,7 @@ REBUILD_PUBLIC_FIELDS = (
 )
 NPM_AUDIT_VERSION = "11.12.1"
 NPM_AUDIT_SPEC = f"npm@{NPM_AUDIT_VERSION}"
-RELEASE_NOTES = Path("docs/release_notes/v0.1.0-rc10.md")
+RELEASE_NOTES = Path("docs/release_notes/v0.1.0.md")
 TRIAL_GUIDE = Path("docs/external-trial-guide.md")
 TRIAL_AGENT_GUIDE = Path("docs/agent-reading-guide.md")
 
@@ -59,7 +59,7 @@ TRIAL_AGENT_GUIDE = Path("docs/agent-reading-guide.md")
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Build and atomically assemble a local ArcGraph v0.1.0rc10 "
+            "Build and atomically assemble a local ArcGraph v0.1.0 "
             "external-trial bundle. Nothing is published, tagged, or pushed."
         )
     )

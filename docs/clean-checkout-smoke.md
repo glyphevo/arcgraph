@@ -1,7 +1,7 @@
 # Clean-Checkout Smoke
 
 The clean-checkout smoke validates ArcGraph from a temporary Git checkout at a
-specific commit. It is meant to prove the alpha source-checkout product
+specific commit. It is meant to prove the source-checkout product
 path without relying on the developer's current working tree, local indexes,
 generated artifacts, or an already-installed package.
 
@@ -12,7 +12,7 @@ agent configuration installer.
 
 - A temporary checkout can be created from a concrete Git commit.
 - ArcGraph can be installed from that checkout with editable source install.
-- The optional MCP extra can be installed for the alpha local stdio MCP
+- The optional MCP extra can be installed for the local stdio MCP
   server path.
 - CLI help, built-in docs topics, MCP help, and the MCP server module help
   render from the installed checkout.
@@ -82,7 +82,7 @@ workspace after the run.
 | Install mode | Source-checkout editable install with `python -m pip install -e .`. | Wheel and sdist installation, package manager installs, PyPI, npm, Docker/GHCR. |
 | MCP runtime | Source-checkout editable install with `.[mcp]` when not using `--skip-mcp-extra`. | Public/packaged MCP distribution and HTTP/network MCP transport. |
 | Agent surface | CLI help/docs, subprocess-friendly CLI path, MCP help, MCP module help, and executable source-checkout smoke. | Automatic agent config installer and full MCP protocol client handshake unless separately run. |
-| Release path | None. This smoke is alpha verification only. | Public visibility, tags, GitHub Releases, package publishing, and final public pre-cutover approval. |
+| Release path | None. This smoke is verification only. | Public visibility, tags, GitHub Releases, package publishing, and final public pre-cutover approval. |
 
 ## JSON Summary
 

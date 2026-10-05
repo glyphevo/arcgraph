@@ -6,7 +6,7 @@ without publishing a package or changing repository visibility.
 ## Install Assumption
 
 This smoke installs ArcGraph from a source checkout, not from PyPI. npm and
-Docker/GHCR paths remain unpublished; the PyPI pre-release and its matching
+Docker/GHCR paths remain unpublished; the PyPI release and its matching
 GitHub Release are not exercised here.
 
 ```bash
@@ -38,7 +38,7 @@ For an executable local smoke that creates and cleans up a temporary project:
 python scripts/arcgraph_source_checkout_smoke.py
 ```
 
-To verify the same alpha path from a temporary clean Git checkout and
+To verify the same path from a temporary clean Git checkout and
 fresh virtual environment:
 
 ```bash
@@ -72,7 +72,7 @@ arcgraph docs agent-cli-contract
 arcgraph docs mcp-server
 ```
 
-For the alpha local MCP server, install the optional runtime and start
+For the local MCP server, install the optional runtime and start
 stdio serving only after a local index exists:
 
 ```bash
@@ -87,7 +87,7 @@ python docs/examples/mcp_readonly_host.py --repo-root . --output-dir output/arcg
 ```
 
 This smoke does not auto-configure agent clients. Explicit client setup is a
-separate workflow documented in [client-setup.md](../client-setup.md). The MCP server is an alpha source-checkout path, not
+separate workflow documented in [client-setup.md](../client-setup.md). The MCP server is a source-checkout path, not
 a separately packaged MCP product (the MCP server also ships in the PyPI package's `mcp` extra).
 
 ## Expected Results
@@ -131,10 +131,10 @@ not be committed.
 
 ## Package And Release Decisions
 
-- PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them.
+- PyPI: 0.1.0 and the earlier pre-releases are published; this smoke neither publishes nor tests them.
 - npm package publishing remains private/dev-only unless separately authorized.
 - Docker/GHCR publishing remains unapproved.
-- GitHub Releases and tags mirror published PyPI pre-releases; this smoke creates neither, and each new one requires separate human approval.
+- GitHub Releases and tags mirror published PyPI versions; this smoke creates neither, and each new one requires separate human approval.
 - Any future package channel requires a separate package readiness gate.
 - Automatic agent config installers and HTTP/network MCP transport remain
   deferred.

@@ -51,7 +51,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Prepare One Project",
                     "items": [
-                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is published on PyPI as a developer-preview pre-release: install it with `uv tool install --python 3.11 "arcgraph[mcp]"` or `python -m pip install "arcgraph[mcp]"` (with an earlier pre-release, exact-version forms tested on macOS with Python 3.11, pip-style on 3.12; pin the exact version you tested, for example `arcgraph[mcp]==0.1.0rc10`, to stay on it once a stable release exists), or from the GitHub repository with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. A disposable uvx environment is not managed by setup. Each PyPI pre-release also has a matching Git tag and GitHub pre-release with the same files; npm and Docker/GHCR are not published.',
+                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is published on PyPI and 0.1.0 is a beta release: install it with `uv tool install --python 3.11 "arcgraph[mcp]"` or `python -m pip install "arcgraph[mcp]"` (pip installs of 0.1.0rc10 from PyPI were tested on macOS, Windows and Linux with Python 3.11 and 3.12; pin the exact version you tested, for example `arcgraph[mcp]==0.1.0`), or from the GitHub repository with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. A disposable uvx environment is not managed by setup. Each version on PyPI also has a matching Git tag and GitHub release with the same files; npm and Docker/GHCR are not published.',
                         "From the target project, run `arcgraph setup --client claude|codex|cursor|hermes|pi`, selecting one client. It explicitly builds or refreshes the index, probes the runtime, then writes one client entry.",
                         "Use `--dry-run` for a plan without writes, indexing or subprocesses; `--client-config PATH` overrides the destination, not client discovery; `--timeout SECONDS` sets a positive per-step timeout.",
                         "Global options precede setup: `arcgraph --repo-root /path/to/project --output-dir /path/to/index setup --client codex`. Default output is project/output/arcgraph. Indexing, MCP and CLI guidance share the same absolute paths. Source scope follows ordinary project configuration and detection; inspect it with doctor.",
@@ -199,7 +199,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Local Install And Upgrade",
                     "items": [
-                        "ArcGraph is on PyPI as a developer-preview pre-release and can also be installed from a source checkout. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub pre-release that carries the same two files. npm and Docker/GHCR package paths are not published.",
+                        "ArcGraph is on PyPI, where 0.1.0 is a beta release, and can also be installed from a source checkout. Each version on PyPI also has a Git tag (`v0.1.0`, or `v0.1.0rcN` for a pre-release) and a GitHub release that carries the same two files. npm and Docker/GHCR package paths are not published.",
                         "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`). Create and activate a virtual environment before installing when you want an isolated local tool.",
                         "From a source checkout, run `python -m pip install --upgrade -e .` in the ArcGraph project directory to install or refresh the `arcgraph` CLI.",
                         'For development and local validation, run `python -m pip install -e ".[dev]"`; use the analyzed project\'s locked npm install when TypeScript/JavaScript analysis is required.',
@@ -342,7 +342,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             "title": "ArcGraph Agent CLI Subprocess Contract",
             "sections": [
                 {
-                    "title": "Alpha Subprocess Boundary",
+                    "title": "Subprocess Boundary",
                     "items": [
                         "Agents should call ArcGraph as a local subprocess from the repository root or pass global `--repo-root PATH` before the subcommand.",
                         "Dictionary payloads print JSON to stdout by default. Global `--human` must appear before the subcommand and is for humans, not JSON-parsing agents.",
@@ -396,7 +396,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "The default MCP analysis/change/help surface is read-only. An operator can separately enable one privacy-bounded local feedback append tool; npm and Docker/GHCR distribution remain deferred.",
                         "`docs/examples/mcp_readonly_host.py` remains a lower-level read-only host example; it is not the feedback-enabled trial configuration.",
                         "Outside explicit `arcgraph setup --client`, ArcGraph does not auto-configure agent clients. Setup supports Claude Code, Codex, Cursor, Hermes and a Pi CLI skill; client approval and model use remain separate checks. Use `arcgraph docs mcp-server` and the Client Integration Examples section of `docs/agent-reading-guide.md` for manual examples.",
-                        "A stable public product release remains unapproved; developer-preview pre-releases are on PyPI, and further PyPI uploads, npm, Docker/GHCR, GitHub Releases, tags, and repository visibility changes require separate human approval.",
+                        "Each PyPI upload, including 0.1.0, is made by a maintainer after separate human approval; npm, Docker/GHCR, GitHub Releases, tags, and repository visibility changes also require separate human approval.",
                         "No language is claimed as L4. Python and TypeScript/JavaScript are native L3, Next.js and Vue are framework semantics over TS/JS, Go/C#/Java/Rust/C/C++/Swift are external payload-backed L3, and SCIP/OpenAPI are explicit L2 protocol evidence.",
                     ],
                 },
@@ -505,7 +505,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Deferred Channels",
                     "items": [
                         "Python sdist install is deferred unless a separate sdist install smoke is run.",
-                        "Homebrew, Scoop, Winget, Docker/GHCR, npm package publishing, GitHub Releases, and tags remain separate gates; this smoke does not test the PyPI pre-release.",
+                        "Homebrew, Scoop, Winget, Docker/GHCR, npm package publishing, GitHub Releases, and tags remain separate gates; this smoke does not test the PyPI release.",
                         "A local run proves only the current host; the configured remote matrix is required for each claimed operating system and Python line. The `CI` workflow on GitHub Actions runs that matrix; a passing run is evidence only for the commit it ran on.",
                         "Distribution of the MCP server through channels other than the PyPI package (MCP registries, npm, Docker/GHCR) remains deferred and requires separate approval; installed-wheel protocol evidence does not grant publication approval.",
                     ],
@@ -520,11 +520,11 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Source Checkout Assumption",
                     "items": [
-                        'The current alpha product path is a source checkout installed with `python -m pip install -e .` or `python -m pip install -e ".[dev]"`.',
+                        'The product path checked here is a source checkout installed with `python -m pip install -e .` or `python -m pip install -e ".[dev]"`.',
                         "Node.js and a resolvable TypeScript compiler API are required at analysis runtime for TypeScript/JavaScript projects. The Python wheel does not bundle `node_modules/typescript`; npm remains a dependency-install mechanism, not an approved product distribution channel.",
                         "The external-trial guarantee is Python analysis plus local stdio MCP with a default read-only analysis/change/help surface and optional disclosed local feedback. TS/JS is outside the trial acceptance even when a local runtime makes it available.",
                         "If `arcgraph` is not on PATH, use `python scripts/arcgraph.py <command>` from the checkout.",
-                        "This smoke does not publish to PyPI, npm or Docker/GHCR and creates no GitHub Release or tag; the PyPI pre-release is not exercised by it.",
+                        "This smoke does not publish to PyPI, npm or Docker/GHCR and creates no GitHub Release or tag; the PyPI release is not exercised by it.",
                     ],
                 },
                 {
@@ -539,7 +539,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "`arcgraph context arcgraph.pipeline.indexer.ArcGraphIndexer --detail-level summary` and `arcgraph explain arcgraph.pipeline.indexer.ArcGraphIndexer --detail-level summary` verify agent payloads for a known target.",
                         "`arcgraph ci` verifies local graph health and returns nonzero on failures.",
                         "`arcgraph docs agent-cli-contract` verifies the local subprocess JSON contract for coding agents.",
-                        "`arcgraph docs mcp-server` documents the alpha local stdio MCP server, its default read-only tools, and optional feedback.",
+                        "`arcgraph docs mcp-server` documents the local stdio MCP server, its default read-only tools, and optional feedback.",
                         "`arcgraph mcp serve --help` verifies MCP server CLI wiring without requiring the optional MCP runtime.",
                         "`python docs/examples/mcp_readonly_host.py --repo-root . --output-dir output/arcgraph` exercises the lower-level example host path when a compatible MCP host framework is installed separately.",
                     ],
@@ -555,10 +555,10 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Package And Release Decisions",
                     "items": [
-                        "PyPI: developer-preview pre-releases are published; this smoke neither publishes nor tests them.",
+                        "PyPI: 0.1.0 and the earlier pre-releases are published; this smoke neither publishes nor tests them.",
                         "npm package publishing remains private/dev-only unless separately authorized.",
                         "Docker/GHCR publishing remains unapproved.",
-                        "GitHub Releases and tags mirror published PyPI pre-releases; this smoke creates neither, and each new one requires separate human approval.",
+                        "GitHub Releases and tags mirror published PyPI versions; this smoke creates neither, and each new one requires separate human approval.",
                         "A future package channel requires a separate package readiness gate.",
                         "Run `arcgraph docs package-readiness` for the local wheel/sdist readiness gate that does not publish anything.",
                         "The external-trial scope includes the installed-wheel local stdio server; npm and Docker/GHCR distribution remain separately unapproved.",
@@ -839,7 +839,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             "title": "ArcGraph Quickstart",
             "sections": [
                 {
-                    "title": "Alpha Install From A Checkout",
+                    "title": "Install From A Checkout",
                     "items": [
                         "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`) and is currently installed from a source checkout.",
                         "Create and activate a virtual environment, then run `python -m pip install --upgrade pip`.",
@@ -848,9 +848,9 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "For TypeScript/JavaScript analysis, Node.js and a TypeScript compiler API must be resolvable at runtime. Use the analyzed project's locked npm install; the Python wheel includes the `.mjs` extractor but not `node_modules/typescript`.",
                         "For ArcGraph's own TypeScript golden tests from a source checkout, run `npm ci` in the ArcGraph checkout; that is development setup, not the analyzed project's product runtime.",
                         "The external-trial guarantee is Python analysis through the installed CLI plus local stdio MCP with default read-only analysis/change/help tools and optional disclosed local feedback; TS/JS remains outside its acceptance scope.",
-                        "Run `python -m pip install -e '.[mcp]'` only when you need to start the alpha local MCP server.",
+                        "Run `python -m pip install -e '.[mcp]'` only when you need to start the local MCP server.",
                         "If the `arcgraph` executable is not on PATH, use `python scripts/arcgraph.py <command>` from the source checkout.",
-                        "ArcGraph is on PyPI as a developer-preview pre-release. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub pre-release that carries the same two files. npm and Docker/GHCR package paths are not published.",
+                        "ArcGraph is on PyPI, where 0.1.0 is a beta release. Each version on PyPI also has a Git tag (`v0.1.0`, or `v0.1.0rcN` for a pre-release) and a GitHub release that carries the same two files. npm and Docker/GHCR package paths are not published.",
                     ],
                 },
                 {
@@ -874,7 +874,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "items": [
                         "Run `arcgraph visual workbench --output-dir output/arcgraph/reports/workbench --open` for the static local ArcGraph Explorer.",
                         "Run `arcgraph visual serve --host 127.0.0.1 --port 8765 --open` when large repositories need loopback-only on-demand search, focus, node detail, and audit summaries.",
-                        "Run `arcgraph mcp serve --repo-root . --output-dir output/arcgraph` when a manually configured MCP client needs the alpha local stdio server; omit `--feedback-log` for the default read-only surface.",
+                        "Run `arcgraph mcp serve --repo-root . --output-dir output/arcgraph` when a manually configured MCP client needs the local stdio server; omit `--feedback-log` for the default read-only surface.",
                         "Run `arcgraph benchmark suite --iterations 5 --warmups 1 --output output/arcgraph/reports/benchmark-suite.json` to record local CLI-per-call and query latency baselines.",
                     ],
                 },
@@ -893,7 +893,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Governance References",
                     "items": [
                         "Run `arcgraph docs agent-cli-contract` before wiring a coding agent to ArcGraph through a subprocess JSON contract.",
-                        "Run `arcgraph docs mcp-server` before wiring a coding agent to ArcGraph through the alpha local MCP server.",
+                        "Run `arcgraph docs mcp-server` before wiring a coding agent to ArcGraph through the local MCP server.",
                         "Run `arcgraph docs source-checkout-smoke` to validate the source-checkout product path without public publishing.",
                         "Run `arcgraph docs package-readiness` before validating local wheel/sdist readiness without publishing.",
                         "Run `arcgraph docs release-checklist` before publishing or sharing a release candidate.",
@@ -962,7 +962,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "Run `python scripts/arcgraph.py build` to rebuild the self-index at the current commit.",
                         "Run `python scripts/arcgraph.py ci` and require 0 fail / 0 warn.",
                         "Run `python scripts/arcgraph_release_gate.py` to validate freshness, CI status, wheel buildability, and packaged release assets.",
-                        "Run `python scripts/arcgraph_release_candidate_check.py --wheel dist/arcgraph-0.1.0rc10-py3-none-any.whl --sdist dist/arcgraph-0.1.0rc10.tar.gz --repo-root . --output output/arcgraph/reports/v0.1-rc10-smoke.json` to smoke the installed wheel before tagging or publishing. Its `wheel-source-provenance` check records the wheel SHA-256 and passes only when the wheel's embedded build provenance names the same commit and tree as `--repo-root` HEAD and records a clean build working tree, so neither a stale `dist/` artifact from an earlier commit nor a wheel built over uncommitted edits can be validated under the current version label. Its `clean-rebuild-identical` check then clones that HEAD into a fresh directory, runs an isolated `python -m build` there, and requires the rebuilt wheel and sdist to carry the same file names and identical bytes as the two files given, so an archive edited after the build (a changed dependency declaration, entry point or script) is rejected even when its RECORD was regenerated to match. The build backend is pinned to an exact version in `pyproject.toml` to reduce drift between the two builds; the pin covers only that direct requirement, so a change in a transitive build dependency or in the environment can still make the comparison fail, which is the safe direction, and the check records the Python, build frontend and backend versions it used. A side carrying no provenance at all, or no repository head to rebuild, is reported as `warn` rather than claimed as bound, and `--allow-source-mismatch` downgrades a real disagreement to a disclosed warning; report `status` is then `warn`, never `pass`, and the bundle assembler accepts only `pass`.",
+                        "Run `python scripts/arcgraph_release_candidate_check.py --wheel dist/arcgraph-0.1.0-py3-none-any.whl --sdist dist/arcgraph-0.1.0.tar.gz --repo-root . --output output/arcgraph/reports/v0.1.0-smoke.json` to smoke the installed wheel before tagging or publishing. Its `wheel-source-provenance` check records the wheel SHA-256 and passes only when the wheel's embedded build provenance names the same commit and tree as `--repo-root` HEAD and records a clean build working tree, so neither a stale `dist/` artifact from an earlier commit nor a wheel built over uncommitted edits can be validated under the current version label. Its `clean-rebuild-identical` check then clones that HEAD into a fresh directory, runs an isolated `python -m build` there, and requires the rebuilt wheel and sdist to carry the same file names and identical bytes as the two files given, so an archive edited after the build (a changed dependency declaration, entry point or script) is rejected even when its RECORD was regenerated to match. The build backend is pinned to an exact version in `pyproject.toml` to reduce drift between the two builds; the pin covers only that direct requirement, so a change in a transitive build dependency or in the environment can still make the comparison fail, which is the safe direction, and the check records the Python, build frontend and backend versions it used. A side carrying no provenance at all, or no repository head to rebuild, is reported as `warn` rather than claimed as bound, and `--allow-source-mismatch` downgrades a real disagreement to a disclosed warning; report `status` is then `warn`, never `pass`, and the bundle assembler accepts only `pass`.",
                         "Maintainers can assemble a local external-trial bundle with `python scripts/arcgraph_external_trial_bundle.py`; run it with `--help` for its inputs. It publishes, tags and pushes nothing, and it requires saved evidence of a completed successful remote CI push run on `main` for the exact candidate commit.",
                         "Review `arcgraph docs schema-governance` before changing `SCHEMA_VERSION`, graph storage, resolver defaults, or evidence import schemas.",
                         "Review `arcgraph docs frontend-contract` before adding, removing, or changing a language frontend.",
@@ -1084,7 +1084,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "TypeScript/JavaScript analysis requires Node.js and a resolvable TypeScript compiler API at runtime. The Python wheel includes the `.mjs` extractor but not `node_modules/typescript`; use the analyzed project's locked npm install when TS/JS is required.",
                         "Without that runtime, a build should succeed while recording `typescript_frontend_unavailable` in its `summary.json` and `diagnostics.jsonl`. This is acceptable only for the Python-only external-trial scope.",
                         "npm package publishing remains unapproved; installing a project-local compiler runtime does not turn npm into an ArcGraph distribution channel.",
-                        "ArcGraph can be installed from PyPI as a developer-preview pre-release. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub pre-release that carries the same two files. npm and Docker/GHCR installation paths are not published; use a source checkout for development.",
+                        "ArcGraph can be installed from PyPI, where 0.1.0 is a beta release. Each version on PyPI also has a Git tag (`v0.1.0`, or `v0.1.0rcN` for a pre-release) and a GitHub release that carries the same two files. npm and Docker/GHCR installation paths are not published; use a source checkout for development.",
                     ],
                 },
                 {

@@ -269,4 +269,4 @@ runtime:
 python docs/examples/mcp_readonly_host.py --repo-root . --output-dir output/arcgraph
 ```
 
-For normal alpha use, prefer `arcgraph mcp serve`.
+For normal use, prefer `arcgraph mcp serve`.

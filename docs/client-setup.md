@@ -145,7 +145,7 @@ What to expect, from those runs:
 
 ## Installation availability
 
-ArcGraph is published on PyPI as a developer-preview pre-release. Install
+ArcGraph is published on PyPI; 0.1.0 is a beta release. Install
 it into a persistent tool environment, for example `uv tool install --python
 3.11 "arcgraph[mcp]"`, or with `python -m pip install "arcgraph[mcp]"` into a
 dedicated virtual environment. Tested on macOS: with 0.1.0rc7, the
@@ -153,9 +153,9 @@ exact-version forms on Python 3.11 and the pip-style form on Python 3.12; with
 0.1.0rc8, 0.1.0rc9 and 0.1.0rc10, pip installs of the exact version and of the
 unpinned requirement on Python 3.11 and 3.12, and `uv tool install --python
 3.11` of the exact version.
-Windows and Linux installs from PyPI have not been tried. Pin the exact
-version you tested, for example `arcgraph[mcp]==0.1.0rc10`, to stay on it once a
-stable release exists.
+Installs of 0.1.0rc10 from PyPI were also tested on Windows and Linux (Ubuntu
+24.04 under WSL) with Python 3.11 and 3.12. Pin the exact version you tested,
+for example `arcgraph[mcp]==0.1.0`.
 To install the development version from the repository instead, use
 `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. Then run `arcgraph setup --client CLIENT` in
 each project. The five adapters share the runtime, index logic and protocol;
@@ -166,13 +166,13 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 
 | Surface | Status | Notes |
 | --- | --- | --- |
-| CLI subprocess | Supported (alpha) | Start with `arcgraph help`; exact syntax remains in `arcgraph --help`. CLI has broader operational/query coverage than MCP. |
-| MCP server | Supported (alpha) | Stdio only. Protocol `list_tools` discovers the registered surface; analysis/change/help tools are read-only, while optional feedback is a disclosed local append. |
+| CLI subprocess | Supported (beta) | Start with `arcgraph help`; exact syntax remains in `arcgraph --help`. CLI has broader operational/query coverage than MCP. |
+| MCP server | Supported (beta) | Stdio only. Protocol `list_tools` discovers the registered surface; analysis/change/help tools are read-only, while optional feedback is a disclosed local append. |
 | Automatic agent configuration via explicit setup | Verified on one machine (see Verified hosts) | `setup --client` supports five client adapters; each was observed once in a real host on macOS with a throwaway project. |
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The external-trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
-| PyPI install | Published (pre-release) | Developer-preview pre-releases are on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
-| GitHub Release | Published (pre-release) | Each PyPI pre-release has a Git tag (`v0.1.0rcN`) and a GitHub pre-release carrying the same two files. |
+| PyPI install | Published | 0.1.0 and the earlier 0.1.0rcN pre-releases are on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
+| GitHub Release | Published | Each version on PyPI has a Git tag and a GitHub release (a pre-release for 0.1.0rcN) carrying the same two files. |
 | npm, Docker/GHCR | Deferred | Not published. |
 
 CLI and MCP are not feature-equivalent: CLI agents use `arcgraph help`, while

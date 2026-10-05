@@ -1,6 +1,6 @@
 # Security Policy
 
-ArcGraph is currently alpha-stage local-first infrastructure. Please report
+ArcGraph is currently beta-stage local-first infrastructure. Please report
 security issues privately: use GitHub private vulnerability reporting (the
 "Report a vulnerability" button on this repository's Security tab) or email
 [security@glyphevo.com](mailto:security@glyphevo.com). Do not open a GitHub
@@ -19,8 +19,8 @@ follow-up.
 
 ## Supported Versions
 
-ArcGraph's public package releases are developer-preview pre-releases on
-PyPI. Security fixes are handled on
+ArcGraph's public package releases are on PyPI, starting with 0.1.0; the
+earlier 0.1.0rcN versions were pre-releases. Security fixes are handled on
 the main repository line until a formal version support policy is published.
 
 ## Reporting A Vulnerability

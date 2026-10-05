@@ -1395,7 +1395,7 @@ def build_parser() -> argparse.ArgumentParser:
     metrics.set_defaults(handler=handle_metrics_summary)
 
     add_change_parser(subparsers)
-    mcp = subparsers.add_parser("mcp", help="Run alpha local MCP server commands.")
+    mcp = subparsers.add_parser("mcp", help="Run local MCP server commands.")
     mcp_subparsers = mcp.add_subparsers(dest="mcp_command")
     mcp.set_defaults(handler=lambda args, parser=mcp: parser.print_help())
     mcp_serve = mcp_subparsers.add_parser(

@@ -36,9 +36,9 @@ With ArcGraph:
 
 ## Install
 
-ArcGraph is published on PyPI as an alpha developer-preview
-pre-release. Install it into a dedicated virtual environment or tool environment
-and reuse that one `arcgraph` executable across projects:
+ArcGraph is published on PyPI; 0.1.0 is a beta release. Install it into a
+dedicated virtual environment or tool environment and reuse that one
+`arcgraph` executable across projects:
 
 ```bash
 python -m pip install "arcgraph[mcp]"
@@ -50,28 +50,27 @@ or, with uv:
 uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
-Python 3.11 or 3.12 is required; pip refuses other versions. Because ArcGraph
-has only published pre-releases so far, pip installs one without `--pre`. Once a
-stable release exists, an unpinned install will choose that instead, so pin the
-exact version you tested, for example `arcgraph[mcp]==0.1.0rc10`. The `mcp` extra
-is only needed to run the MCP server. Tested on macOS with an earlier
-pre-release: `pip install` and `uv tool install` of an exact-version requirement
-on Python 3.11, and the pip-style install on Python 3.12; Windows and Linux
-installs from PyPI have not been tried.
+Python 3.11 or 3.12 is required; pip refuses other versions. Pin the exact
+version you tested, for example `arcgraph[mcp]==0.1.0`. The earlier
+0.1.0rc7–0.1.0rc10 pre-releases remain on PyPI; pip installs one only when you
+name its version or pass `--pre`. The `mcp` extra is only needed to run the MCP
+server. Installs from PyPI were tested with 0.1.0rc10: pip with the `mcp` extra
+on macOS, Windows and Linux (Ubuntu 24.04 under WSL), each with Python 3.11 and
+3.12, and `uv tool install --python 3.11` on macOS.
 `arcgraph version --json` reports the commit the installed copy was built from.
 
 To install the development version from this repository instead, replace the
 requirement with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`.
 Maintainers and contributors can use an editable source checkout, described
-below. Each PyPI pre-release also has a Git tag (`v0.1.0rcN`) and a GitHub
-pre-release that carries the same two files. npm and Docker/GHCR are not
-published, and there is no separate packaged MCP distribution: the MCP server is
-part of the PyPI package.
-This developer preview's external-trial scope is Python analysis through the installed CLI
+below. Each version on PyPI also has a Git tag (`v0.1.0`, or `v0.1.0rcN` for a
+pre-release) and a GitHub release carrying the same two files. npm and
+Docker/GHCR are not published, and there is no separate packaged MCP
+distribution: the MCP server is part of the PyPI package.
+The external-trial scope is Python analysis through the installed CLI
 plus local stdio MCP. TypeScript/JavaScript analysis is
 outside that trial's acceptance scope.
 
-This source candidate is an alpha developer preview. GitHub Actions runs the
+ArcGraph is beta software. GitHub Actions runs the
 `CI` workflow (Ubuntu, Windows, and macOS; Python 3.11 and 3.12). A passing run
 is evidence only for the commit it ran on, so check the run for the exact
 commit you are using.
@@ -157,7 +156,7 @@ exact running source checkout or installed wheel. For wheel installs, compare
 `artifact_provenance.sha256` with the candidate manifest; do not infer a Git
 commit from the product version alone.
 
-To validate the alpha source-checkout path from a temporary clean Git
+To validate the source-checkout path from a temporary clean Git
 checkout, run:
 
 ```bash
@@ -533,7 +532,7 @@ See [SECURITY.md](https://github.com/glyphevo/arcgraph/blob/main/SECURITY.md) fo
 
 ## Current Maturity
 
-ArcGraph is alpha-stage infrastructure. The current focus is deterministic,
+ArcGraph is beta-stage infrastructure. The current focus is deterministic,
 evidence-aware local context for agent and review workflows.
 
 Current limitations include dynamic Python behavior, framework magic,
@@ -582,9 +581,9 @@ arcgraph visual smoke --output-dir output/arcgraph/reports/visual-smoke
 
 ## Release And Governance
 
-Developer-preview pre-releases are published on PyPI, each with a matching Git
-tag and GitHub pre-release carrying the same files; npm and Docker/GHCR are not.
-The pre-release gate is a fixed,
+Releases are published on PyPI, each with a matching Git tag and GitHub
+release carrying the same files (GitHub pre-releases for the 0.1.0rcN
+versions); npm and Docker/GHCR are not. The release gate is a fixed,
 ordered command sequence that starts from a clean working tree. Run
 `arcgraph docs release-checklist` for the current list rather than copying
 commands from this page, because a hand-copied list drifts from the gate.
@@ -616,9 +615,9 @@ payload. The complete topic list is:
 | `arcgraph docs limitations` | What ArcGraph does not claim or guarantee. |
 | `arcgraph docs troubleshooting` | Common failures and recovery paths. |
 | `arcgraph docs migration-notes` | Behavior changes that affect existing callers. |
-| `arcgraph docs source-checkout-smoke` | Alpha source-checkout smoke path. |
+| `arcgraph docs source-checkout-smoke` | Source-checkout smoke path. |
 | `arcgraph docs package-readiness` | Local wheel/sdist build and install verification. |
-| `arcgraph docs release-checklist` | Pre-release gate steps and required evidence. |
+| `arcgraph docs release-checklist` | Release gate steps and required evidence. |
 
 ## Repository Layout
 

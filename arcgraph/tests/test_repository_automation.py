@@ -265,6 +265,24 @@ CURRENT_LABEL_SURFACES = (
     "scripts/arcgraph_external_trial_bundle.py",
 )
 CANDIDATE_LABEL = re.compile(r"0\.1\.0rc(\d+)|v0\.1\.0-rc(\d+)")
+FINAL_VERSION = re.compile(r"\d+\.\d+\.\d+")
+# Once a final release is declared, a surface may still name an earlier
+# pre-release on purpose, for instance the version an install was tested with.
+# Each such phrase is listed here, so any other mention of a candidate still
+# fails until someone decides it is history rather than a stale label.
+EARLIER_PRERELEASE_MENTIONS = (
+    "pip installs of 0.1.0rc10 from PyPI were tested",
+    "The earlier 0.1.0rc7–0.1.0rc10 pre-releases remain on PyPI",
+    "Installs from PyPI were tested with 0.1.0rc10",
+)
+# The surfaces above that name the version being run, not just its features.
+VERSION_NAMING_SURFACES = (
+    "arcgraph/interfaces/docs.py",
+    "docs/external-trial-guide.md",
+    "docs/package-readiness.md",
+    "README.md",
+    "scripts/arcgraph_external_trial_bundle.py",
+)
 
 
 def test_sdist_excludes_local_tool_directories() -> None:
@@ -317,17 +335,26 @@ def test_every_current_label_surface_names_the_declared_version() -> None:
 
     declared = _declared_version()
     expected = CANDIDATE_LABEL.search(declared)
-    assert expected is not None, (
-        f"version {declared!r} is not a 0.1.0rcN candidate; update this test "
-        "along with whatever numbering replaced it"
+    final = expected is None
+    assert not final or FINAL_VERSION.fullmatch(declared), (
+        f"version {declared!r} is neither a 0.1.0rcN candidate nor a final "
+        "release; update this test along with whatever numbering replaced it"
     )
-    expected_number = expected.group(1) or expected.group(2)
+    expected_number = None if final else expected.group(1) or expected.group(2)
 
     stale: list[tuple[str, str]] = []
+    unnamed: list[str] = []
     for relative in CURRENT_LABEL_SURFACES:
         path = REPO_ROOT / relative
         assert path.exists(), f"{relative} is listed as a label surface but is gone"
-        for match in CANDIDATE_LABEL.finditer(path.read_text(encoding="utf-8")):
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        if final:
+            for phrase in EARLIER_PRERELEASE_MENTIONS:
+                text = text.replace(phrase, "")
+            current = re.compile(rf"(?<![\d.]){re.escape(declared)}(?!rc|\d)")
+            if relative in VERSION_NAMING_SURFACES and not current.search(text):
+                unnamed.append(relative)
+        for match in CANDIDATE_LABEL.finditer(text):
             number = match.group(1) or match.group(2)
             if number != expected_number:
                 stale.append((relative, match.group(0)))
@@ -335,6 +362,7 @@ def test_every_current_label_surface_names_the_declared_version() -> None:
         f"pyproject declares {declared} but these surfaces still name another "
         f"candidate: {sorted(set(stale))}"
     )
+    assert unnamed == [], f"these surfaces do not name {declared}: {unnamed}"
 
 
 def test_the_bundle_assembler_agrees_with_the_declared_version() -> None:

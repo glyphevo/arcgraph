@@ -35,7 +35,7 @@ class CommandSpec:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate ArcGraph alpha source-checkout operation from a "
+            "Validate ArcGraph source-checkout operation from a "
             "temporary clean Git checkout."
         )
     )
