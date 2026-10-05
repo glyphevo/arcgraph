@@ -402,3 +402,58 @@ def test_type_ref_analyzer_follows_documented_external_factory_methods() -> None
     # A receiver of unknown type must stay unresolved rather than inherit the
     # registry entry from a same-named method elsewhere.
     assert "untyped_command" not in refs
+
+
+def test_type_ref_analyzer_follows_documented_path_operations() -> None:
+    """``path / segment``, ``path.parent`` and pathlib's path-returning methods.
+
+    pathlib documents each as a path of the receiver's flavour. A union such
+    as ``Optional[Path]``, a non-path division and a receiver of unknown type
+    must not pick up a path type.
+    """
+
+    source = "\n".join(
+        [
+            "from pathlib import Path",
+            "from typing import Optional",
+            "",
+            "def build(root: Path, maybe: Optional[Path], count: int, unknown):",
+            "    joined = root / 'a'",
+            "    deeper = joined / 'b' / 'c.txt'",
+            "    parent = joined.parent",
+            "    resolved = joined.resolve()",
+            "    renamed = resolved.with_suffix('.json')",
+            "    maybe_joined = maybe / 'x'",
+            "    ratio = count / 2",
+            "    unknown_joined = unknown / 'x'",
+            "    return joined, deeper, parent, resolved, renamed, maybe_joined",
+        ]
+    )
+    tree = ast.parse(source)
+    file_record = _file_record()
+    nodes = [
+        _node(module_id("pkg.service"), "module"),
+        *SymbolAnalyzer().analyze(file_record, tree).nodes,
+    ]
+    module_names = {"pkg.service"}
+
+    BindingAnalyzer().analyze(file_record, tree, module_names).attach_to_nodes(nodes)
+    TypeRefAnalyzer().analyze(file_record, tree, nodes, module_names).attach_to_nodes(
+        nodes
+    )
+
+    refs = _type_refs_by_name(
+        _node_by_id(nodes, "fn:pkg.service.build").properties["type_refs"]
+    )
+    for name, strategy in (
+        ("joined", "path_join"),
+        ("deeper", "path_join"),
+        # An attribute value is labelled as propagation, whatever its source.
+        ("parent", "assignment_propagation"),
+        ("resolved", "external_method_return"),
+        ("renamed", "external_method_return"),
+    ):
+        assert refs[name][0]["type_id"] == "extsym:pathlib.Path", name
+        assert refs[name][0]["strategy"] == strategy, name
+    for name in ("maybe_joined", "ratio", "unknown_joined"):
+        assert "type_id" not in (refs.get(name) or [{}])[0], name

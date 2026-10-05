@@ -72,7 +72,34 @@ _EXTERNAL_METHOD_RETURN_TYPES = {
         "argparse.ArgumentParser",
         "add_mutually_exclusive_group",
     ): "argparse._MutuallyExclusiveGroup",
+    # pathlib documents each of these as returning a new path.
+    **{
+        ("pathlib.Path", method): "pathlib.Path"
+        for method in (
+            "absolute",
+            "expanduser",
+            "joinpath",
+            "relative_to",
+            "resolve",
+            "with_name",
+            "with_stem",
+            "with_suffix",
+        )
+    },
 }
+# pathlib documents ``path / segment`` as a path of the left operand's flavour,
+# and ``path.parent`` as its logical parent of the same flavour.
+_PATH_TYPE_IDS = frozenset(
+    f"extsym:pathlib.{name}"
+    for name in (
+        "Path",
+        "PosixPath",
+        "PurePath",
+        "PurePosixPath",
+        "PureWindowsPath",
+        "WindowsPath",
+    )
+)
 _EXTERNAL_METHOD_RETURN_OWNERS = frozenset(
     owner for owner, _ in _EXTERNAL_METHOD_RETURN_TYPES
 )
@@ -861,6 +888,8 @@ class _TypeContext:
             if union_alternatives(receiver) is not None and not receiver.get("type_id"):
                 return unknown_union_result(self._unparse(node))
             type_id = receiver.get("type_id") if receiver else None
+            if node.attr == "parent" and type_id in _PATH_TYPE_IDS:
+                return self._path_value_type(receiver, node, strategy="path_parent")
             if isinstance(type_id, str) and type_id.startswith("class:"):
                 class_qualname = type_id.removeprefix("class:")
                 return self.class_instance_attrs.get(class_qualname, {}).get(
@@ -880,7 +909,34 @@ class _TypeContext:
             return self._subscript_value_type_source(receiver)
         if isinstance(node, ast.Call):
             return self._resolve_call(node, local_types, scope_node=scope_node)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            left = self.resolve_scoped_value(node.left, scope_node, local_types)
+            if left is not None and left.get("type_id") in _PATH_TYPE_IDS:
+                return self._path_value_type(left, node, strategy="path_join")
+            return None
         return self.resolve_value(node, local_types)
+
+    def _path_value_type(
+        self,
+        source: dict[str, Any],
+        node: ast.AST,
+        *,
+        strategy: str,
+    ) -> dict[str, Any] | None:
+        # A union such as ``Path | None`` does not say which member is joined.
+        if union_alternatives(source) is not None:
+            return None
+        type_id = str(source["type_id"])
+        return self._value_type_record(
+            _ResolvedType(
+                expression=type_id.rsplit(".", 1)[-1],
+                type_id=type_id,
+                symbol_id=type_id,
+                status="resolved",
+            ),
+            strategy=strategy,
+            source_expression=self._unparse(node),
+        )
 
     def preserve_nullable_binding(
         self, scope: Node, name: str, ref: dict[str, Any]
