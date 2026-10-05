@@ -11,7 +11,6 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-import json
 from arcgraph.core.force_graph_export import (
     ForceGraphExportOptions,
     build_force_graph_export,
@@ -32,8 +31,10 @@ from arcgraph.interfaces.visual_smoke import (
     run_visual_smoke,
 )
 from arcgraph.interfaces.cli_support import (  # noqa: F401
+    output_location,
     print_json,
     query_engine,
+    write_json_output,
 )
 
 
@@ -77,16 +78,13 @@ def handle_visual_force(args: argparse.Namespace) -> dict[str, Any]:
         ),
     )
     attach_workbench_payload_budget(payload)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    named = bool(args.output)
+    write_json_output(output_path, payload, named_by_user=named)
     return {
         "schema": payload["schema"],
         "version": payload["version"],
         "status": payload["status"],
-        "path": str(output_path.resolve()),
+        "path": str(output_location(output_path, named_by_user=named)),
         "scope": payload["scope"],
         "summary": {
             "module_nodes": len(payload["module_graph"]["nodes"]),

@@ -13,6 +13,7 @@ from typing import Any, Protocol
 
 from arcgraph.core.force_graph_export import ForceGraphExportOptions
 from arcgraph.core.query_engine import QueryEngine
+from arcgraph.core.utils import replace_text_file
 from arcgraph.interfaces.visual_server import create_visual_workbench_server
 
 VISUAL_SMOKE_SCHEMA = "ArcGraphVisualSmoke"
@@ -143,9 +144,9 @@ def run_visual_smoke(
         )
 
         scenario_file = options.output_dir / "scenario.js"
-        scenario_file.write_text(
+        replace_text_file(
+            scenario_file,
             f"async page => await page.evaluate({_browser_scenario(options.target)})",
-            encoding="utf-8",
         )
         scenario = _playwright(
             npx_path,
@@ -574,11 +575,11 @@ def _write_result(output_dir: Path, result: dict[str, Any]) -> dict[str, Any]:
     result_path = output_dir / "result.json"
     result["artifacts"] = {
         **result.get("artifacts", {}),
-        "result_json": str(result_path.resolve()),
+        # The file is replaced in place, so a symlink there is not followed.
+        "result_json": str(result_path.parent.resolve() / result_path.name),
     }
-    result_path.write_text(
-        json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
+    replace_text_file(
+        result_path, json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False)
     )
     return result
 

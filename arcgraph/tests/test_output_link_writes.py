@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -183,7 +184,8 @@ def test_default_semantic_stats_file_replaces_a_link(tmp_path: Path) -> None:
 
     assert target.read_text(encoding="utf-8") == "keep"
     assert not stats.is_symlink()
-    assert stats.stat().st_size > 0
+    reported = json.loads(stats.read_text(encoding="utf-8"))["metrics_path"]
+    assert Path(reported) == stats.parent.resolve() / stats.name
 
 
 def test_semantic_stats_output_named_by_the_user_is_still_written_in_place(
@@ -218,3 +220,86 @@ def test_workbench_replaces_links_at_its_own_file_names(tmp_path: Path) -> None:
         assert target.read_text(encoding="utf-8") == "keep", name
         assert not (workbench / name).is_symlink(), name
     assert (workbench / "index.html").stat().st_size > len("keep")
+
+
+def _force_graph(
+    output_dir: Path, capsys: pytest.CaptureFixture[str], *extra: str
+) -> dict:
+    from arcgraph.interfaces.cli import main
+
+    capsys.readouterr()
+    code = main(
+        [
+            "--repo-root",
+            str(FIXTURE_ROOT),
+            "--output-dir",
+            str(output_dir),
+            "visual",
+            "force",
+            *extra,
+        ]
+    )
+    assert code == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_default_force_graph_file_replaces_a_link_and_reports_where_it_wrote(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output_dir = _built_fixture(tmp_path)
+    graph = output_dir / "reports" / "force-graph.json"
+    graph.parent.mkdir(parents=True)
+    target = _outside(tmp_path)
+    _link(graph, target)
+
+    result = _force_graph(output_dir, capsys)
+
+    assert target.read_text(encoding="utf-8") == "keep"
+    assert not graph.is_symlink()
+    assert Path(result["path"]) == graph.parent.resolve() / graph.name
+
+
+def test_force_graph_output_named_by_the_user_is_still_written_in_place(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output_dir = _built_fixture(tmp_path)
+    target = _outside(tmp_path)
+    named = tmp_path / "named-graph.json"
+    _link(named, target)
+
+    result = _force_graph(output_dir, capsys, "--output", str(named))
+
+    assert named.is_symlink()
+    assert target.read_text(encoding="utf-8") != "keep"
+    assert Path(result["path"]) == target.resolve()
+
+
+def test_visual_smoke_replaces_links_at_its_own_file_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from arcgraph.interfaces import visual_smoke
+    from arcgraph.tests.test_visual_smoke import _fake_runner, _FakeServer
+
+    smoke = tmp_path / "smoke"
+    smoke.mkdir()
+    targets = {}
+    for name in ("scenario.js", "result.json"):
+        target = tmp_path / f"outside-{name}"
+        target.write_text("keep", encoding="utf-8")
+        _link(smoke / name, target)
+        targets[name] = target
+    monkeypatch.setattr(visual_smoke.shutil, "which", lambda name: "npx")
+    monkeypatch.setattr(
+        visual_smoke, "create_visual_workbench_server", lambda *a, **k: _FakeServer()
+    )
+
+    result = visual_smoke.run_visual_smoke(
+        object(),  # type: ignore[arg-type]
+        options=visual_smoke.VisualSmokeOptions(output_dir=smoke),
+        command_runner=_fake_runner([]),
+    )
+
+    for name, target in targets.items():
+        assert target.read_text(encoding="utf-8") == "keep", name
+        assert not (smoke / name).is_symlink(), name
+    assert Path(result["artifacts"]["result_json"]) == smoke.resolve() / "result.json"

@@ -131,6 +131,7 @@ from arcgraph.interfaces.cli_visual import (  # noqa: F401
     _visual_graph_options,
 )
 from arcgraph.interfaces.cli_support import (  # noqa: F401
+    output_location,
     print_json,
     query_engine,
     write_json_output,
@@ -2019,8 +2020,9 @@ def handle_semantic_stats(args: argparse.Namespace) -> dict[str, Any]:
         if args.output
         else output_dir / "metrics" / "semantic-stats.json"
     )
-    payload["metrics_path"] = str(output_path.resolve())
-    write_json_output(output_path, payload, named_by_user=bool(args.output))
+    named = bool(args.output)
+    payload["metrics_path"] = str(output_location(output_path, named_by_user=named))
+    write_json_output(output_path, payload, named_by_user=named)
     return payload
 
 

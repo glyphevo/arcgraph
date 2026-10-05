@@ -27,6 +27,17 @@ def print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
 
 
+def output_location(path: Path, *, named_by_user: bool) -> Path:
+    """Where :func:`write_json_output` leaves the content written to *path*.
+
+    A replaced default file stays at *path* even if a symlink stood there,
+    so only its directory is resolved.
+    """
+    if named_by_user:
+        return path.resolve()
+    return path.parent.resolve() / path.name
+
+
 def write_json_output(
     path: Path, payload: dict[str, Any], *, named_by_user: bool
 ) -> None:
