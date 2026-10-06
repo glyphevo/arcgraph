@@ -203,6 +203,11 @@ class Explicit(Group):
     def dynamic_super(self) -> Service:
         return super(type(self), self)._service()
 
+    @staticmethod
+    def static_self(self: Group) -> Service:
+        # In a static method self is an ordinary parameter, here a Group.
+        return super(Explicit, self)._service()
+
 
 class Deeper(Explicit):
     def _service(self) -> Service:
@@ -215,6 +220,40 @@ class Deeper(Explicit):
 
 def explicit_outside(item: Explicit) -> Service:
     return super(Explicit, item)._service()
+
+
+class Root:
+    def ping(self) -> str:
+        return "root"
+
+
+class LeftPing(Root):
+    def ping(self) -> str:
+        return "left"
+
+
+class RightPing(Root):
+    def ping(self) -> str:
+        return "right"
+
+
+class BothPing(LeftPing, RightPing):
+    pass
+
+
+def past_left(item: BothPing) -> str:
+    # BothPing is BothPing, LeftPing, RightPing, Root: past LeftPing is
+    # RightPing's ping, not Root's, which LeftPing's own order gives.
+    return super(LeftPing, item).ping()
+
+
+def not_an_instance() -> str:
+    return super(LeftPing, "text").ping()
+
+
+def unrelated_super(item: BothPing) -> str:
+    # Base is not in BothPing's order: super raises TypeError.
+    return super(Base, item).ping()
 
 
 class Base:
@@ -323,7 +362,7 @@ def output_text(kw: dict) -> None:
 def output_unknown(flag: bool, kw: dict) -> None:
     subprocess.check_output(["echo"], text=flag).upper()
     subprocess.check_output(["echo"], **kw).upper()
-    out = subprocess.check_output(["echo"], -1)
+    out = subprocess.check_output(["echo"], text=False, universal_newlines=True)
     out.upper()
 
 
@@ -579,6 +618,7 @@ def test_a_method_on_a_value_is_not_found_by_its_name_alone(resolutions):
         ("explicit_other_object", "method:lab.Group._service", "super_receiver"),
         ("past_explicit", "method:lab.Group._service", "super_receiver"),
         ("explicit_outside", "method:lab.Group._service", "super_receiver"),
+        ("past_left", "method:lab.RightPing.ping", "super_receiver"),
         ("read_back", "method:lab.Reader.diagnostics", "receiver_type"),
     ],
 )
@@ -670,8 +710,8 @@ def test_a_display_iterates_the_type_its_elements_share(resolutions):
 
 
 def test_check_output_types_by_text_mode_or_not_at_all(resolutions):
-    # Text mode is unknown when a keyword is not a constant, a ** argument may
-    # set it, or a second positional argument reaches universal_newlines.
+    # Text mode is unknown when a keyword is not a constant or a ** argument
+    # may set it; text and universal_newlines that differ raise.
     typed = {"builtin_receiver_type", "external_receiver_type", "receiver_type"}
     for name in ("output_unknown", "output_shadowed", "output_rebound"):
         assert not any(
@@ -693,10 +733,19 @@ def test_check_output_types_by_text_mode_or_not_at_all(resolutions):
         ('f(["a"], input=b"x", timeout=1)', "builtin:bytes"),
         ('f(["a"], text=flag)', None),
         ('f(["a"], **kw)', None),
-        ("f(*args)", None),
-        ('f(["a"], -1)', None),
         ('f(["a"], text=True, **kw)', "builtin:str"),
+        # bufsize, executable and stdin leave text mode as it is.
+        ('f(["a"], -1)', "builtin:bytes"),
         ('f(["a"], -1, text=True)', "builtin:str"),
+        ("f(*args)", "builtin:bytes"),
+        ("f(*args, text=True)", "builtin:str"),
+        # A fifth positional argument is stdout, which check_output sets.
+        ('f(["a"], -1, None, None, None)', None),
+        # text and universal_newlines that differ raise SubprocessError.
+        ('f(["a"], text=False, universal_newlines=True)', None),
+        ('f(["a"], text=1, universal_newlines="")', None),
+        ('f(["a"], text=True, universal_newlines=1)', "builtin:str"),
+        ('f(["a"], text=None, universal_newlines=True)', "builtin:str"),
         ('f(["a"], text=flag, encoding="utf-8")', "builtin:str"),
     ],
 )
@@ -717,6 +766,8 @@ def test_check_output_return_follows_its_text_keywords(call, expected):
         {"errors": "strict"},
         {"text": False, "encoding": None},
         {"encoding": ""},
+        {"text": True, "universal_newlines": 1},
+        {"text": None, "universal_newlines": True},
     ],
 )
 def test_check_output_rule_matches_the_runtime(keywords):
@@ -760,6 +811,9 @@ def test_super_past_a_class_without_the_method_is_not_resolved(resolutions):
         "unbound_super",
         "starred_super",
         "dynamic_super",
+        "not_an_instance",
+        "unrelated_super",
+        "static_self",
     ):
         found = resolutions.get(name, set())
         assert not any(t.startswith("method:lab.") for t, _ in found), (name, found)
@@ -785,8 +839,9 @@ def test_super_names_its_class_by_import_and_only_by_a_stable_binding(tmp_path):
         "from pkg.base import Child, Group\n\n\n"
         "class Twice(Group):\n    pass\n\n\n"
         "class Twice(Child):\n    pass\n\n\n"
-        "def imported(item):\n    return super(Child, item).service()\n\n\n"
-        "def twice(item):\n    return super(Twice, item).service()\n",
+        "def imported(item: Child):\n    return super(Child, item).service()\n\n\n"
+        "def twice(item: Twice):\n    return super(Twice, item).service()\n\n\n"
+        "def untyped(item):\n    return super(Child, item).service()\n",
         encoding="utf-8",
     )
     output = Path(tmp_path) / "out"
@@ -802,9 +857,44 @@ def test_super_names_its_class_by_import_and_only_by_a_stable_binding(tmp_path):
     }
     # Child is imported, and super(Child, item) reaches Group's service.
     assert ("fn:pkg.use.imported", "method:pkg.base.Group.service") in targets
+    # Of an object of no known class, the order is not known.
+    assert not any(
+        source == "fn:pkg.use.untyped" and target.startswith("method:")
+        for source, target in targets
+    )
     # Twice is defined twice on different bases, so which class it names, and
     # so which service it reaches, is not settled.
     assert not any(
         source == "fn:pkg.use.twice" and target.startswith("method:")
         for source, target in targets
     )
+
+
+@pytest.mark.parametrize(
+    ("positional", "keywords", "raised"),
+    [
+        ((-1,), {}, None),
+        ((-1, None, None, None), {}, TypeError),
+        ((), {"text": False, "universal_newlines": True}, subprocess.SubprocessError),
+    ],
+)
+def test_check_output_positionals_and_conflicts_match_the_runtime(
+    positional, keywords, raised
+):
+    command = [sys.executable, "-c", ""]
+    call = ast.parse(
+        "f(c"
+        + "".join(f", {value!r}" for value in positional)
+        + "".join(f", {k}={v!r}" for k, v in keywords.items())
+        + ")",
+        mode="eval",
+    ).body
+    returned = function_return_type("subprocess.check_output", call)
+    if raised is not None:
+        with pytest.raises(raised):
+            subprocess.check_output(command, *positional, **keywords)
+        assert returned is None
+    else:
+        value = subprocess.check_output(command, *positional, **keywords)
+        assert returned is not None
+        assert returned["type_id"] == "builtin:" + type(value).__name__

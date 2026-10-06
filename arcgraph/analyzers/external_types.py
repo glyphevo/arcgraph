@@ -552,24 +552,38 @@ _TEXT_MODE_KEYWORDS = frozenset({"encoding", "errors", "text", "universal_newlin
 
 
 def _check_output_return(call: ast.Call) -> str | None:
-    """str or bytes by the call's text-mode keywords, or None if unknown.
+    """str or bytes by the call's text-mode keywords, or None if unknown or
+    if the call gives no value.
 
-    Only constant keyword values are read. A second positional argument, which
-    reaches Popen's positional universal_newlines, or a ``*`` or ``**``
+    Only constant keyword values are read; a non-constant value or a ``**``
     argument leaves the type unknown unless a constant already makes it str.
+    Positional arguments decide nothing: a call that returns has at most
+    args, bufsize, executable and stdin, since the fifth is stdout, which
+    check_output passes itself, so five or more always raise. Constant text
+    and universal_newlines that differ raise SubprocessError.
     """
 
+    if sum(not isinstance(a, ast.Starred) for a in call.args) >= 5:
+        return None
     truths: list[bool | None] = []
-    if len(call.args) > 1 or any(isinstance(a, ast.Starred) for a in call.args):
-        truths.append(None)
+    flags: dict[str, object] = {}
     for keyword in call.keywords:
         if keyword.arg is None:
             truths.append(None)
         elif keyword.arg in _TEXT_MODE_KEYWORDS:
             value = keyword.value
-            truths.append(
-                bool(value.value) if isinstance(value, ast.Constant) else None
-            )
+            if isinstance(value, ast.Constant):
+                truths.append(bool(value.value))
+                flags[keyword.arg] = value.value
+            else:
+                truths.append(None)
+    text, universal_newlines = flags.get("text"), flags.get("universal_newlines")
+    if (
+        text is not None
+        and universal_newlines is not None
+        and bool(text) != bool(universal_newlines)
+    ):
+        return None
     if True in truths:
         return "builtin:str"
     if None in truths:

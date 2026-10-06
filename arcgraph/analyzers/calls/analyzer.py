@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import sys
 from collections import defaultdict
 from typing import Any
 
@@ -1333,12 +1334,13 @@ class CallAnalyzer:
         method: str,
         context: _CallResolutionContext,
         *,
-        skip_own: bool = False,
+        after: str | None = None,
     ) -> Node | None:
         """The method a class inherits, in the order of its method resolution
-        order; with ``skip_own``, the one ``super()`` reaches past the class's
-        own. A base that is not a project class, such as object or an external
-        class, has methods unknown here, so the search stops there."""
+        order; with ``after``, the one found past that class in the order, as
+        ``super()`` finds it. A base that is not a project class, such as
+        object or an external class, has methods unknown here, so the search
+        stops there."""
 
         start = context.by_id.get(self._type_id(ref) or "")
         if start is None or start.kind != "class":
@@ -1346,7 +1348,13 @@ class CallAnalyzer:
         order = self._method_resolution_order(start, context, ())
         if order is None:
             return None
-        for position, entry in enumerate(order):
+        begin = 0
+        if after is not None:
+            keys = [self._resolution_order_key(entry) for entry in order]
+            if after not in keys:
+                return None
+            begin = keys.index(after) + 1
+        for position, entry in enumerate(order[begin:], begin):
             if isinstance(entry, str):
                 if entry == "pydantic.BaseModel" and method in {
                     "model_dump",
@@ -1358,8 +1366,6 @@ class CallAnalyzer:
                         source="inherited_receiver_type",
                     )
                 return None
-            if position == 0 and skip_own:
-                continue
             if position:
                 candidate = self._method_target_from_type(
                     {"type_id": entry.id}, method, context
@@ -1383,10 +1389,14 @@ class CallAnalyzer:
         """The C3 linearization of a project class, or None if a base may be
         a project class not settled here, or the bases admit no order.
 
-        A class outside the project stands for itself alone. Its own bases
-        are outside the project too, so leaving them out cannot move a project
-        class ahead of it; at most a class outside the project comes earlier,
-        and the search stops there with no target."""
+        A class outside the project stands for itself alone, its own bases
+        left out. Under a single base that loses nothing the search reaches:
+        it stops at that class. Under several bases the merge decides where
+        a shared ancestor goes, and a class outside the project may inherit a
+        project class, as code outside the indexed roots can; leaving its
+        bases out could then move that project class ahead of it. So there
+        the order is unknown, unless every such class is a builtin or of the
+        standard library, which inherit no project class."""
 
         if class_node.id in visiting:
             return None
@@ -1412,6 +1422,13 @@ class CallAnalyzer:
                 context.method_resolution_orders[class_node.id] = None
                 return None
             sequences.append(list(inherited))
+        if len(bases) > 1 and any(
+            isinstance(entry, str) and not self._inherits_no_project_class(entry)
+            for sequence in sequences
+            for entry in sequence
+        ):
+            context.method_resolution_orders[class_node.id] = None
+            return None
         sequences.append(list(bases))
         order: list[Node | str] | None = [class_node]
         key = self._resolution_order_key
@@ -1436,6 +1453,13 @@ class CallAnalyzer:
             ]
         context.method_resolution_orders[class_node.id] = order
         return order
+
+    @staticmethod
+    def _inherits_no_project_class(qualname: str) -> bool:
+        """Whether a class outside the project is a builtin or of the
+        standard library, which cannot inherit a class of the project."""
+
+        return qualname.split(".", 1)[0] in {"builtins", *sys.stdlib_module_names}
 
     @staticmethod
     def _resolution_order_key(entry: Node | str) -> str:
@@ -3269,8 +3293,9 @@ class CallAnalyzer:
         method: str,
         context: _CallResolutionContext,
     ) -> _ResolvedCallTarget | None:
-        """``super().method()`` in a method: the parent class's method;
-        ``super(C, obj).method()``: the method after C's own."""
+        """``super().method()`` in a method: the method past the method's
+        class in that class's order; ``super(C, obj).method()``: the method
+        past C in the order of obj's class, when obj's class is known."""
 
         if not receiver_expression.startswith("super("):
             return None
@@ -3281,14 +3306,22 @@ class CallAnalyzer:
             if source.kind != "method":
                 return None
             class_node = context.by_qualname.get(self._class_qualname(source) or "")
+            instance_class = class_node
         else:
-            class_node = self._explicit_super_class(
-                source, receiver_expression, context
-            )
-        if class_node is None or class_node.kind != "class":
+            arguments = self._explicit_super_arguments(receiver_expression)
+            if arguments is None:
+                return None
+            class_node = self._explicit_super_class(source, arguments[0], context)
+            instance_class = self._super_instance_class(source, arguments[1], context)
+        if (
+            class_node is None
+            or class_node.kind != "class"
+            or instance_class is None
+            or instance_class.kind != "class"
+        ):
             return None
         target = self._inherited_method_target(
-            {"type_id": class_node.id}, method, context, skip_own=True
+            {"type_id": instance_class.id}, method, context, after=class_node.id
         )
         if target is None:
             return None
@@ -3300,14 +3333,10 @@ class CallAnalyzer:
         )
 
     @staticmethod
-    def _explicit_super_class(
-        source: Node,
+    def _explicit_super_arguments(
         receiver_expression: str,
-        context: _CallResolutionContext,
-    ) -> Node | None:
-        """The project class C of ``super(C, obj)``, looked past as ``super()``
-        looks past the class it is written in. Like ``super()``, it follows
-        C's declared bases, not the order of obj's class."""
+    ) -> tuple[str, ast.expr] | None:
+        """The class name and the object of ``super(C, obj)``."""
 
         try:
             parsed = ast.parse(receiver_expression, mode="eval").body
@@ -3321,7 +3350,18 @@ class CallAnalyzer:
             and not isinstance(parsed.args[1], ast.Starred)
         ):
             return None
-        found = context.lexical.lookup(source, parsed.args[0].id)
+        return parsed.args[0].id, parsed.args[1]
+
+    @staticmethod
+    def _explicit_super_class(
+        source: Node,
+        name: str,
+        context: _CallResolutionContext,
+    ) -> Node | None:
+        """The project class C of ``super(C, obj)``, by a stable binding of
+        its name, defined in the module or imported."""
+
+        found = context.lexical.lookup(source, name)
         if found is None or not context.lexical.stable(*found):
             return None
         binding: dict[str, Any] = found[1][0]
@@ -3333,6 +3373,32 @@ class CallAnalyzer:
                 exported_class(qualified, context.lexical.nodes) or f"class:{qualified}"
             )
         return None
+
+    def _super_instance_class(
+        self,
+        source: Node,
+        instance: ast.expr,
+        context: _CallResolutionContext,
+    ) -> Node | None:
+        """The class whose order ``super(C, obj)`` follows: the method's class
+        for its own self or cls, otherwise the known class of obj."""
+
+        if (
+            isinstance(instance, ast.Name)
+            and instance.id in {"self", "cls"}
+            and source.kind == "method"
+            and "staticmethod" not in source.properties.get("decorators", [])
+        ):
+            found = context.lexical.lookup(source, instance.id)
+            if (
+                found is not None
+                and found[0].id == source.id
+                and context.lexical.stable(*found)
+                and found[1][0].get("kind") == "parameter"
+            ):
+                return context.by_qualname.get(self._class_qualname(source) or "")
+        type_id = self._type_id(self._receiver_type_ref_node(source, instance, context))
+        return context.by_id.get(type_id or "")
 
     def _resolve_same_class_method(
         self,

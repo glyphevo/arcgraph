@@ -415,6 +415,9 @@ SEGMENT_CASES = {
     "chained_comparison_or": ("", '(1 < 2 < 1) or "x"', True),
     "none_identity_or": ("", '(None is not None) or "x"', True),
     "int_identity_or": ("", '(1 is 2) or "x"', False),
+    # Two ints' identity depends on the interpreter, so neither truth is
+    # taken: not False above, and not True here.
+    "int_identity_and": ("", '(1 is 1) and "x"', False),
     "zero_difference_or": ("", '(1 - 1) or "x"', True),
     "nonzero_sum_or": ("", '(1 + 1) or "x"', False),
     "huge_power_or": ("", '(2 ** 100000 - 2 ** 100000) or "x"', False),

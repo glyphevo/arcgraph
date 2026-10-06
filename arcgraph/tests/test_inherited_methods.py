@@ -14,7 +14,8 @@ import pytest
 
 from arcgraph.tests.test_path_receiver_types import _resolutions_by_function
 
-SOURCE = """from typing import Generic, TypeVar
+SOURCE = """from abc import ABC
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -64,6 +65,10 @@ class Mixed(ErrorBase, Right):
 
 
 class Sub(Right[int]):
+    pass
+
+
+class Closed(Right, ABC):
     pass
 
 
@@ -139,6 +144,10 @@ def sub(item: Sub) -> None:
     item.shared()
 
 
+def closed(item: Closed) -> None:
+    item.right_only()
+
+
 def typed(item: Typed) -> None:
     item.right_only()
 
@@ -189,6 +198,9 @@ def test_source_parses() -> None:
         ("diamond", "method:lab.Mid2.ping", "inherited_receiver_type"),
         ("call_super", "method:lab.Mid2.ping", "super_receiver"),
         ("sub", "method:lab.Right.shared", "inherited_receiver_type"),
+        # abc.ABC is of the standard library, which inherits no project class,
+        # so the order beside it is known.
+        ("closed", "method:lab.Right.right_only", "inherited_receiver_type"),
         # object is a builtin and comes after Plain, where plain is found.
         ("plain_child", "method:lab.Plain.plain", "inherited_receiver_type"),
     ],
@@ -255,3 +267,51 @@ def test_a_star_imported_base_is_not_taken_for_a_builtin(tmp_path: Path) -> None
     # Over comes by the star import, so it is not a builtin standing alone;
     # Joined is Joined, Mid1, Over, Top, and Top.ping is not what is called.
     assert "method:pkg.base.Top.ping" not in targets
+
+
+def test_an_open_external_class_among_bases_leaves_the_order_unknown(
+    tmp_path: Path,
+) -> None:
+    # Code outside the indexed roots may inherit a project class: Plugin
+    # inherits ProjectBase, so Child is Child, Local, Plugin, ProjectBase and
+    # ping is Plugin's. Placing Plugin alone would put ProjectBase first.
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    repo = tmp_path / "repo"
+    (repo / "src" / "app").mkdir(parents=True)
+    (repo / "vendor").mkdir()
+    (repo / "src" / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "app" / "base.py").write_text(
+        "class ProjectBase:\n    def ping(self):\n        return 'base'\n",
+        encoding="utf-8",
+    )
+    (repo / "vendor" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "vendor" / "plugin.py").write_text(
+        "from app.base import ProjectBase\n\n\n"
+        "class Plugin(ProjectBase):\n    def ping(self):\n        return 'plugin'\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "app" / "use.py").write_text(
+        "from app.base import ProjectBase\nfrom vendor.plugin import Plugin\n\n\n"
+        "class Local(ProjectBase):\n    pass\n\n\n"
+        "class Mid(Plugin):\n    pass\n\n\n"
+        "class Child(Local, Plugin):\n"
+        "    def call(self):\n        return super().ping()\n\n\n"
+        "class Nested(Local, Mid):\n    pass\n\n\n"
+        "def use(item: Child):\n    item.ping()\n\n\n"
+        "def nested(item: Nested):\n    item.ping()\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=repo, output_dir=output, source_roots=[SourceRoot("src")]
+    ).build()
+    linked = {
+        (edge.source, edge.target)
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.resolution.status == "resolved"
+    }
+    for source in ("fn:app.use.use", "fn:app.use.nested", "method:app.use.Child.call"):
+        assert (source, "method:app.base.ProjectBase.ping") not in linked, source
