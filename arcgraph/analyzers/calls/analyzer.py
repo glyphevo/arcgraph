@@ -990,6 +990,14 @@ class CallAnalyzer:
                 return unknown_union_result(full_name)
             return None
 
+        literal = self._literal_receiver_type(node)
+        if literal is not None:
+            return {
+                "type_id": f"builtin:{literal}",
+                "type_expression": literal,
+                "strategy": "literal",
+            }
+
         if isinstance(node, ast.Subscript):
             receiver_type = self._receiver_type_ref_node(source, node.value, context)
             if union_alternatives(receiver_type) is not None and not self._type_id(
@@ -1076,6 +1084,17 @@ class CallAnalyzer:
                 return self._path_value_type_ref(right, "path_join")
             return None
 
+        return None
+
+    @staticmethod
+    def _literal_receiver_type(node: ast.AST) -> str | None:
+        """The builtin type of a str or bytes literal, or an f-string, called
+        on directly, as the type analyzer gives one assigned to a name."""
+
+        if isinstance(node, ast.JoinedStr):
+            return "str"
+        if isinstance(node, ast.Constant) and type(node.value) in {str, bytes}:
+            return type(node.value).__name__
         return None
 
     @classmethod

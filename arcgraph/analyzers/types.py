@@ -113,7 +113,8 @@ def _binds_name(stmt: ast.AST, name: str) -> bool:
 
 def _exits_unless_present(stmt: ast.stmt, name: str) -> bool:
     """Whether ``stmt`` is if not name: return (or raise, continue, break),
-    with name is None in place of not name, alone or among or-ed tests."""
+    with name is None, None is name, name == None or None == name in place of
+    not name, alone or among or-ed tests."""
 
     if not isinstance(stmt, ast.If) or stmt.orelse or not stmt.body:
         return False
@@ -133,14 +134,21 @@ def _exits_unless_present(stmt: ast.stmt, name: str) -> bool:
             and test.operand.id == name
         ):
             return True
-        return (
+        if not (
             isinstance(test, ast.Compare)
             and len(test.ops) == 1
-            and isinstance(test.ops[0], ast.Is)
-            and isinstance(test.left, ast.Name)
-            and test.left.id == name
-            and isinstance(test.comparators[0], ast.Constant)
-            and test.comparators[0].value is None
+            # name == None holds whenever name is None, as name is None does;
+            # another value it holds for only leaves too.
+            and isinstance(test.ops[0], (ast.Is, ast.Eq))
+        ):
+            return False
+        sides = (test.left, test.comparators[0])
+        return any(
+            isinstance(side, ast.Name)
+            and side.id == name
+            and isinstance(other, ast.Constant)
+            and other.value is None
+            for side, other in (sides, sides[::-1])
         )
 
     if any(isinstance(node, ast.NamedExpr) for node in ast.walk(stmt.test)):

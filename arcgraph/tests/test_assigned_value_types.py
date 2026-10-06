@@ -1,7 +1,9 @@
 """A name takes the type of the value it was last assigned before a call.
 
 The type analyzer records a type for an f-string, a slice, a boolean
-expression of operands of one type and a conditional of arms of one type. A
+expression of operands of one type and a conditional of arms of one type; the
+call analyzer gives an f-string or a str or bytes literal called on directly
+the type it would have if assigned first. A
 call through a name whose binding there has no recorded type has no type,
 rather than that of another, typed binding of the name: x: Box; x = flag;
 x.build() is not Box.build.
@@ -24,6 +26,18 @@ class Box:
 def fstring(name: str):
     combined = f"/{name}"
     combined.casefold()
+
+
+def fstring_direct(name: str):
+    f"/{name}".casefold()
+
+
+def str_literal_direct(items):
+    ", ".join(items).strip()
+
+
+def bytes_literal_direct():
+    b"x".decode()
 
 
 def text_slice(text: str):
@@ -107,6 +121,16 @@ def test_source_parses() -> None:
     ("name", "target", "strategy"),
     [
         ("fstring", "extsym:builtins.str.casefold", "builtin_receiver_type"),
+        ("fstring_direct", "extsym:builtins.str.casefold", "builtin_receiver_type"),
+        # The literal's join, not a guess by the method's name, and so the
+        # str it returns.
+        ("str_literal_direct", "extsym:builtins.str.join", "builtin_receiver_type"),
+        ("str_literal_direct", "extsym:builtins.str.strip", "builtin_receiver_type"),
+        (
+            "bytes_literal_direct",
+            "extsym:builtins.bytes.decode",
+            "builtin_receiver_type",
+        ),
         ("text_slice", "extsym:builtins.str.casefold", "builtin_receiver_type"),
         # A slice of a list is a list, not an element.
         ("list_slice", "extsym:builtins.list.append", "builtin_receiver_type"),
@@ -187,6 +211,52 @@ def or_continue(items):
         shared.build()
 
 
+def none_is_raise():
+    shared: Box | None = None
+    source = make_box()
+    if None is source:
+        raise ValueError
+    shared = source
+    shared.build()
+
+
+def equals_none_return():
+    shared: Box | None = None
+    source = make_box()
+    if source == None:
+        return
+    shared = source
+    shared.build()
+
+
+def none_equals_return():
+    shared: Box | None = None
+    source = make_box()
+    if None == source:
+        return
+    shared = source
+    shared.build()
+
+
+def is_not_none_return():
+    shared: Box | None = None
+    source = make_box()
+    # Leaves when the value is present, so what follows may be None.
+    if source is not None:
+        return
+    shared = source
+    shared.build()
+
+
+def not_equals_none_return():
+    shared: Box | None = None
+    source = make_box()
+    if None != source:
+        return
+    shared = source
+    shared.build()
+
+
 def unguarded():
     shared: Box | None = None
     source = make_box()
@@ -251,7 +321,17 @@ def guards(tmp_path_factory: pytest.TempPathFactory) -> dict[str, set[tuple[str,
     return _resolutions_by_function(tmp_path_factory.mktemp("guards"), GUARDS)
 
 
-@pytest.mark.parametrize("name", ["not_return", "is_none_raise", "or_continue"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "not_return",
+        "is_none_raise",
+        "or_continue",
+        "none_is_raise",
+        "equals_none_return",
+        "none_equals_return",
+    ],
+)
 def test_a_value_assigned_after_a_none_exit_is_not_none(guards, name):
     # A guard that leaves when the value is absent excludes None from what is
     # assigned after it, so the annotated union of the target is narrowed.
@@ -267,6 +347,8 @@ def test_a_value_assigned_after_a_none_exit_is_not_none(guards, name):
         "guard_outside_rebinding_loop",
         "guard_not_exiting",
         "walrus_guard",
+        "is_not_none_return",
+        "not_equals_none_return",
     ],
 )
 def test_a_value_not_proven_present_keeps_none(guards, name):

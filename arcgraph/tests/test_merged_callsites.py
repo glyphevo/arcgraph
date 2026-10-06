@@ -10,6 +10,7 @@ the same target was reported unresolved; it now matches every fact.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ import pytest
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.query_engine import QueryEngine
 from arcgraph.core.scanner import SourceRoot
+from arcgraph.core.schemas import Edge
 from arcgraph.pipeline.indexer import ArcGraphIndexer
 
 SOURCE = """def helper(value):
@@ -153,3 +155,69 @@ def test_a_line_shift_changes_no_merged_edge(tmp_path):
     # no semantic change for an edge that stands for several calls.
     assert before.keys() == after.keys()
     assert [key for key in before if before[key] != after[key]] == []
+
+
+def _fact_edge(**fact) -> Edge:
+    return Edge(
+        source="fn:service.caller",
+        target="fn:service.target",
+        kind="calls",
+        properties={"callsite": fact, "callsites": [fact]},
+    )
+
+
+def test_a_fact_with_no_stable_subject_loses_its_line_alone():
+    from arcgraph.change.graph_delta import _edge_semantic_projection
+
+    # A TypeScript fact has no stable subject: its expression says which call
+    # it is, so a line shift does not change it, and an edit does.
+    def fact(line: int, raw: str = "target(1)", **extra) -> dict:
+        return {
+            "path": "src/service.ts",
+            "line": line,
+            "column": 2,
+            "raw_expression": raw,
+            **extra,
+        }
+
+    def projection(**fact_fields) -> dict:
+        return _edge_semantic_projection(_fact_edge(**fact(**fact_fields)))
+
+    assert projection(line=3) == projection(line=9)
+    assert projection(line=3) != projection(line=3, raw="target(2)")
+    # With nothing else to say which call it is, its own callsite_id stays.
+    assert projection(line=3, callsite_id="callsite:a") != projection(
+        line=3, callsite_id="callsite:b"
+    )
+
+
+def test_a_line_shift_changes_no_typescript_edge(tmp_path):
+    from arcgraph.change.graph_delta import _edge_semantic_projection
+
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is required for TypeScript call facts.")
+    text = (
+        "export function target(v: number): number {\n  return v;\n}\n\n"
+        "export function caller(): number {\n  target(1);\n  return target(2);\n}\n"
+    )
+
+    def projections(root: Path, source: str) -> dict:
+        (root / "src").mkdir(parents=True)
+        (root / "src" / "service.ts").write_text(source, encoding="utf-8")
+        ArcGraphIndexer(root, root / "out", [SourceRoot("src")]).build()
+        reader = GraphStoreReader.from_current(root / "out")
+        if any(
+            warning.kind == "typescript_frontend_unavailable"
+            for warning in reader.read_warnings()
+        ):
+            pytest.skip("TypeScript compiler API is unavailable.")
+        return {
+            (edge.source, edge.target, edge.kind): _edge_semantic_projection(edge)
+            for edge in reader.read_edges()
+            if edge.source == "fn:service.caller"
+        }
+
+    before = projections(tmp_path / "before", text)
+    after = projections(tmp_path / "after", "\n\n\n" + text)
+    assert ("fn:service.caller", "fn:service.target", "calls") in before
+    assert before == after

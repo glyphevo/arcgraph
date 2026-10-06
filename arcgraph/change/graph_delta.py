@@ -1181,16 +1181,22 @@ def _edge_identity_projection(
 
 
 # Fields of a call's fact derived from where the call is, which a line shift
-# changes and the call's meaning does not.
-_CALLSITE_POSITION_KEYS = frozenset({"callsite_id", "column", "line"})
+# changes and the call's meaning does not. A callsite_id is dropped only where
+# a stable subject still says which call the fact is; a TypeScript fact has
+# none, and its expression and arguments do.
+_CALLSITE_LINE_KEYS = frozenset({"column", "line"})
+_CALLSITE_POSITION_KEYS = _CALLSITE_LINE_KEYS | {"callsite_id"}
 
 
 def _stable_callsite_fact(fact: Any) -> Any:
-    if not isinstance(fact, dict) or "stable_callsite_subject" not in fact:
+    if not isinstance(fact, dict):
         return fact
-    return {
-        key: value for key, value in fact.items() if key not in _CALLSITE_POSITION_KEYS
-    }
+    dropped = (
+        _CALLSITE_POSITION_KEYS
+        if "stable_callsite_subject" in fact
+        else _CALLSITE_LINE_KEYS
+    )
+    return {key: value for key, value in fact.items() if key not in dropped}
 
 
 def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
@@ -1201,6 +1207,7 @@ def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
         resolution = {
             key: value for key, value in resolution.items() if key != "callsite_id"
         }
+    if isinstance(callsite, dict):
         properties = {**properties, "callsite": _stable_callsite_fact(callsite)}
     facts = properties.get("callsites")
     if isinstance(facts, list):
