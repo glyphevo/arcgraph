@@ -543,47 +543,13 @@ class CallAnalyzer:
                     receiver_expression=receiver,
                 )
             return self._generated_dynamic_target(source, callsite, context)
-        if union_alternatives(ref) is not None or (
-            ref and ref.get("typed_value_evidence")
-        ):
-            # A path join takes its value, and its evidence, from one operand,
-            # so that operand's binding decides whether the value is available.
-            value_root = self._value_root_expression(source, receiver, context)
-            barrier_callsite = (
-                callsite
-                if value_root == receiver
-                else {**callsite, "call_expression": value_root}
-            )
-            root = context.lexical.root_name(value_root)
-            found = context.lexical.lookup(source, root) if root else None
-            root_ref = context.scope_type_refs.get(source.id, {}).get(root or "")
-            annotated_union = union_alternatives(root_ref) is not None and bool(
-                found and any(binding.get("annotation") for binding in found[1])
-            )
-            # Preserve existing nullable factory/field inference. Explicitly
-            # annotated union bindings must also survive writes and deletion.
-            proof: dict[str, Any] = source.properties.get("nullable_bindings", {}).get(
-                root or "", {}
-            )
-            available_proof = bool(proof) and (
-                callsite.get("line", 0),
-                callsite.get("column", 0),
-            ) > (proof.get("line", 0), proof.get("column", 0))
-            available_value = bool(
-                ref and ref.get("typed_value_evidence")
-            ) and context.value_ref_available(
-                source, ref, int(callsite.get("line") or 0)
-            )
-            if (
-                available_proof
-                or available_value
-                or bool(ref and ref.get("comprehension_binding"))
-                or not context.lexical.blocked(
-                    source,
-                    barrier_callsite,
-                    require_stable=annotated_union
-                    or bool(ref and ref.get("typed_value_evidence")),
+        operands = self._barrier_operands(source, receiver, ref, context)
+        if operands:
+            if all(
+                self._barrier_allows(
+                    source, callsite, receiver, expression, value, context
                 )
+                for expression, value in operands
             ):
                 typed = self._typed_receiver_target(
                     source, receiver, str(callsite["attribute"]), context
@@ -594,34 +560,99 @@ class CallAnalyzer:
             return self._generated_dynamic_target(source, callsite, context)
         return None
 
-    def _value_root_expression(
+    def _barrier_allows(
+        self,
+        source: Node,
+        callsite: dict[str, Any],
+        receiver: str,
+        expression: str,
+        ref: dict[str, Any],
+        context: _CallResolutionContext,
+    ) -> bool:
+        """Whether the value of ``expression``, behind an evidence barrier or a
+        union, is available at ``callsite``."""
+
+        barrier_callsite = (
+            callsite
+            if expression == receiver
+            else {**callsite, "call_expression": expression}
+        )
+        root = context.lexical.root_name(expression)
+        found = context.lexical.lookup(source, root) if root else None
+        root_ref = context.scope_type_refs.get(source.id, {}).get(root or "")
+        annotated_union = union_alternatives(root_ref) is not None and bool(
+            found and any(binding.get("annotation") for binding in found[1])
+        )
+        # Preserve existing nullable factory/field inference. Explicitly
+        # annotated union bindings must also survive writes and deletion.
+        proof: dict[str, Any] = source.properties.get("nullable_bindings", {}).get(
+            root or "", {}
+        )
+        available_proof = bool(proof) and (
+            callsite.get("line", 0),
+            callsite.get("column", 0),
+        ) > (proof.get("line", 0), proof.get("column", 0))
+        available_value = bool(
+            ref.get("typed_value_evidence")
+        ) and context.value_ref_available(source, ref, int(callsite.get("line") or 0))
+        return (
+            available_proof
+            or available_value
+            or bool(ref.get("comprehension_binding"))
+            or not context.lexical.blocked(
+                source,
+                barrier_callsite,
+                require_stable=annotated_union or bool(ref.get("typed_value_evidence")),
+            )
+        )
+
+    def _barrier_operands(
         self,
         source: Node,
         receiver: str,
+        ref: dict[str, Any] | None,
         context: _CallResolutionContext,
-    ) -> str:
-        """The part of ``receiver`` its value comes from, past path joins.
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Each part of ``receiver`` whose evidence barrier or union applies.
 
-        ``(base / segment).parent`` and ``segment / base`` take their value from
-        ``base``, the operand the join was typed from, as ``_receiver_type_ref_node``
-        types it: the left operand when it is a path, otherwise the right one.
+        A path join is typed from one operand, the left one when it is a path
+        and otherwise the right one, as ``_receiver_type_ref_node`` types it,
+        and carries that operand's evidence: ``(base / segment).parent`` takes
+        its value from ``base``. The other operand is evaluated as well, so its
+        own barrier applies too, at any depth of joins.
         """
 
+        if not ref:
+            # An untyped receiver is not linked by type, so no barrier applies.
+            return []
+        operands: list[tuple[str, dict[str, Any]]] = []
         try:
-            node = ast.parse(receiver, mode="eval").body
+            node: ast.expr | None = ast.parse(receiver, mode="eval").body
         except SyntaxError:
-            return receiver
+            node = None
         changed = False
-        while True:
+        while node is not None:
             inner = node
             while isinstance(inner, (ast.Call, ast.Attribute, ast.Subscript)):
                 inner = inner.func if isinstance(inner, ast.Call) else inner.value
             if not (isinstance(inner, ast.BinOp) and isinstance(inner.op, ast.Div)):
                 break
             left = self._receiver_type_ref_node(source, inner.left, context)
-            node = inner.left if self._type_id(left) in PATH_TYPE_IDS else inner.right
+            if self._type_id(left) in PATH_TYPE_IDS:
+                node, other = inner.left, inner.right
+            else:
+                node, other = inner.right, inner.left
+            operands += self._barrier_operands(
+                source,
+                self._unparse(other),
+                self._receiver_type_ref_node(source, other, context),
+                context,
+            )
             changed = True
-        return self._unparse(node) if changed else receiver
+        if union_alternatives(ref) is not None or ref.get("typed_value_evidence"):
+            primary = self._unparse(node) if changed and node is not None else receiver
+            operands.insert(0, (primary, ref))
+        return operands
 
     def _typed_receiver_target(
         self,

@@ -120,6 +120,13 @@ def reassigned_parent(items: Optional[list[Path]]) -> None:
     items[0].parent.is_symlink()
 
 
+REQUIRED = ("a.txt", "b.txt")
+
+
+def untyped_join(root: Path) -> list[str]:
+    return [name for name in REQUIRED if not (root / name).is_file()]
+
+
 def pair(tmp_path: Path) -> tuple[Path, Path]:
     return tmp_path, tmp_path
 
@@ -145,6 +152,21 @@ def reassigned_reversed_join(items: Optional[list[Path]]) -> None:
 def reassigned_joined_parent(items: Optional[list[Path]]) -> None:
     items = maybe_paths()
     ("a" / items[0]).parent.is_symlink()
+
+
+def reassigned_joined_twice(items: Optional[list[Path]]) -> None:
+    items = maybe_paths()
+    (items[0] / "a" / "b").is_symlink()
+
+
+def reassigned_segment(items: Optional[list[Path]], root: Path) -> None:
+    items = maybe_paths()
+    (root / items[0]).is_symlink()
+
+
+def reassigned_nested_segment(items: Optional[list[Path]], root: Path) -> None:
+    items = maybe_paths()
+    (root / ("a" / items[0])).is_symlink()
 """
 
 
@@ -237,6 +259,12 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
     assert ("extsym:pathlib.Path.is_symlink", "external_receiver_type") in (
         resolutions.get("nested_scope", set())
     )
+    # A join the segment check leaves untyped is not linked by type, so no
+    # operand's barrier stops the fallbacks an untyped receiver has.
+    assert any(
+        target == "extsym:pathlib.Path.is_file"
+        for target, _ in resolutions.get("untyped_join", set())
+    )
     # A parent or a join of an available value is available where the value
     # is, even after the name was bound again.
     assert {
@@ -263,14 +291,17 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         or target.startswith("extsym:pathlib.Path.resolve.")
         for target, _ in resolutions.get("optional_resolved", set())
     )
-    # A parent and a join, on either side, keep the evidence barrier of the
-    # path they come from, under which items[0].is_symlink() is not linked
-    # after this reassignment either.
+    # A parent and a join, on either side and at any depth, keep the evidence
+    # barrier of every path they are made of, under which items[0].is_symlink()
+    # is not linked after this reassignment either.
     for name in (
         "reassigned_parent",
         "reassigned_join",
         "reassigned_reversed_join",
         "reassigned_joined_parent",
+        "reassigned_joined_twice",
+        "reassigned_segment",
+        "reassigned_nested_segment",
     ):
         assert not any(
             target.startswith("extsym:pathlib.")
@@ -358,6 +389,12 @@ SEGMENT_CASES = {
     "not_or": ("", '(not 1) or "x"', True),
     "negated_zero_or": ("", '(-0) or "x"', True),
     "inverted_zero_or": ("", '(~0) or "x"', False),
+    "inverted_minus_one_or": ("", '(~(-1)) or "x"', True),
+    "positive_zero_or": ("", '(+0) or "x"', True),
+    "negated_name_or": (", count: int", '(-count) or "x"', False),
+    "negated_not_or": ("", '(-(not 1)) or "x"', True),
+    "positive_not_or": ("", '(+(not 1)) or "x"', True),
+    "inverted_not_or": ("", '(~(not 1)) or "x"', False),
     "negative_repetition_or": ("", '("a" * -2) or 1', False),
     "repetition_or": ("", '("a" * 2) or 1', True),
     "empty_repetition_or": ("", '("a" * 0) or 1', False),

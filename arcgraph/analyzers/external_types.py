@@ -122,6 +122,10 @@ def _values(
     if isinstance(node, ast.Compare):
         return _BOOL
     if isinstance(node, ast.UnaryOp):
+        literal = _int_literal(node)
+        if literal is not None:
+            # A signed or inverted int literal has a known value.
+            return frozenset({("int", _truth(literal != 0))})
         operand = _values(node.operand, resolve)
         if isinstance(node.op, ast.Not):
             # A bool of the opposite truth.
@@ -310,12 +314,16 @@ def _positive_int_literal(node: ast.expr) -> bool:
 
 
 def _int_literal(node: ast.expr) -> int | None:
-    """The value of an int or bool literal, with a literal sign."""
+    """The value of an int or bool literal, with literal signs and inversions."""
 
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+    if isinstance(node, ast.UnaryOp) and isinstance(
+        node.op, (ast.USub, ast.UAdd, ast.Invert)
+    ):
         value = _int_literal(node.operand)
         if value is None:
             return None
+        if isinstance(node.op, ast.Invert):
+            return ~value
         return -value if isinstance(node.op, ast.USub) else value
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return int(node.value)
