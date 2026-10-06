@@ -884,12 +884,22 @@ class CallAnalyzer:
             return self._type_ref_from_target(resolved.target, context)
 
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            left = self._receiver_type_ref_node(source, node.left, context)
+
+            def resolve(operand: ast.expr) -> dict[str, Any] | None:
+                return self._receiver_type_ref_node(source, operand, context)
+
+            left = resolve(node.left)
             if self._type_id(left) in PATH_TYPE_IDS and may_be_path_segment(
-                node.right,
-                lambda operand: self._receiver_type_ref_node(source, operand, context),
+                node.right, resolve
             ):
                 return self._path_value_type_ref(left, "path_join")
+            # ``segment / path`` is a path of the right operand's flavour, by
+            # its ``__rtruediv__``.
+            right = resolve(node.right)
+            if self._type_id(right) in PATH_TYPE_IDS and may_be_path_segment(
+                node.left, resolve
+            ):
+                return self._path_value_type_ref(right, "path_join")
             return None
 
         return None

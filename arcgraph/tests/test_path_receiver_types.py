@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import SourceRoot
 from arcgraph.core.schemas import Edge, Node
@@ -63,6 +65,23 @@ def joined_parent(root: Path) -> None:
     (root / "a" / "b.txt").parent.chmod(0o700)
 
 
+def reversed_join(other: Path) -> None:
+    ("a" / other).is_symlink()
+
+
+def reversed_join_assigned(other: Path) -> None:
+    joined = "a" / other
+    joined.is_symlink()
+
+
+def int_over_path(other: Path) -> None:
+    (2 / other).is_symlink()
+
+
+def reversed_pure_join(other: PurePosixPath) -> None:
+    ("a" / other).with_suffix(".txt")
+
+
 def resolved(root: Path) -> None:
     root.resolve().is_symlink()
 
@@ -80,76 +99,8 @@ def nested_scope(tmp_path: Path) -> None:
     helper()
 
 
-def not_a_segment(root: Path) -> None:
-    (root / 2).is_symlink()
-
-
 def not_a_path(count: int) -> None:
     (count / 2).is_integer()
-
-
-def str_if_exp_segment(root: Path, flag: bool) -> None:
-    (root / ("a" if flag else "b")).is_symlink()
-
-
-def str_bool_op_segment(root: Path, name: str) -> None:
-    (root / (name or "x")).is_symlink()
-
-
-def int_if_exp_segment(root: Path, flag: bool) -> None:
-    (root / (1 if flag else 2)).is_symlink()
-
-
-def int_bool_op_segment(root: Path, name) -> None:
-    (root / (name or 1)).is_symlink()
-
-
-def mixed_if_exp_segment(root: Path, flag: bool) -> None:
-    (root / ("a" if flag else 1)).is_symlink()
-
-
-def int_or_str_segment(root: Path, count: int) -> None:
-    (root / (count or "x")).is_symlink()
-
-
-def assigned_int_if_exp_segment(root: Path, flag: bool) -> None:
-    joined = root / (1 if flag else 2)
-    joined.is_symlink()
-
-
-def optional_or_segment(root: Path, name: Optional[str]) -> None:
-    (root / (name or "x")).is_symlink()
-
-
-def assigned_optional_or_segment(root: Path, name: Optional[str]) -> None:
-    joined = root / (name or "x")
-    joined.is_symlink()
-
-
-def optional_or_optional_segment(
-    root: Path, first: Optional[str], second: Optional[str]
-) -> None:
-    (root / (first or second)).is_symlink()
-
-
-def negative_or_segment(root: Path, name: str) -> None:
-    (root / (name or -1)).is_symlink()
-
-
-def arithmetic_segment(root: Path) -> None:
-    (root / (1 + 2)).is_symlink()
-
-
-def tuple_segment(root: Path) -> None:
-    (root / (1, 2)).is_symlink()
-
-
-def walrus_segment(root: Path) -> None:
-    (root / (index := 1)).is_symlink()
-
-
-def comparison_segment(root: Path, name: str) -> None:
-    (root / (name == "a")).is_symlink()
 
 
 def optional_parent(maybe: Optional[Path]) -> None:
@@ -207,10 +158,12 @@ def test_joined_paths_resolve_by_type_inside_a_scope_with_a_nested_def(
     assert "value.as_integer_ratio" not in targets
 
 
-def _resolutions_by_function(tmp_path: Path) -> dict[str, set[tuple[str, str]]]:
+def _resolutions_by_function(
+    tmp_path: Path, source: str = CHAINED_SOURCE
+) -> dict[str, set[tuple[str, str]]]:
     """Each function's resolved (target, strategy) pairs, one per callsite."""
 
-    _, edges = _index(tmp_path, CHAINED_SOURCE)
+    _, edges = _index(tmp_path, source)
     resolutions: dict[str, set[tuple[str, str]]] = {}
     for edge in edges:
         if edge.resolution.status != "resolved":
@@ -237,12 +190,10 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         "pure_parent": {"extsym:pathlib.PurePosixPath.with_suffix"},
         "joined": {"extsym:pathlib.Path.is_symlink"},
         "joined_parent": {"extsym:pathlib.Path.chmod"},
-        # A conditional or boolean segment whose operands are all strings.
-        "str_if_exp_segment": {"extsym:pathlib.Path.is_symlink"},
-        "str_bool_op_segment": {"extsym:pathlib.Path.is_symlink"},
-        # A None operand of ``or`` before the last is never the result.
-        "optional_or_segment": {"extsym:pathlib.Path.is_symlink"},
-        "assigned_optional_or_segment": {"extsym:pathlib.Path.is_symlink"},
+        # str / path is a path of the right operand's flavour.
+        "reversed_join": {"extsym:pathlib.Path.is_symlink"},
+        "reversed_join_assigned": {"extsym:pathlib.Path.is_symlink"},
+        "reversed_pure_join": {"extsym:pathlib.PurePosixPath.with_suffix"},
         # A documented path-returning method yields a path, not a receiver
         # named after the method, such as pathlib.Path.resolve.is_symlink.
         "resolved": {"extsym:pathlib.Path.resolve", "extsym:pathlib.Path.is_symlink"},
@@ -260,26 +211,9 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         resolutions.get("nested_scope", set())
     )
 
-    # Neither an int segment, nor a conditional or boolean segment with an int
-    # operand or a last operand that may be None, nor an expression whose form
-    # shows it is no str, nor an int dividend makes a path, inline or
-    # assigned, and a union does not say which member's parent is taken.
-    for name in (
-        "not_a_segment",
-        "int_if_exp_segment",
-        "int_bool_op_segment",
-        "mixed_if_exp_segment",
-        "int_or_str_segment",
-        "assigned_int_if_exp_segment",
-        "optional_or_optional_segment",
-        "negative_or_segment",
-        "arithmetic_segment",
-        "tuple_segment",
-        "walrus_segment",
-        "comparison_segment",
-        "not_a_path",
-        "optional_parent",
-    ):
+    # An int dividend does not make a path, nor does an int divided by a path,
+    # and a union does not say which member's parent is taken.
+    for name in ("not_a_path", "int_over_path", "optional_parent"):
         assert not any(
             target.startswith("extsym:pathlib.")
             for target, _ in resolutions.get(name, set())
@@ -287,6 +221,9 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
     # An Optional receiver keeps the union rules: maybe.resolve() itself is
     # linked by them, but its result stays untyped, so neither is_symlink nor
     # a receiver named after resolve is linked.
+    assert ("extsym:pathlib.Path.resolve", "external_receiver_type") in (
+        resolutions.get("optional_resolved", set())
+    )
     assert not any(
         target == "extsym:pathlib.Path.is_symlink"
         or target.startswith("extsym:pathlib.Path.resolve.")
@@ -298,3 +235,200 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         target.startswith("extsym:pathlib.")
         for target, _ in resolutions.get("reassigned_parent", set())
     )
+
+
+# Each case joins ``root: Path`` with a segment and calls is_symlink on the
+# result, written inline and through a local. pathlib joins a str or an
+# os.PathLike segment; any other value raises TypeError, so the call must not
+# be linked. A segment of unknown type passes as the usual unannotated string.
+# Each entry is (extra parameters, segment, whether it makes a path).
+SEGMENT_CASES = {
+    "string": ("", '"a"', True),
+    "integer": ("", "2", False),
+    "bytes_literal": ("", 'b"a"', False),
+    "f_string": (", name: str", 'f"{name}.txt"', True),
+    "str_name": (", name: str", "name", True),
+    "unannotated_name": (", name", "name", True),
+    "path_name": (", other: Path", "other", True),
+    "path_like_name": (", other: PathLike[str]", "other", True),
+    "optional_name": (", name: Optional[str]", "name", False),
+    # A conditional evaluates to one of its branches.
+    "str_conditional": (", flag: bool", '"a" if flag else "b"', True),
+    "int_conditional": (", flag: bool", "1 if flag else 2", False),
+    "mixed_conditional": (", flag: bool", '"a" if flag else 1', False),
+    # A test on the name itself narrows the branch that reads it.
+    "not_none_branch": (
+        ", name: Optional[str]",
+        'name if name is not None else "x"',
+        True,
+    ),
+    "none_else_branch": (
+        ", name: Optional[str]",
+        '"x" if name is None else name',
+        True,
+    ),
+    "truthy_branch": (", name: Optional[str]", 'name if name else "x"', True),
+    "unrelated_test_branch": (
+        ", name: Optional[str], flag: int",
+        'name if flag == 1 else "x"',
+        False,
+    ),
+    "falsy_else_branch": (", name: Optional[str]", '"x" if not name else name', True),
+    "reversed_not_none_branch": (
+        ", name: Optional[str]",
+        'name if None is not name else "x"',
+        True,
+    ),
+    "identity_branch": (
+        ", name: Optional[str], other: object",
+        'name if name is other else "x"',
+        False,
+    ),
+    "non_identity_branch": (
+        ", name: Optional[str], other: object",
+        'name if name is not other else "x"',
+        False,
+    ),
+    "none_branch": (", name: Optional[str]", 'name if name is None else "x"', False),
+    "other_name_branch": (
+        ", name: Optional[str], other: Optional[str]",
+        'other if name is not None else "x"',
+        False,
+    ),
+    # ``or`` returns its first truthy operand, ``and`` its first falsy one,
+    # and either returns its last operand when none is decisive.
+    "str_or": (", name: str", 'name or "x"', True),
+    "optional_or": (", name: Optional[str]", 'name or "x"', True),
+    "union_or": (", name: str | None", 'name or "x"', True),
+    "optional_or_optional": (
+        ", first: Optional[str], second: Optional[str]",
+        "first or second",
+        False,
+    ),
+    "int_or": (", count: int", 'count or "x"', False),
+    "unannotated_or_int": (", name", "name or 1", False),
+    "zero_or": ("", '0 or "x"', True),
+    "empty_tuple_or": ("", '() or "x"', True),
+    "tuple_or": ("", '(1, 2) or "x"', False),
+    "empty_dict_or": ("", '{} or "x"', True),
+    "str_or_none": ("", '"x" or None', True),
+    # A value that is always truthy decides ``or`` however it was computed.
+    "concatenation_or": ("", '("a" + "b") or 1', True),
+    "repetition_or": ("", '("a" * 2) or 1', True),
+    "empty_repetition_or": ("", '("a" * 0) or 1', False),
+    "f_string_or": ("", 'f"a" or 1', True),
+    "narrowed_or": (", name: Optional[str]", '(name if name else "x") or 1', True),
+    "computed_path_or": (
+        ", other: Path, flag: bool",
+        '("a" / (other if flag else other)) or 1',
+        True,
+    ),
+    "reversed_join_or": (", other: Path", '("a" / other) or 1', True),
+    "conditional_or": (
+        ", name: Optional[str], flag: bool",
+        '(name or "a") if flag else (name or "b")',
+        True,
+    ),
+    "str_and": (", name: str", 'name and "x"', True),
+    "bool_and": (", flag: bool", 'flag and "x"', False),
+    "none_and": ("", 'None and "x"', False),
+    "optional_and": (", name: Optional[str]", 'name and "x"', False),
+    # Arithmetic follows each operator: only str + str concatenates, str * int
+    # repeats, and str % values formats.
+    "str_plus_str": (", name: str", 'name + ".txt"', True),
+    "str_plus_int": ("", '"a" + 1', False),
+    "int_plus_int": (", count: int", "count + 1", False),
+    "unannotated_plus_int": (", name", "name + 1", False),
+    "str_times_int": ("", '"a" * 2', True),
+    "int_times_str": ("", '2 * "a"', True),
+    "unannotated_times_int": (", name", "name * 2", True),
+    "bool_times_str": ("", '"a" * True', True),
+    "int_expression_times_str": (", count: int", '"a" * (count + 1)', True),
+    "negated_times_str": (", count: int", '"a" * -count', True),
+    "comparison_times_str": (", name: str", '"a" * (name == "b")', True),
+    "not_times_str": (", flag: bool", '"a" * (not flag)', True),
+    "true_division_times_str": (", count: int", '"a" * (count / 2)', False),
+    "float_times_str": ("", '"a" * 1.5', False),
+    "float_name_times_str": (", ratio: float", '"a" * ratio', False),
+    "list_times_str": ("", '"a" * [1]', False),
+    "str_times_str": ("", '"a" * "b"', False),
+    "str_format": (", count: int", '"%s" % count', True),
+    "int_modulo": (", count: int", "count % 2", False),
+    "int_minus_int": (", count: int", "count - 1", False),
+    "negative": ("", "-1", False),
+    "negated_str": (", name: str", "-name", False),
+    # A path joins a segment on either side of ``/``.
+    "str_over_path": (", other: Path", '"a" / other', True),
+    "conditional_path_over_str": (
+        ", other: Path, flag: bool",
+        '(other if flag else other) / "a"',
+        True,
+    ),
+    "str_over_conditional_path": (
+        ", other: Path, flag: bool",
+        '"a" / (other if flag else other)',
+        True,
+    ),
+    "str_over_str": ("", '"a" / "b"', False),
+    "unannotated_over_str": (", name", 'name / "a"', True),
+    # Forms whose value is never a str or a path.
+    "tuple": ("", "1, 2", False),
+    "list": ("", "[1]", False),
+    "set": ("", "{1}", False),
+    "dict": ("", '{"a": 1}', False),
+    "comprehension": ("", "[c for c in 'ab']", False),
+    "lambda_expression": ("", 'lambda: "a"', False),
+    "comparison": (", name: str", 'name == "a"', False),
+    "int_walrus": ("", "index := 1", False),
+    "str_walrus": ("", 'index := "a"', True),
+}
+
+
+def _segment_source() -> str:
+    lines = [
+        "from os import PathLike",
+        "from pathlib import Path",
+        "from typing import Optional",
+    ]
+    for name, (parameters, segment, _) in SEGMENT_CASES.items():
+        lines += [
+            "",
+            "",
+            f"def {name}(root: Path{parameters}) -> None:",
+            f"    (root / ({segment})).is_symlink()",
+            "",
+            "",
+            f"def {name}_assigned(root: Path{parameters}) -> None:",
+            f"    joined = root / ({segment})",
+            "    joined.is_symlink()",
+        ]
+    source = "\n".join(lines) + "\n"
+    # A case that does not parse would silently drop every case from the index.
+    compile(source, "lab.py", "exec")
+    return source
+
+
+@pytest.fixture(scope="module")
+def segment_resolutions(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, set[tuple[str, str]]]:
+    return _resolutions_by_function(
+        tmp_path_factory.mktemp("segments"), _segment_source()
+    )
+
+
+@pytest.mark.parametrize("form", ["", "_assigned"])
+@pytest.mark.parametrize("case", list(SEGMENT_CASES))
+def test_path_segments_follow_python_semantics(
+    segment_resolutions: dict[str, set[tuple[str, str]]], case: str, form: str
+) -> None:
+    _, segment, makes_path = SEGMENT_CASES[case]
+    resolutions = segment_resolutions.get(case + form, set())
+    if makes_path:
+        assert ("extsym:pathlib.Path.is_symlink", "external_receiver_type") in (
+            resolutions
+        ), segment
+    else:
+        assert not any(
+            target.startswith("extsym:pathlib.") for target, _ in resolutions
+        ), segment

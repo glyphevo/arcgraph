@@ -879,6 +879,15 @@ class _TypeContext:
                 and self._may_be_path_segment(node.right, scope_node, local_types)
             ):
                 return self._path_value_type(left, node, strategy="path_join")
+            # ``segment / path`` is a path of the right operand's flavour, by
+            # its ``__rtruediv__``.
+            right = self.resolve_scoped_value(node.right, scope_node, local_types)
+            if (
+                right is not None
+                and right.get("type_id") in PATH_TYPE_IDS
+                and self._may_be_path_segment(node.left, scope_node, local_types)
+            ):
+                return self._path_value_type(right, node, strategy="path_join")
             return None
         return self.resolve_value(node, local_types)
 
