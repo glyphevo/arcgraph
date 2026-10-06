@@ -160,7 +160,6 @@ FUNCTION_RETURN_TYPES: dict[str, tuple[str, str | None]] = {
     "zlib.compress": ("builtin:bytes", None),
     "zlib.decompress": ("builtin:bytes", None),
     "subprocess.run": ("extsym:subprocess.CompletedProcess", None),
-    "subprocess.check_output": ("builtin:bytes", None),
     **{
         f"datetime.datetime.{name}": ("extsym:datetime.datetime", None)
         for name in ("now", "utcnow", "fromisoformat", "fromtimestamp")
@@ -828,8 +827,10 @@ def mapping_value_type(
 ) -> dict[str, Any] | None:
     """The type ``dict.get`` or ``dict.setdefault`` returns on ``receiver``.
 
-    The type of an explicit default wins; otherwise the dict's value type is
-    taken, as the type analyzer has always read a ``dict[K, V]`` lookup.
+    Both return the stored value when the key is present and the default
+    otherwise, so with a default the result is typed only when the default is
+    of the dict's value type; a dict of unknown value type gives a value of no
+    type. Without a default, ``get`` is read as returning the value type.
     """
 
     if (
@@ -838,14 +839,17 @@ def mapping_value_type(
         or method not in {"get", "setdefault"}
     ):
         return None
-    if default is not None and isinstance(default.get("type_id"), str):
-        return default
     type_args = receiver.get("type_args")
-    if isinstance(type_args, list) and len(type_args) >= 2:
-        value_type = type_args[1]
-        if isinstance(value_type, dict) and isinstance(value_type.get("type_id"), str):
-            return value_type
-    return None
+    value_type = (
+        type_args[1] if isinstance(type_args, list) and len(type_args) >= 2 else None
+    )
+    if not isinstance(value_type, dict) or not isinstance(
+        value_type.get("type_id"), str
+    ):
+        return None
+    if default is not None and default.get("type_id") != value_type.get("type_id"):
+        return None
+    return value_type
 
 
 def mapping_default(node: ast.Call) -> ast.expr | None:

@@ -257,3 +257,16 @@ def test_bare_builtin_wins_over_a_unique_name_elsewhere(tmp_path):
     # import can bring the project's own.
     assert targets["fn:pkg.plain.use"] == "extsym:builtins.format"
     assert targets["fn:pkg.starred.use"] == "fn:pkg.helpers.format"
+
+
+@pytest.mark.parametrize("enable_v2", [True, False], ids=["v2", "legacy"])
+def test_legacy_mode_alone_matches_a_method_by_its_name(enable_v2):
+    nodes = _analyzed_nodes(
+        "class Accumulator:\n    def add(self, value):\n        return value\n"
+        "def outer(item):\n    item['targets'].add(1)\n"
+    )
+    result = CallAnalyzer(enable_v2=enable_v2).analyze(nodes)
+    linked = {e.target for e in result.edges if e.source == PREFIX + "outer"}
+    # Legacy mode, kept for indexes built in it, still matches the one add of
+    # the project; with receiver resolution, its name alone links nothing.
+    assert ("method:pkg.calls.Accumulator.add" in linked) is not enable_v2

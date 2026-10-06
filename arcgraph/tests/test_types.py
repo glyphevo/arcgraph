@@ -40,8 +40,12 @@ def test_type_ref_analyzer_collects_annotation_constructor_and_provider_refs() -
             "        for repo_entry in repos:",
             "            repo_entry",
             "        selected = [entry for entry in repos]",
-            "        fallback = scope_refs.get('missing', {})",
-            "        ensured = scope_refs.setdefault('items', [])",
+            "        nested: dict[str, dict[str, object]] = {}",
+            "        groups: dict[str, list[str]] = {}",
+            "        fallback = nested.get('missing', {})",
+            "        ensured = groups.setdefault('items', [])",
+            "        untyped = scope_refs.get('missing', {})",
+            "        mismatched = groups.get('items', '')",
             "",
             "class ServiceContainer:",
             "    def get_memory_service(self) -> MemoryService:",
@@ -123,6 +127,10 @@ def test_type_ref_analyzer_collects_annotation_constructor_and_provider_refs() -
     assert method_refs["fallback"][0]["type_id"] == "builtin:dict"
     assert method_refs["ensured"][0]["strategy"] == "builtin_method_return"
     assert method_refs["ensured"][0]["type_id"] == "builtin:list"
+    # get and setdefault return the stored value or the default, so a dict of
+    # unknown value type, or a default of another type, types nothing.
+    assert "untyped" not in method_refs
+    assert "mismatched" not in method_refs
     assert bindings["repo"]["type_ref"] == "class:pkg.repository.MemoryRepository"
     assert bindings["self.repo"]["type_ref_strategy"] == (
         "instance_attribute_propagation"

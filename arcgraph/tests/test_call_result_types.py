@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import sys
 
 import pytest
 
+from arcgraph.analyzers.stdlib_functions import CAPITALISED_STDLIB_FUNCTIONS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHODS_BY_TYPE,
     FUNCTION_RETURN_TYPES,
@@ -25,6 +27,9 @@ from arcgraph.tests.test_path_receiver_types import _resolutions_by_function
 SOURCE = """import datetime
 import hashlib
 import json
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path, PosixPath, PurePosixPath
 from typing import Any, Optional
 
@@ -210,6 +215,22 @@ class Engine:
             ids, resolution = self._scope(None)
             return resolution.to_dict()
         return None
+
+
+def checked_text() -> None:
+    subprocess.check_output(["echo"], text=True).decode()
+
+
+def named_temp() -> None:
+    tempfile.NamedTemporaryFile().read()
+
+
+def sub_element(parent: ET.Element) -> None:
+    ET.SubElement(parent, "child").set("a", "b")
+
+
+def int_mkdir(count: int) -> None:
+    count.mkdir()
 
 
 def path_mkdir(path: Path) -> None:
@@ -426,3 +447,56 @@ def test_a_with_block_binds_unconditionally(resolutions):
         "in_with", set()
     )
     assert "method:lab.Resolution.to_dict" not in _targets(resolutions, "in_branch")
+
+
+def test_no_callee_types_a_value_it_does_not_return(resolutions):
+    # check_output returns str with text=True and bytes without, so it has no
+    # entry; NamedTemporaryFile and SubElement are functions capitalised like
+    # classes, so their calls do not construct themselves.
+    assert not any(
+        target.startswith("extsym:builtins.bytes.")
+        for target in _targets(resolutions, "checked_text")
+    )
+    for name, absent in (
+        ("named_temp", "extsym:tempfile.NamedTemporaryFile.read"),
+        ("sub_element", "extsym:xml.etree.ElementTree.SubElement.set"),
+    ):
+        assert absent not in _targets(resolutions, name), name
+    # An int has no mkdir, and no guess stands in for it.
+    assert not any(t.endswith(".mkdir") for t in _targets(resolutions, "int_mkdir"))
+
+
+def test_capitalised_stdlib_functions():
+    # Every name listed is a function on the interpreter that has it. Where the
+    # list was generated, macOS, every capitalised function of a listed module
+    # is listed too; os, ctypes and others differ by platform, so elsewhere a
+    # platform's own capitalised functions (ctypes.WINFUNCTYPE on Windows) are
+    # not checked, and modules not listed are not checked anywhere.
+    modules: dict[str, set[str]] = {}
+    for qualname in CAPITALISED_STDLIB_FUNCTIONS:
+        module_name, _, name = qualname.rpartition(".")
+        modules.setdefault(module_name, set()).add(name)
+    for module_name, names in modules.items():
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        for name in names:
+            value = getattr(module, name, None)
+            if value is not None:
+                assert callable(value) and not inspect.isclass(value), (
+                    module_name,
+                    name,
+                )
+        if sys.platform != "darwin":
+            continue
+        missing = sorted(
+            name
+            for name in dir(module)
+            if name[:1].isupper()
+            and callable(getattr(module, name))
+            and not inspect.isclass(getattr(module, name))
+            and getattr(getattr(module, name), "__module__", None) is not None
+            and name not in names
+        )
+        assert missing == [], module_name

@@ -53,6 +53,7 @@ from arcgraph.analyzers.calls.context import (
     _CallResolutionContext,
     _ResolvedCallTarget,
 )
+from arcgraph.analyzers.stdlib_functions import CAPITALISED_STDLIB_FUNCTIONS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHODS_BY_TYPE,
     LOWERCASE_STDLIB_CLASSES,
@@ -1485,7 +1486,9 @@ class CallAnalyzer:
         name = qualname.rsplit(".", 1)[-1]
         if qualname.startswith("builtins."):
             return isinstance(getattr(builtins, name, None), type)
-        return name[:1].isupper() or qualname in LOWERCASE_STDLIB_CLASSES
+        if name[:1].isupper():
+            return qualname not in CAPITALISED_STDLIB_FUNCTIONS
+        return qualname in LOWERCASE_STDLIB_CLASSES
 
     @staticmethod
     def _external_return_type_ref(target: Node) -> dict[str, Any] | None:
