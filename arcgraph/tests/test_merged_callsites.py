@@ -95,3 +95,61 @@ def test_the_callsites_query_resolves_every_call(index):
     ]
     # No record stands for a fact without a position of its own.
     assert all(item["line"] is not None for item in result["callsites"])
+
+
+ORDERED = """def use(db, conn):
+    db.commit()
+    conn.commit()
+    conn.commit()
+"""
+
+
+def _build(root: Path, text: str) -> Path:
+    package = root / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "store.py").write_text(text, encoding="utf-8")
+    output = root / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+    ).build()
+    return output
+
+
+def test_facts_follow_the_source_order(tmp_path):
+    edge = next(
+        edge
+        for edge in GraphStoreReader.from_current(
+            _build(tmp_path, ORDERED)
+        ).read_edges()
+        if edge.target == "protocol:pep249.Connection.commit"
+    )
+    facts = edge.properties["callsites"]
+    assert [(fact["call_expression"], fact["line"]) for fact in facts] == [
+        ("db.commit()", 2),
+        ("conn.commit()", 3),
+        ("conn.commit()", 4),
+    ]
+    # The edge's own callsite is the first call in the source, not the first
+    # by name.
+    assert edge.properties["callsite"]["call_expression"] == "db.commit()"
+
+
+def test_a_line_shift_changes_no_merged_edge(tmp_path):
+    from arcgraph.change.graph_delta import _edge_semantic_projection
+
+    def projections(root: Path, text: str) -> dict[tuple[str, str, str], dict]:
+        return {
+            (edge.source, edge.target, edge.kind): _edge_semantic_projection(edge)
+            for edge in GraphStoreReader.from_current(_build(root, text)).read_edges()
+            if edge.source == "fn:pkg.store.use"
+        }
+
+    before = projections(tmp_path / "before", SOURCE)
+    after = projections(tmp_path / "after", "\n\n\n" + SOURCE)
+    # Positions move, but no call changes meaning: change safety must report
+    # no semantic change for an edge that stands for several calls.
+    assert before.keys() == after.keys()
+    assert [key for key in before if before[key] != after[key]] == []

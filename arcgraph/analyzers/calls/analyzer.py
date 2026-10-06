@@ -3203,6 +3203,12 @@ class CallAnalyzer:
         self._set_optional(
             properties, "call_expression", callsite.get("call_expression")
         )
+        # Where the call is, which orders the calls a merged edge stands for
+        # as the source does.
+        self._set_optional(properties, "line", self._int_or_none(callsite.get("line")))
+        self._set_optional(
+            properties, "column", self._int_or_none(callsite.get("column"))
+        )
         self._set_optional(
             properties, "receiver_expression", resolved.receiver_expression
         )

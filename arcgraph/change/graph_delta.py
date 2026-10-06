@@ -1180,6 +1180,19 @@ def _edge_identity_projection(
     }
 
 
+# Fields of a call's fact derived from where the call is, which a line shift
+# changes and the call's meaning does not.
+_CALLSITE_POSITION_KEYS = frozenset({"callsite_id", "column", "line"})
+
+
+def _stable_callsite_fact(fact: Any) -> Any:
+    if not isinstance(fact, dict) or "stable_callsite_subject" not in fact:
+        return fact
+    return {
+        key: value for key, value in fact.items() if key not in _CALLSITE_POSITION_KEYS
+    }
+
+
 def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
     resolution = edge.resolution.model_dump(mode="json")
     properties = edge.properties
@@ -1188,11 +1201,13 @@ def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
         resolution = {
             key: value for key, value in resolution.items() if key != "callsite_id"
         }
+        properties = {**properties, "callsite": _stable_callsite_fact(callsite)}
+    facts = properties.get("callsites")
+    if isinstance(facts, list):
+        # Every call a merged edge stands for, as its first call is above.
         properties = {
             **properties,
-            "callsite": {
-                key: value for key, value in callsite.items() if key != "callsite_id"
-            },
+            "callsites": [_stable_callsite_fact(fact) for fact in facts],
         }
     return {
         "confidence": edge.confidence,
