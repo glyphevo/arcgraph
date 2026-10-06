@@ -878,6 +878,7 @@ class _TypeContext:
                 isinstance(node.value, ast.Name)
                 and node.value.id in {"self", "cls"}
                 and not local_types.get(node.value.id, {}).get("comprehension_binding")
+                and self._own_receiver(scope_node, node.value.id)
             ):
                 class_qualname = self._class_qualname_for_scope(scope_node)
                 if class_qualname:
@@ -1610,6 +1611,7 @@ class _TypeContext:
                 and scope_node is not None
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id in {"self", "cls"}
+                and self._own_receiver(scope_node, node.func.value.id)
             ):
                 # self.factory() returns what the class's factory is annotated
                 # to return, as the call analyzer reads the same call.
@@ -1921,6 +1923,14 @@ class _TypeContext:
         if len(candidates) == 1:
             return candidates[0]
         return None
+
+    def _own_receiver(self, scope_node: Node | None, name: str) -> bool:
+        """In a method, whether self or cls is still its own receiver, as the
+        call analyzer reads it; other scopes keep the name as before."""
+
+        if scope_node is None or scope_node.kind != "method":
+            return True
+        return self.lexical.own_receiver(scope_node, name)
 
     def _binding_decides(self, scope_node: Node, name: str) -> bool:
         """Whether the binding the root of ``name`` has in scope, rather than a

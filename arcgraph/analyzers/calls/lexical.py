@@ -24,6 +24,13 @@ _DEFINITION_KINDS = frozenset(
 )
 
 
+def _decorator_names(source: Node) -> set[str]:
+    return {
+        str(decorator).split("(", 1)[0].rsplit(".", 1)[-1]
+        for decorator in source.properties.get("decorators", [])
+    }
+
+
 class LexicalScopes:
     def __init__(
         self, nodes: list[Node], type_refs: dict[str, dict[str, dict[str, Any]]]
@@ -159,12 +166,8 @@ class LexicalScopes:
         ref = self.type_refs.get(owner.id, {}).get(name)
         if ref and (ref.get("type_id") or union_alternatives(ref) is not None):
             return ref
-        if owner.kind == "method" and name in {"self", "cls"} and owner.qualname:
-            decorators = owner.properties.get("decorators", [])
-            if (
-                "staticmethod" not in decorators
-                and bindings[0].get("kind") == "parameter"
-            ):
+        if owner.kind == "method" and owner.qualname:
+            if self.own_receiver(owner, name):
                 return {
                     "type_id": f"class:{owner.qualname.rsplit('.', 1)[0]}",
                     "strategy": "lexical_receiver",
@@ -228,6 +231,40 @@ class LexicalScopes:
             return False
         # An unknown local masks ancestors and same-name global/class heuristics.
         return self.type_ref(source, root) is None
+
+    def own_receiver(self, source: Node, name: str) -> bool:
+        """Whether ``name`` is still the receiver a method is called with:
+        self or cls as the first parameter of a method that is not static,
+        never rebound in its body. Elsewhere self and cls are only names."""
+
+        if source.kind != "method" or name not in {"self", "cls"}:
+            return False
+        if "staticmethod" in _decorator_names(source):
+            return False
+        bindings = self.bindings.get(source.id, {})
+        own = bindings.get(name, [])
+        if len(own) != 1 or own[0].get("kind") != "parameter":
+            return False
+        parameters = [
+            binding
+            for group in bindings.values()
+            for binding in group
+            if binding.get("kind") == "parameter"
+        ]
+        first = min(
+            parameters,
+            key=lambda binding: (binding.get("line", 0), binding.get("column", 0)),
+        )
+        return first is own[0]
+
+    def own_class_receiver(self, source: Node) -> bool:
+        """Whether cls is the class a class method is called with, so that
+        cls() constructs it."""
+
+        return self.own_receiver(source, "cls") and (
+            "classmethod" in _decorator_names(source)
+            or source.name in {"__init_subclass__", "__class_getitem__", "__new__"}
+        )
 
     def local_value(self, source: Node, name: str) -> bool:
         """Whether ``name`` is a local value of ``source``. A parameter, an

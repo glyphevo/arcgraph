@@ -295,3 +295,118 @@ def test_an_imported_function_still_resolves(elsewhere):
         "method:pkg.use.Config.load",
         "method:pkg.use.Config.value",
     } <= elsewhere["imported_called"]
+
+
+RECEIVERS = """class Other:
+    def build(self):
+        return 1
+
+
+class Box:
+    def __init__(self) -> None:
+        self.other = Other()
+
+    def build(self):
+        return 2
+
+    def make(self) -> Other:
+        return Other()
+
+    def instance_named_cls(cls):
+        # An instance method's first parameter is the instance, whatever its
+        # name; calling it is not constructing Box.
+        return cls()
+
+    @staticmethod
+    def static_made(self):
+        made = self.make()
+        made.build()
+
+    @staticmethod
+    def static_attribute(self):
+        other = self.other
+        other.build()
+
+    def cls_param(self, cls):
+        cls.build()
+
+    def cls_rebound(self):
+        cls = Other
+        cls.build()
+
+    def cls_called_param(self, cls):
+        return cls()
+
+    def cls_called_rebound(self):
+        cls = str
+        return cls()
+
+    @classmethod
+    def class_rebound(cls):
+        cls = str
+        return cls()
+
+    @staticmethod
+    def static_self(self):
+        self.build()
+
+    def self_rebound(self):
+        self = Other()
+        self.build()
+
+    @classmethod
+    def class_own(cls):
+        cls.build()
+        return cls()
+
+    def self_own(self):
+        self.build()
+"""
+
+
+@pytest.fixture(scope="module")
+def receivers(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, set[tuple[str, str]]]:
+    return _resolutions_by_function(tmp_path_factory.mktemp("receivers"), RECEIVERS)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "cls_param",
+        "cls_rebound",
+        "cls_called_param",
+        "cls_called_rebound",
+        "class_rebound",
+        "static_self",
+        "instance_named_cls",
+    ],
+)
+def test_self_or_cls_that_is_not_the_receiver_is_not_the_class(receivers, name):
+    # Only the first parameter of a method that is not static, never rebound,
+    # is the receiver; elsewhere self and cls are ordinary names.
+    assert not any(
+        target in {"class:lab.Box", "method:lab.Box.build"}
+        for target, _ in receivers.get(name, set())
+    ), sorted(receivers.get(name, set()))
+
+
+@pytest.mark.parametrize(
+    ("name", "target", "strategy"),
+    [
+        ("class_own", "method:lab.Box.build", "same_class_receiver"),
+        ("class_own", "class:lab.Box", "class_receiver_constructor"),
+        ("self_own", "method:lab.Box.build", "same_class_receiver"),
+        # A rebound self is read by its new value.
+        ("self_rebound", "method:lab.Other.build", "receiver_type"),
+    ],
+)
+def test_the_own_receiver_is_the_class(receivers, name, target, strategy):
+    assert (target, strategy) in receivers.get(name, set())
+
+
+@pytest.mark.parametrize("name", ["static_made", "static_attribute"])
+def test_a_value_through_a_static_self_has_no_class_type(receivers, name):
+    # The type analyzer reads self as the class only where it is the receiver.
+    assert "method:lab.Other.build" not in {t for t, _ in receivers.get(name, set())}

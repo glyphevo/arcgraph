@@ -58,6 +58,7 @@ from arcgraph.analyzers.stdlib_functions import CAPITALISED_STDLIB_FUNCTIONS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHODS_BY_TYPE,
     LOWERCASE_STDLIB_CLASSES,
+    NEVER_TYPE_ID,
     PATH_TYPE_IDS,
     function_return_type,
     mapping_default,
@@ -376,6 +377,13 @@ class CallAnalyzer:
                 source, str(callsite.get("name") or ""), context
             ):
                 return None
+            receiver = callsite.get("receiver")
+            if receiver in {"self", "cls"} and not self._own_receiver(
+                source, str(receiver), context
+            ):
+                # A self or cls that is not the method's own receiver is an
+                # ordinary name, which the fallback does not match by name.
+                return None
 
         target = self._resolve_target(
             source,
@@ -444,7 +452,11 @@ class CallAnalyzer:
                 )
 
             same_class = self._resolve_same_class_method(source, attribute, context)
-            if same_class is not None and receiver_expression in {"self", "cls"}:
+            if (
+                same_class is not None
+                and receiver_expression in {"self", "cls"}
+                and self._own_receiver(source, receiver_expression, context)
+            ):
                 return _ResolvedCallTarget(
                     target=same_class,
                     strategy="same_class_receiver",
@@ -788,7 +800,7 @@ class CallAnalyzer:
         *,
         callsite: dict[str, Any] | None = None,
     ) -> _ResolvedCallTarget | None:
-        if raw_name == "cls":
+        if raw_name == "cls" and context.lexical.own_class_receiver(source):
             class_target = self._class_constructor_target(source, context)
             if class_target is not None:
                 return _ResolvedCallTarget(
@@ -932,6 +944,7 @@ class CallAnalyzer:
                 scoped_root is None
                 and isinstance(node.value, ast.Name)
                 and node.value.id in {"self", "cls"}
+                and self._own_receiver(source, node.value.id, context)
             ):
                 class_qualname = self._class_qualname(source)
                 if class_qualname:
@@ -1174,6 +1187,14 @@ class CallAnalyzer:
         return propagated
 
     @staticmethod
+    def _own_receiver(source: Node, name: str, context: _CallResolutionContext) -> bool:
+        """In a method, whether self or cls is still its own receiver; outside
+        one, such as in a closure over a method's self, the name is left as
+        it was read before."""
+
+        return source.kind != "method" or context.lexical.own_receiver(source, name)
+
+    @staticmethod
     def _hidden_by_local_value(
         source: Node, root: str | None, context: _CallResolutionContext
     ) -> bool:
@@ -1226,7 +1247,10 @@ class CallAnalyzer:
             receiver_expression = self._unparse(node.func.value)
             # The same rules as a call at the top of an expression, so that
             # self.factory().method() reads the factory's return type.
-            if receiver_expression in {"self", "cls"}:
+            if receiver_expression in {
+                "self",
+                "cls",
+            } and self._own_receiver(source, receiver_expression, context):
                 same_class = self._resolve_same_class_method(
                     source, node.func.attr, context
                 )
@@ -1948,6 +1972,9 @@ class CallAnalyzer:
         type_id = self._type_id(receiver_type)
         if type_id is None:
             return False
+        if type_id == NEVER_TYPE_ID:
+            # A call that always raises gives no value to call a method on.
+            return True
         if type_id.startswith("builtin:"):
             known = BUILTIN_METHODS_BY_TYPE.get(type_id.removeprefix("builtin:"))
         else:
@@ -3434,20 +3461,10 @@ class CallAnalyzer:
         """The class whose order ``super(C, obj)`` follows: the method's class
         for its own self or cls, otherwise the known class of obj."""
 
-        if (
-            isinstance(instance, ast.Name)
-            and instance.id in {"self", "cls"}
-            and source.kind == "method"
-            and "staticmethod" not in source.properties.get("decorators", [])
+        if isinstance(instance, ast.Name) and context.lexical.own_receiver(
+            source, instance.id
         ):
-            found = context.lexical.lookup(source, instance.id)
-            if (
-                found is not None
-                and found[0].id == source.id
-                and context.lexical.stable(*found)
-                and found[1][0].get("kind") == "parameter"
-            ):
-                return context.by_qualname.get(self._class_qualname(source) or "")
+            return context.by_qualname.get(self._class_qualname(source) or "")
         type_id = self._type_id(self._receiver_type_ref_node(source, instance, context))
         return context.by_id.get(type_id or "")
 

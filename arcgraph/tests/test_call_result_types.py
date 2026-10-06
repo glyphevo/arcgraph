@@ -362,8 +362,13 @@ def output_text(kw: dict) -> None:
 def output_unknown(flag: bool, kw: dict) -> None:
     subprocess.check_output(["echo"], text=flag).upper()
     subprocess.check_output(["echo"], **kw).upper()
+
+
+def output_raises() -> None:
+    subprocess.check_output(["echo"], text=False, universal_newlines=True).upper()
     out = subprocess.check_output(["echo"], text=False, universal_newlines=True)
     out.upper()
+    subprocess.check_output(["echo"], -1, None, None, None).decode()
 
 
 def output_assigned() -> None:
@@ -717,6 +722,11 @@ def test_check_output_types_by_text_mode_or_not_at_all(resolutions):
         assert not any(
             strategy in typed for _, strategy in resolutions.get(name, set())
         ), (name, sorted(resolutions.get(name, set())))
+    # A call that always raises gives no value: the next call is neither typed
+    # nor guessed from its name.
+    assert {t for t, _ in resolutions.get("output_raises", set())} == {
+        "extsym:subprocess.check_output"
+    }
 
 
 @pytest.mark.parametrize(
@@ -740,10 +750,10 @@ def test_check_output_types_by_text_mode_or_not_at_all(resolutions):
         ("f(*args)", "builtin:bytes"),
         ("f(*args, text=True)", "builtin:str"),
         # A fifth positional argument is stdout, which check_output sets.
-        ('f(["a"], -1, None, None, None)', None),
+        ('f(["a"], -1, None, None, None)', "typing:NoReturn"),
         # text and universal_newlines that differ raise SubprocessError.
-        ('f(["a"], text=False, universal_newlines=True)', None),
-        ('f(["a"], text=1, universal_newlines="")', None),
+        ('f(["a"], text=False, universal_newlines=True)', "typing:NoReturn"),
+        ('f(["a"], text=1, universal_newlines="")', "typing:NoReturn"),
         ('f(["a"], text=True, universal_newlines=1)', "builtin:str"),
         ('f(["a"], text=None, universal_newlines=True)', "builtin:str"),
         ('f(["a"], text=flag, encoding="utf-8")', "builtin:str"),
@@ -893,7 +903,8 @@ def test_check_output_positionals_and_conflicts_match_the_runtime(
     if raised is not None:
         with pytest.raises(raised):
             subprocess.check_output(command, *positional, **keywords)
-        assert returned is None
+        assert returned is not None
+        assert returned["type_id"] == "typing:NoReturn"
     else:
         value = subprocess.check_output(command, *positional, **keywords)
         assert returned is not None

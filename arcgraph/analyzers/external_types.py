@@ -551,9 +551,14 @@ def function_return_type(qualname: str, call: ast.Call) -> dict[str, Any] | None
 _TEXT_MODE_KEYWORDS = frozenset({"encoding", "errors", "text", "universal_newlines"})
 
 
+# The type of a call that always raises: it gives no value, so no method is
+# called on one. Annotations name it typing.NoReturn too.
+NEVER_TYPE_ID = "typing:NoReturn"
+
+
 def _check_output_return(call: ast.Call) -> str | None:
-    """str or bytes by the call's text-mode keywords, or None if unknown or
-    if the call gives no value.
+    """str or bytes by the call's text-mode keywords, NEVER_TYPE_ID if the call
+    always raises, or None if unknown.
 
     Only constant keyword values are read; a non-constant value or a ``**``
     argument leaves the type unknown unless a constant already makes it str.
@@ -564,7 +569,7 @@ def _check_output_return(call: ast.Call) -> str | None:
     """
 
     if sum(not isinstance(a, ast.Starred) for a in call.args) >= 5:
-        return None
+        return NEVER_TYPE_ID
     truths: list[bool | None] = []
     flags: dict[str, object] = {}
     for keyword in call.keywords:
@@ -583,7 +588,7 @@ def _check_output_return(call: ast.Call) -> str | None:
         and universal_newlines is not None
         and bool(text) != bool(universal_newlines)
     ):
-        return None
+        return NEVER_TYPE_ID
     if True in truths:
         return "builtin:str"
     if None in truths:
