@@ -125,13 +125,36 @@ def test_builtin_functions_resolve_and_local_shadow_stays_unknown(name):
     assert resolved[0].resolution.strategy == "builtin_function"
 
 
-def test_module_definition_shadows_a_builtin():
-    nodes = _analyzed_nodes(
-        "def format(value):\n    return value\n" "def outer():\n    return format(1)\n"
-    )
-    result = CallAnalyzer(enable_v2=True).analyze(nodes)
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        (
+            "def format(value):\n    return value\n"
+            "def outer():\n    return format(1)\n",
+            PREFIX + "format",
+        ),
+        (
+            "def outer():\n    def format(value):\n        return value\n"
+            "    return format(1)\n",
+            PREFIX + "outer.format",
+        ),
+        (
+            "from os.path import join as format\n"
+            "def outer():\n    return format(1)\n",
+            "extsym:os.path.join",
+        ),
+        (
+            "def outer():\n    from os.path import join as format\n"
+            "    return format(1)\n",
+            "extsym:os.path.join",
+        ),
+    ],
+    ids=["module_def", "local_def", "module_import", "local_import"],
+)
+def test_definition_or_import_shadows_a_builtin(source, target):
+    result = CallAnalyzer(enable_v2=True).analyze(_analyzed_nodes(source))
     calls = [e for e in result.edges if e.source == PREFIX + "outer"]
-    assert [e.target for e in calls] == [PREFIX + "format"]
+    assert [e.target for e in calls] == [target]
 
 
 def test_builtin_calls_cover_every_public_builtin():
