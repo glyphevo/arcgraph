@@ -118,6 +118,33 @@ def maybe_paths() -> Optional[list[Path]]:
 def reassigned_parent(items: Optional[list[Path]]) -> None:
     items = maybe_paths()
     items[0].parent.is_symlink()
+
+
+def pair(tmp_path: Path) -> tuple[Path, Path]:
+    return tmp_path, tmp_path
+
+
+def rebound_pair(tmp_path: Path) -> None:
+    repo, other = pair(tmp_path)
+    repo, other = pair(tmp_path)
+    repo.is_symlink()
+    (repo / "a").chmod(0o700)
+    repo.parent.mkdir()
+
+
+def reassigned_join(items: Optional[list[Path]]) -> None:
+    items = maybe_paths()
+    (items[0] / "a").is_symlink()
+
+
+def reassigned_reversed_join(items: Optional[list[Path]]) -> None:
+    items = maybe_paths()
+    ("a" / items[0]).is_symlink()
+
+
+def reassigned_joined_parent(items: Optional[list[Path]]) -> None:
+    items = maybe_paths()
+    ("a" / items[0]).parent.is_symlink()
 """
 
 
@@ -210,6 +237,13 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
     assert ("extsym:pathlib.Path.is_symlink", "external_receiver_type") in (
         resolutions.get("nested_scope", set())
     )
+    # A parent or a join of an available value is available where the value
+    # is, even after the name was bound again.
+    assert {
+        ("extsym:pathlib.Path.is_symlink", "external_receiver_type"),
+        ("extsym:pathlib.Path.chmod", "external_receiver_type"),
+        ("extsym:pathlib.Path.mkdir", "external_receiver_type"),
+    } <= resolutions.get("rebound_pair", set())
 
     # An int dividend does not make a path, nor does an int divided by a path,
     # and a union does not say which member's parent is taken.
@@ -229,12 +263,19 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         or target.startswith("extsym:pathlib.Path.resolve.")
         for target, _ in resolutions.get("optional_resolved", set())
     )
-    # A parent keeps its receiver's evidence barrier, under which
-    # items[0].is_symlink() is not linked after this reassignment either.
-    assert not any(
-        target.startswith("extsym:pathlib.")
-        for target, _ in resolutions.get("reassigned_parent", set())
-    )
+    # A parent and a join, on either side, keep the evidence barrier of the
+    # path they come from, under which items[0].is_symlink() is not linked
+    # after this reassignment either.
+    for name in (
+        "reassigned_parent",
+        "reassigned_join",
+        "reassigned_reversed_join",
+        "reassigned_joined_parent",
+    ):
+        assert not any(
+            target.startswith("extsym:pathlib.")
+            for target, _ in resolutions.get(name, set())
+        ), name
 
 
 # Each case joins ``root: Path`` with a segment and calls is_symlink on the
@@ -314,6 +355,10 @@ SEGMENT_CASES = {
     "str_or_none": ("", '"x" or None', True),
     # A value that is always truthy decides ``or`` however it was computed.
     "concatenation_or": ("", '("a" + "b") or 1', True),
+    "not_or": ("", '(not 1) or "x"', True),
+    "negated_zero_or": ("", '(-0) or "x"', True),
+    "inverted_zero_or": ("", '(~0) or "x"', False),
+    "negative_repetition_or": ("", '("a" * -2) or 1', False),
     "repetition_or": ("", '("a" * 2) or 1', True),
     "empty_repetition_or": ("", '("a" * 0) or 1', False),
     "f_string_or": ("", 'f"a" or 1', True),
@@ -348,6 +393,17 @@ SEGMENT_CASES = {
     "comparison_times_str": (", name: str", '"a" * (name == "b")', True),
     "not_times_str": (", flag: bool", '"a" * (not flag)', True),
     "true_division_times_str": (", count: int", '"a" * (count / 2)', False),
+    "floor_division_times_str": (", count: int", '"a" * (count // 2)', True),
+    "modulo_times_str": (", count: int", '"a" * (count % 3)', True),
+    "left_shift_times_str": (", count: int", '"a" * (1 << count)', True),
+    "right_shift_times_str": (", count: int", '"a" * (count >> 1)', True),
+    "bit_and_times_str": (", count: int", '"a" * (count & 3)', True),
+    "bit_or_times_str": (", count: int", '"a" * (count | 1)', True),
+    "bit_xor_times_str": (", count: int", '"a" * (count ^ 1)', True),
+    "power_times_str": (", count: int", '"a" * (count ** 2)', True),
+    "negative_power_times_str": (", count: int", '"a" * (count ** -1)', False),
+    "zero_floor_division_times_str": (", count: int", '"a" * (count // 0)', False),
+    "zero_modulo_times_str": (", count: int", '"a" * (count % 0)', False),
     "float_times_str": ("", '"a" * 1.5', False),
     "float_name_times_str": (", ratio: float", '"a" * ratio', False),
     "list_times_str": ("", '"a" * [1]', False),

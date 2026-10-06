@@ -546,7 +546,15 @@ class CallAnalyzer:
         if union_alternatives(ref) is not None or (
             ref and ref.get("typed_value_evidence")
         ):
-            root = context.lexical.root_name(receiver)
+            # A path join takes its value, and its evidence, from one operand,
+            # so that operand's binding decides whether the value is available.
+            value_root = self._value_root_expression(source, receiver, context)
+            barrier_callsite = (
+                callsite
+                if value_root == receiver
+                else {**callsite, "call_expression": value_root}
+            )
+            root = context.lexical.root_name(value_root)
             found = context.lexical.lookup(source, root) if root else None
             root_ref = context.scope_type_refs.get(source.id, {}).get(root or "")
             annotated_union = union_alternatives(root_ref) is not None and bool(
@@ -572,7 +580,7 @@ class CallAnalyzer:
                 or bool(ref and ref.get("comprehension_binding"))
                 or not context.lexical.blocked(
                     source,
-                    callsite,
+                    barrier_callsite,
                     require_stable=annotated_union
                     or bool(ref and ref.get("typed_value_evidence")),
                 )
@@ -585,6 +593,35 @@ class CallAnalyzer:
             # Do not re-enter class-name, boundary, config or legacy guesses.
             return self._generated_dynamic_target(source, callsite, context)
         return None
+
+    def _value_root_expression(
+        self,
+        source: Node,
+        receiver: str,
+        context: _CallResolutionContext,
+    ) -> str:
+        """The part of ``receiver`` its value comes from, past path joins.
+
+        ``(base / segment).parent`` and ``segment / base`` take their value from
+        ``base``, the operand the join was typed from, as ``_receiver_type_ref_node``
+        types it: the left operand when it is a path, otherwise the right one.
+        """
+
+        try:
+            node = ast.parse(receiver, mode="eval").body
+        except SyntaxError:
+            return receiver
+        changed = False
+        while True:
+            inner = node
+            while isinstance(inner, (ast.Call, ast.Attribute, ast.Subscript)):
+                inner = inner.func if isinstance(inner, ast.Call) else inner.value
+            if not (isinstance(inner, ast.BinOp) and isinstance(inner.op, ast.Div)):
+                break
+            left = self._receiver_type_ref_node(source, inner.left, context)
+            node = inner.left if self._type_id(left) in PATH_TYPE_IDS else inner.right
+            changed = True
+        return self._unparse(node) if changed else receiver
 
     def _typed_receiver_target(
         self,
@@ -954,11 +991,14 @@ class CallAnalyzer:
             "type_expression": type_id.removeprefix("extsym:"),
             "strategy": strategy,
         }
-        # A derived value keeps its receiver's evidence, as a subscript does.
+        # A derived value keeps its receiver's evidence, as a subscript does,
+        # and is available exactly where the receiver's binding is, since it
+        # is computed from that value alone.
         if receiver.get("typed_value_evidence"):
             derived["typed_value_evidence"] = True
-        if isinstance(receiver.get("type_ref_id"), str):
-            derived["type_ref_id"] = receiver["type_ref_id"]
+        for key in ("type_ref_id", "binding_id"):
+            if isinstance(receiver.get(key), str):
+                derived[key] = receiver[key]
         return derived
 
     @staticmethod

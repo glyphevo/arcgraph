@@ -66,10 +66,11 @@ _Value = tuple[str, str]
 _SEGMENT_KINDS = frozenset({"str", "path", "unknown"})
 _UNKNOWN: frozenset[_Value] = frozenset({("unknown", "either")})
 _BOOL: frozenset[_Value] = frozenset({("int", "either")})
+_OTHER: _Value = ("other", "either")
 # Comprehensions are never a str or a path.
 _COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 # Operators that keep two ints an int; true division gives a float, and a
-# power with a negative exponent does too.
+# power keeps an int only with a non-negative exponent (see _binary_value).
 _INT_OPERATORS = (
     ast.Add,
     ast.Sub,
@@ -121,12 +122,17 @@ def _values(
     if isinstance(node, ast.Compare):
         return _BOOL
     if isinstance(node, ast.UnaryOp):
-        if isinstance(node.op, ast.Not):
-            return _BOOL
-        # -x, +x and ~x keep an int an int; no str or path supports them.
         operand = _values(node.operand, resolve)
+        if isinstance(node.op, ast.Not):
+            # A bool of the opposite truth.
+            inverted = {"true": "false", "false": "true", "either": "either"}
+            return frozenset(("int", inverted[truth]) for _, truth in operand)
+        # -x, +x and ~x keep an int an int, and -x and +x keep its truth; no
+        # str or path supports them.
+        keeps_truth = isinstance(node.op, (ast.USub, ast.UAdd))
         return frozenset(
-            ("int" if kind == "int" else "other", "either") for kind, _ in operand
+            ("int", truth if keeps_truth else "either") if kind == "int" else _OTHER
+            for kind, truth in operand
         )
     if isinstance(node, ast.NamedExpr):
         return _values(node.value, resolve)
@@ -278,6 +284,14 @@ def _binary_values(
 
 def _binary_value(node: ast.BinOp, left: _Value, right: _Value) -> _Value:
     kind = _binary_kind(node.op, left[0], right[0])
+    if left[0] == right[0] == "int":
+        divisor = _int_literal(node.right)
+        if isinstance(node.op, ast.Pow) and divisor is not None and divisor >= 0:
+            # A non-negative literal exponent keeps an int an int.
+            kind = "int"
+        elif isinstance(node.op, (ast.FloorDiv, ast.Mod)) and divisor == 0:
+            # ZeroDivisionError.
+            kind = "other"
     if kind == "path":
         return kind, "true"
     if kind == "str" and isinstance(node.op, ast.Add) and "true" in {left[1], right[1]}:
@@ -291,11 +305,21 @@ def _binary_value(node: ast.BinOp, left: _Value, right: _Value) -> _Value:
 
 
 def _positive_int_literal(node: ast.expr) -> bool:
-    return (
-        isinstance(node, ast.Constant)
-        and isinstance(node.value, int)
-        and node.value > 0
-    )
+    value = _int_literal(node)
+    return value is not None and value > 0
+
+
+def _int_literal(node: ast.expr) -> int | None:
+    """The value of an int or bool literal, with a literal sign."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        value = _int_literal(node.operand)
+        if value is None:
+            return None
+        return -value if isinstance(node.op, ast.USub) else value
+    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+        return int(node.value)
+    return None
 
 
 def _binary_kind(op: ast.operator, left: str, right: str) -> str:
