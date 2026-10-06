@@ -62,6 +62,7 @@ from arcgraph.analyzers.calls.context import (
     CallAnalysis,
     _CallResolutionContext,
     _ResolvedCallTarget,
+    binding_in_effect,
 )
 from arcgraph.analyzers.stdlib_functions import CAPITALISED_STDLIB_FUNCTIONS
 from arcgraph.analyzers.external_types import (
@@ -1881,15 +1882,24 @@ class CallAnalyzer:
         if (
             position is not None
             and position[0] == source.id
-            and isinstance(matches[0].get("line"), int)
-            and matches[0]["line"] >= position[1]
+            and not binding_in_effect(matches[0], position)
         ):
-            # Before its assignment the name is not yet the alias.
+            # Before its assignment ends the name is not yet the alias.
             return None
         parsed = self._parse_expression(value)
         if isinstance(parsed, ast.Name):
             # helper = str: the name it is bound to, read as a bare call is,
-            # unless that name is itself a local value of this scope.
+            # unless that name is itself a local value of this scope; a class
+            # method's own cls is its class, as cls() is.
+            if parsed.id == "cls" and context.lexical.own_class_receiver(source):
+                class_target = self._class_constructor_target(source, context)
+                if class_target is None:
+                    return None
+                return _ResolvedCallTarget(
+                    target=class_target,
+                    strategy="local_callable_alias",
+                    candidate_count=1,
+                )
             if self._called_local_value(source, parsed.id, context):
                 return None
             named = self._resolve_name_target(source, parsed.id, context)

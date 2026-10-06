@@ -505,3 +505,85 @@ def test_a_call_before_a_binding_is_not_read_by_it(order, name):
 )
 def test_a_call_after_a_binding_is_read_by_it(order, name, target, strategy):
     assert (target, strategy) in order.get(name, set())
+
+
+SAME_LINE = """class Other:
+    def send(self):
+        return 1
+
+
+def helper():
+    return 1
+
+
+class Box:
+    def build(self) -> Other:
+        return Other()
+
+    def self_same_line(self):
+        self = Other(); self.send()
+
+    @classmethod
+    def cls_same_line(cls):
+        cls = str; return cls()
+
+    @classmethod
+    def cls_alias(cls):
+        make = cls
+        return make()
+
+
+def param_same_line(c):
+    c = Other(); c.send()
+
+
+def call_then_bind(c):
+    c.send(); c = Other()
+
+
+def alias_same_line():
+    run = helper; run()
+
+
+def inside_its_assignment(x: Box):
+    # x.build() runs before x is rebound, on the Box passed in.
+    x = x.build()
+"""
+
+
+@pytest.fixture(scope="module")
+def same_line(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, set[tuple[str, str]]]:
+    return _resolutions_by_function(tmp_path_factory.mktemp("same_line"), SAME_LINE)
+
+
+@pytest.mark.parametrize(
+    ("name", "target", "strategy"),
+    [
+        # A binding holds from the end of its statement, so later on its own
+        # line the call sees it, even over a parameter of that name.
+        ("self_same_line", "method:lab.Other.send", "receiver_type"),
+        ("param_same_line", "method:lab.Other.send", "receiver_type"),
+        ("cls_same_line", "extsym:builtins.str", "local_callable_alias"),
+        ("alias_same_line", "fn:lab.helper", "local_callable_alias"),
+        ("inside_its_assignment", "method:lab.Box.build", "receiver_type"),
+        # A class method's own cls, aliased, is still its class.
+        ("cls_alias", "class:lab.Box", "local_callable_alias"),
+    ],
+)
+def test_a_binding_holds_from_the_end_of_its_statement(
+    same_line, name, target, strategy
+):
+    assert (target, strategy) in same_line.get(name, set()), sorted(
+        same_line.get(name, set())
+    )
+
+
+def test_a_call_before_a_binding_on_its_line_is_not_read_by_it(same_line):
+    assert "method:lab.Other.send" not in {
+        target for target, _ in same_line.get("call_then_bind", set())
+    }
+    assert "method:lab.Other.build" not in {
+        target for target, _ in same_line.get("inside_its_assignment", set())
+    }

@@ -669,6 +669,13 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self._set_optional(record, "annotation", annotation)
         if value_region:
             record["value_region"] = value_region
+        if kind in {"assignment", "annotated_assignment"} and isinstance(
+            getattr(node, "end_col_offset", None), int
+        ):
+            # Where the statement ends: a call later on its line, as in
+            # c = Other(); c.send(), sees the new value, while one inside it,
+            # as in x = x.strip(), still sees the old.
+            record["statement_end"] = [node.end_lineno, node.end_col_offset]
         if unpack_path:
             record["unpack_path"] = unpack_path
         if static_only or self.static_only:

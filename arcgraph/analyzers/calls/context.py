@@ -38,6 +38,24 @@ def _by_name(nodes: list[Node]) -> dict[str, list[Node]]:
     return by_name
 
 
+def binding_in_effect(
+    binding: dict[str, Any], position: tuple[str, int, int] | None
+) -> bool:
+    """Whether ``binding`` holds at a call at ``position``: a parameter always,
+    an assignment once its statement has ended, another binding on an
+    earlier line."""
+
+    if binding.get("kind") == "parameter":
+        return True
+    if position is None:
+        return True
+    _, line, column = position
+    end = binding.get("statement_end")
+    if isinstance(end, list) and len(end) == 2:
+        return (int(end[0]), int(end[1])) <= (line, column)
+    return int(binding.get("line") or 0) < line
+
+
 class _CallResolutionContext:
     def __init__(self, nodes: list[Node]) -> None:
         self.callsite_position: tuple[str, int, int] | None = None
@@ -98,15 +116,17 @@ class _CallResolutionContext:
             for b in recorded_bindings
             if b.get("name") == name
             and b.get("kind") != "comprehension_target"
-            and (b.get("line", 0) < line or b.get("kind") == "parameter")
+            and binding_in_effect(b, self.callsite_position)
         ]
         if not bindings:
             if any(
-                b.get("name") == name and b.get("line") == line
+                b.get("name") == name
+                and b.get("line") == line
+                and "statement_end" not in b
                 for b in recorded_bindings
             ):
-                # Bound on the call's own line, as in c = Client(); c.send(),
-                # whose order there the line alone does not settle.
+                # Bound on the call's own line by a statement whose end is not
+                # recorded, so the line alone does not settle the order.
                 return fallback
             return unknown_union_result(name)
         latest: dict[str, Any] = max(
