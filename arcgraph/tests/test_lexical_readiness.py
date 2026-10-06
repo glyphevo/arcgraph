@@ -125,11 +125,22 @@ def test_builtin_functions_resolve_and_local_shadow_stays_unknown(name):
     assert resolved[0].resolution.strategy == "builtin_function"
 
 
+def test_module_definition_shadows_a_builtin():
+    nodes = _analyzed_nodes(
+        "def format(value):\n    return value\n" "def outer():\n    return format(1)\n"
+    )
+    result = CallAnalyzer(enable_v2=True).analyze(nodes)
+    calls = [e for e in result.edges if e.source == PREFIX + "outer"]
+    assert [e.target for e in calls] == [PREFIX + "format"]
+
+
 def test_builtin_calls_cover_every_public_builtin():
+    # It cannot see a name the list has and the interpreter lacks, nor an
+    # interpreter version it does not run on.
     missing = sorted(
         name
         for name in dir(builtins)
-        if not name.startswith("_")
+        if (not name.startswith("_") or name == "__import__")
         and callable(getattr(builtins, name))
         and name not in BUILTIN_CALLS
     )
