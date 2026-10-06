@@ -1327,41 +1327,20 @@ class CallAnalyzer:
         *,
         skip_own: bool = False,
     ) -> Node | None:
-        """The method a class inherits through its single base chain; with
-        ``skip_own``, the one ``super()`` reaches past the class's own."""
+        """The method a class inherits, in the order of its method resolution
+        order; with ``skip_own``, the one ``super()`` reaches past the class's
+        own. A base that is not a project class, such as object or an external
+        class, has methods unknown here, so the search stops there."""
 
-        current = context.by_id.get(self._type_id(ref) or "")
-        seen: set[str] = set()
-        while (
-            current is not None and current.kind == "class" and current.id not in seen
-        ):
-            own = skip_own and not seen
-            seen.add(current.id)
-            class_bindings: list[dict[str, Any]] = current.properties.get(
-                "bindings", []
-            )
-            if not own and any(b.get("name") == method for b in class_bindings):
-                return None
-            bases: list[str] = current.properties.get("bases", [])
-            if len(bases) != 1:
-                return None
-            base = bases[0]
-            module = context.lexical.modules.get(current.path)
-            found = (
-                context.lexical.lookup(module, base.split(".")[0]) if module else None
-            )
-            if not found or not context.lexical.stable(*found):
-                return None
-            binding: dict[str, Any] = found[1][0]
-            if binding.get("kind") == "class_definition":
-                if "." in base:
-                    return None
-                target = str(binding.get("target", ""))
-            elif binding.get("kind") == "import_alias":
-                qualified = ".".join(
-                    [str(binding.get("target_qualname", "")), *base.split(".")[1:]]
-                )
-                if qualified == "pydantic.BaseModel" and method in {
+        start = context.by_id.get(self._type_id(ref) or "")
+        if start is None or start.kind != "class":
+            return None
+        order = self._method_resolution_order(start, context, ())
+        if order is None:
+            return None
+        for position, entry in enumerate(order):
+            if isinstance(entry, str):
+                if entry == "pydantic.BaseModel" and method in {
                     "model_dump",
                     "model_dump_json",
                 }:
@@ -1370,23 +1349,130 @@ class CallAnalyzer:
                         name=method,
                         source="inherited_receiver_type",
                     )
-                target = (
-                    exported_class(qualified, context.lexical.nodes)
-                    or f"class:{qualified}"
-                )
-            else:
                 return None
-            current = context.by_id.get(target)
-            if current is not None:
+            if position == 0 and skip_own:
+                continue
+            if position:
                 candidate = self._method_target_from_type(
-                    {"type_id": current.id}, method, context
+                    {"type_id": entry.id}, method, context
                 )
                 if candidate is not None and not any(
                     str(d).split("(", 1)[0] in {"property", "cached_property"}
                     for d in candidate.properties.get("decorators", [])
                 ):
                     return candidate
+            class_bindings: list[dict[str, Any]] = entry.properties.get("bindings", [])
+            if any(b.get("name") == method for b in class_bindings):
+                return None
         return None
+
+    def _method_resolution_order(
+        self,
+        class_node: Node,
+        context: _CallResolutionContext,
+        visiting: tuple[str, ...],
+    ) -> list[Node | str] | None:
+        """The C3 linearization of a project class, or None if a base may be
+        a project class not settled here, or the bases admit no order.
+
+        A class outside the project stands for itself alone. Its own bases
+        are outside the project too, so leaving them out cannot move a project
+        class ahead of it; at most a class outside the project comes earlier,
+        and the search stops there with no target."""
+
+        if class_node.id in visiting:
+            return None
+        cached = context.method_resolution_orders.get(class_node.id, False)
+        if cached is not False:
+            return cached
+        bases: list[Node | str] = []
+        for base in class_node.properties.get("bases", []):
+            resolved = self._base_class(class_node, str(base), context)
+            if resolved is None:
+                context.method_resolution_orders[class_node.id] = None
+                return None
+            bases.append(resolved)
+        sequences: list[list[Node | str]] = []
+        for base_entry in bases:
+            if isinstance(base_entry, str):
+                sequences.append([base_entry])
+                continue
+            inherited = self._method_resolution_order(
+                base_entry, context, (*visiting, class_node.id)
+            )
+            if inherited is None:
+                context.method_resolution_orders[class_node.id] = None
+                return None
+            sequences.append(list(inherited))
+        sequences.append(list(bases))
+        order: list[Node | str] | None = [class_node]
+        key = self._resolution_order_key
+        while order is not None and any(sequences):
+            sequences = [sequence for sequence in sequences if sequence]
+            tails = {key(entry) for sequence in sequences for entry in sequence[1:]}
+            head = next(
+                (
+                    sequence[0]
+                    for sequence in sequences
+                    if key(sequence[0]) not in tails
+                ),
+                None,
+            )
+            if head is None:
+                order = None
+                break
+            order.append(head)
+            sequences = [
+                sequence[1:] if key(sequence[0]) == key(head) else sequence
+                for sequence in sequences
+            ]
+        context.method_resolution_orders[class_node.id] = order
+        return order
+
+    @staticmethod
+    def _resolution_order_key(entry: Node | str) -> str:
+        return entry if isinstance(entry, str) else entry.id
+
+    def _base_class(
+        self, class_node: Node, base: str, context: _CallResolutionContext
+    ) -> Node | str | None:
+        """A base as the project class it names, or as the name of a class
+        outside the project (a builtin such as object, or an import from
+        outside); None if it may name a project class not settled here."""
+
+        module = context.lexical.modules.get(class_node.path)
+        if module is None:
+            return None
+        # Generic[T] and Base[int] are their classes.
+        base = base.split("[", 1)[0].strip()
+        found = context.lexical.lookup(module, base.split(".")[0])
+        if not found:
+            # Not bound in the module, so a builtin, unless a star import may
+            # have brought it.
+            if "." in base or module.qualname in context.star_import_modules:
+                return None
+            return "builtins." + base
+        if not context.lexical.stable(*found):
+            return None
+        binding: dict[str, Any] = found[1][0]
+        if binding.get("kind") == "class_definition":
+            if "." in base:
+                return None
+            target = context.by_id.get(str(binding.get("target", "")))
+        elif binding.get("kind") == "import_alias":
+            qualified = ".".join(
+                [str(binding.get("target_qualname", "")), *base.split(".")[1:]]
+            )
+            target = context.by_id.get(
+                exported_class(qualified, context.lexical.nodes) or f"class:{qualified}"
+            )
+            if target is None:
+                return qualified
+        else:
+            return None
+        if target is None or target.kind != "class":
+            return None
+        return target
 
     def _method_target_from_type(
         self,

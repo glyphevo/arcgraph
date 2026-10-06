@@ -74,6 +74,8 @@ class _CallResolutionContext:
             )
         }
         self.lexical = LexicalScopes(nodes, self.scope_type_refs)
+        # Each project class's method resolution order, once computed.
+        self.method_resolution_orders: dict[str, list[Any] | None] = {}
 
     def type_ref_at(self, source: Node, name: str) -> dict[str, Any] | None:
         fallback = self.scope_type_refs.get(source.id, {}).get(name)

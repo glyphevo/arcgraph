@@ -56,6 +56,11 @@ def analyze(tmp_path: Path, source: str) -> FrontendGraphFragment:
             "extsym:pydantic.BaseModel.model_dump_json",
         ),
         (
+            # Model, Other, BaseModel: Other has no model_dump.
+            "from pydantic import BaseModel\nclass Other: pass\nclass Model(Other, BaseModel): pass\ndef use(value: Model | None):\n    return value.model_dump()\n",
+            "extsym:pydantic.BaseModel.model_dump",
+        ),
+        (
             "class Parent:\n    def fetch(self): ...\nclass Model(Parent): pass\ndef use(value: Model | None):\n    if value is not None:\n        return value.fetch()\n",
             "method:sample.Parent.fetch",
         ),
@@ -81,7 +86,8 @@ def test_nullable_operations_have_value_evidence(
         'def use(payload=None):\n    payload = payload or {}\n    return payload.get("key")\n',
         "from pydantic import BaseModel\nclass Model(BaseModel):\n    model_dump = None\ndef use(value: Model | None):\n    return value.model_dump()\n",
         "from external import BaseModel\nclass Model(BaseModel): pass\ndef use(value: Model | None):\n    return value.model_dump()\n",
-        "from pydantic import BaseModel\nclass Other: pass\nclass Model(Other, BaseModel): pass\ndef use(value: Model | None):\n    return value.model_dump()\n",
+        # An external mixin, whose methods are unknown, comes before BaseModel.
+        "from pydantic import BaseModel\nfrom external import Mixin\nclass Model(Mixin, BaseModel): pass\ndef use(value: Model | None):\n    return value.model_dump()\n",
         "from pydantic import BaseModel\nBaseModel = unknown()\nclass Model(BaseModel): pass\ndef use(value: Model | None):\n    return value.model_dump()\n",
         "def use(value: tuple[int, str] | None):\n    text, other = value\n    return text.strip()\n",
         "def use(value: tuple[str, ...] | None):\n    text, other = value\n    return text.strip()\n",
