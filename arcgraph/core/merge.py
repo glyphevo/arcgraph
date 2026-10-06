@@ -305,29 +305,26 @@ class EvidenceMergeEngine:
             value = edge.properties.get("callsite")
             return [value] if isinstance(value, dict) else []
 
-        merged: dict[tuple[Any, ...], dict[str, Any]] = {}
-        for fact in [*facts(existing), *facts(candidate)]:
-            key = (
-                fact.get("path"),
-                fact.get("line"),
-                fact.get("column"),
-                fact.get("raw_expression"),
+        def order(fact: dict[str, Any]) -> tuple[Any, ...]:
+            return (
+                str(fact.get("path") or ""),
+                int(fact.get("line") or 0),
+                int(fact.get("column") or 0),
+                str(fact.get("raw_expression") or ""),
             )
+
+        # A call's fact carries no path, line or column, but its callsite_id
+        # is derived from them, so it tells two calls of one name apart; one
+        # edge per caller and target keeps a fact for every call it stands for.
+        merged: dict[Any, dict[str, Any]] = {}
+        for fact in [*facts(existing), *facts(candidate)]:
+            key = fact.get("callsite_id") or order(fact)
             merged.setdefault(key, fact)
         if not merged:
             return
-        ordered = [
-            merged[key]
-            for key in sorted(
-                merged,
-                key=lambda item: (
-                    str(item[0] or ""),
-                    int(item[1] or 0),
-                    int(item[2] or 0),
-                    str(item[3] or ""),
-                ),
-            )
-        ]
+        # The sort is stable: among calls of one name, the first seen stays
+        # first, so the edge's callsite is the one it was before.
+        ordered = sorted(merged.values(), key=order)
         existing.properties["callsites"] = ordered
         existing.properties["callsite"] = ordered[0]
 

@@ -745,8 +745,14 @@ class QueryEngine:
 
         edges_by_callsite: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for edge in edges:
-            current_callsite_id = edge.get("resolution", {}).get("callsite_id")
-            if isinstance(current_callsite_id, str) and current_callsite_id:
+            # One edge stands for every call of its caller to its target: the
+            # resolution names the first, and each fact names its own call.
+            edge_ids = {edge.get("resolution", {}).get("callsite_id")}
+            for fact in self._edge_callsite_facts(edge):
+                edge_ids.add(fact.get("callsite_id"))
+            for current_callsite_id in sorted(
+                value for value in edge_ids if isinstance(value, str) and value
+            ):
                 edges_by_callsite[current_callsite_id].append(edge)
 
         records: list[dict[str, Any]] = []
@@ -791,11 +797,7 @@ class QueryEngine:
 
         known_callsite_ids = {item["callsite_id"] for item in records}
         for edge in edges:
-            properties = edge.get("properties", {})
-            edge_facts = properties.get("callsites")
-            if not isinstance(edge_facts, list):
-                edge_facts = [properties.get("callsite")]
-            fact_records = [fact for fact in edge_facts if isinstance(fact, dict)]
+            fact_records = self._edge_callsite_facts(edge)
             edge_callsite_id = edge.get("resolution", {}).get("callsite_id")
             for fact in fact_records:
                 raw_expression = fact.get("raw_expression")
@@ -803,11 +805,15 @@ class QueryEngine:
                     continue
                 line = int_or_none(fact.get("line"))
                 column = int_or_none(fact.get("column"))
-                # The edge-level resolution id names exactly one call site, so
-                # it may only be bound to a fact when the edge carries exactly
+                fact_callsite_id = fact.get("callsite_id")
+                # A fact that names its call is that call. Otherwise the
+                # edge-level resolution id names exactly one call site, so it
+                # may only be bound to a fact when the edge carries exactly
                 # one; a merged multi-fact edge derives one id per fact so no
                 # fact is dropped by dedup or paired with a foreign id.
-                if (
+                if isinstance(fact_callsite_id, str) and fact_callsite_id:
+                    current_callsite_id = fact_callsite_id
+                elif (
                     isinstance(edge_callsite_id, str)
                     and edge_callsite_id
                     and len(fact_records) == 1
@@ -879,6 +885,14 @@ class QueryEngine:
             },
             "callsites": returned,
         }
+
+    @staticmethod
+    def _edge_callsite_facts(edge: dict[str, Any]) -> list[dict[str, Any]]:
+        properties = edge.get("properties", {})
+        facts = properties.get("callsites")
+        if not isinstance(facts, list):
+            facts = [properties.get("callsite")]
+        return [fact for fact in facts if isinstance(fact, dict)]
 
     def imports(self, module: str) -> dict[str, Any]:
         source_id = module if module.startswith("mod:") else module_id(module)
