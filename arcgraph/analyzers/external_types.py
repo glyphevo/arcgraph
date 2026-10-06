@@ -58,32 +58,78 @@ PATH_TYPE_IDS = frozenset(
     )
 )
 PATH_SEGMENT_TYPE_IDS = PATH_TYPE_IDS | {"builtin:str", "extsym:os.PathLike"}
+# Expressions whose value is never a str or an os.PathLike, whatever their
+# operands: displays and comprehensions, a comparison (a bool), a lambda, and
+# a unary operator, which str does not support.
+_NON_SEGMENT_NODES = (
+    ast.Tuple,
+    ast.List,
+    ast.Set,
+    ast.Dict,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.Compare,
+    ast.Lambda,
+    ast.UnaryOp,
+)
+
+
+def _never_segment(node: ast.expr) -> bool:
+    """Whether the expression alone shows its value is not a segment."""
+
+    if isinstance(node, ast.Constant):
+        return not isinstance(node.value, str)
+    if isinstance(node, ast.BinOp):
+        return _never_segment(node.left) and _never_segment(node.right)
+    return isinstance(node, _NON_SEGMENT_NODES)
 
 
 def may_be_path_segment(
     node: ast.expr,
     resolve: Callable[[ast.expr], dict[str, Any] | None],
+    *,
+    may_be_none: bool = False,
 ) -> bool:
-    """Whether ``node`` may be the right operand of ``path / node``."""
+    """Whether ``node`` may be the right operand of ``path / node``.
+
+    With ``may_be_none`` a ``None`` value is accepted too, for an operand of
+    ``or`` that is never the result when it is ``None``.
+    """
 
     # pathlib joins str and os.PathLike segments. Any other operand raises
     # TypeError or hands the result to its own ``__rtruediv__``. A segment
     # of unknown type is usually an unannotated string.
-    if isinstance(node, ast.Constant):
-        return isinstance(node.value, str)
+    if isinstance(node, ast.Constant) and node.value is None:
+        return may_be_none
     if isinstance(node, ast.JoinedStr):
         return True
+    if _never_segment(node):
+        return False
+    if isinstance(node, ast.NamedExpr):
+        return may_be_path_segment(node.value, resolve, may_be_none=may_be_none)
     # A conditional or boolean expression evaluates to one of its operands, so
     # each operand must be a segment; otherwise ``1 if flag else 2`` has no
     # resolved type and would pass as unknown.
     if isinstance(node, ast.IfExp):
-        return may_be_path_segment(node.body, resolve) and may_be_path_segment(
-            node.orelse, resolve
+        return all(
+            may_be_path_segment(branch, resolve, may_be_none=may_be_none)
+            for branch in (node.body, node.orelse)
         )
     if isinstance(node, ast.BoolOp):
-        return all(may_be_path_segment(value, resolve) for value in node.values)
+        # ``or`` returns its first truthy operand or else its last, so a None
+        # before the last is never the result; ``and`` returns its first falsy
+        # operand, which may be None.
+        *leading, last = node.values
+        skips_none = isinstance(node.op, ast.Or)
+        return all(
+            may_be_path_segment(value, resolve, may_be_none=skips_none)
+            for value in leading
+        ) and may_be_path_segment(last, resolve, may_be_none=may_be_none)
     ref = resolve(node)
     members = union_alternatives(ref)
     if members is None:
         members = [ref] if ref and ref.get("type_id") else []
-    return all(member.get("type_id") in PATH_SEGMENT_TYPE_IDS for member in members)
+    accepted = PATH_SEGMENT_TYPE_IDS | ({"builtin:None"} if may_be_none else set())
+    return all(member.get("type_id") in accepted for member in members)

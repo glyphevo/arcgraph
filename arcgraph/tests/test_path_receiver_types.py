@@ -104,9 +104,52 @@ def int_bool_op_segment(root: Path, name) -> None:
     (root / (name or 1)).is_symlink()
 
 
+def mixed_if_exp_segment(root: Path, flag: bool) -> None:
+    (root / ("a" if flag else 1)).is_symlink()
+
+
+def int_or_str_segment(root: Path, count: int) -> None:
+    (root / (count or "x")).is_symlink()
+
+
 def assigned_int_if_exp_segment(root: Path, flag: bool) -> None:
     joined = root / (1 if flag else 2)
     joined.is_symlink()
+
+
+def optional_or_segment(root: Path, name: Optional[str]) -> None:
+    (root / (name or "x")).is_symlink()
+
+
+def assigned_optional_or_segment(root: Path, name: Optional[str]) -> None:
+    joined = root / (name or "x")
+    joined.is_symlink()
+
+
+def optional_or_optional_segment(
+    root: Path, first: Optional[str], second: Optional[str]
+) -> None:
+    (root / (first or second)).is_symlink()
+
+
+def negative_or_segment(root: Path, name: str) -> None:
+    (root / (name or -1)).is_symlink()
+
+
+def arithmetic_segment(root: Path) -> None:
+    (root / (1 + 2)).is_symlink()
+
+
+def tuple_segment(root: Path) -> None:
+    (root / (1, 2)).is_symlink()
+
+
+def walrus_segment(root: Path) -> None:
+    (root / (index := 1)).is_symlink()
+
+
+def comparison_segment(root: Path, name: str) -> None:
+    (root / (name == "a")).is_symlink()
 
 
 def optional_parent(maybe: Optional[Path]) -> None:
@@ -197,6 +240,9 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         # A conditional or boolean segment whose operands are all strings.
         "str_if_exp_segment": {"extsym:pathlib.Path.is_symlink"},
         "str_bool_op_segment": {"extsym:pathlib.Path.is_symlink"},
+        # A None operand of ``or`` before the last is never the result.
+        "optional_or_segment": {"extsym:pathlib.Path.is_symlink"},
+        "assigned_optional_or_segment": {"extsym:pathlib.Path.is_symlink"},
         # A documented path-returning method yields a path, not a receiver
         # named after the method, such as pathlib.Path.resolve.is_symlink.
         "resolved": {"extsym:pathlib.Path.resolve", "extsym:pathlib.Path.is_symlink"},
@@ -215,13 +261,22 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
     )
 
     # Neither an int segment, nor a conditional or boolean segment with an int
-    # operand, nor an int dividend makes a path, inline or assigned, and a
-    # union does not say which member's parent is taken.
+    # operand or a last operand that may be None, nor an expression whose form
+    # shows it is no str, nor an int dividend makes a path, inline or
+    # assigned, and a union does not say which member's parent is taken.
     for name in (
         "not_a_segment",
         "int_if_exp_segment",
         "int_bool_op_segment",
+        "mixed_if_exp_segment",
+        "int_or_str_segment",
         "assigned_int_if_exp_segment",
+        "optional_or_optional_segment",
+        "negative_or_segment",
+        "arithmetic_segment",
+        "tuple_segment",
+        "walrus_segment",
+        "comparison_segment",
         "not_a_path",
         "optional_parent",
     ):
@@ -229,9 +284,9 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
             target.startswith("extsym:pathlib.")
             for target, _ in resolutions.get(name, set())
         ), name
-    # An Optional receiver keeps the union rules, which leave the result of
-    # maybe.resolve() untyped: neither the method nor a receiver named after
-    # resolve is linked.
+    # An Optional receiver keeps the union rules: maybe.resolve() itself is
+    # linked by them, but its result stays untyped, so neither is_symlink nor
+    # a receiver named after resolve is linked.
     assert not any(
         target == "extsym:pathlib.Path.is_symlink"
         or target.startswith("extsym:pathlib.Path.resolve.")
