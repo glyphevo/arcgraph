@@ -11,7 +11,7 @@ import ast
 from collections.abc import Callable
 from typing import Any
 
-from arcgraph.analyzers.type_unions import union_alternatives
+from arcgraph.analyzers.type_unions import single_value_type, union_alternatives
 
 # Methods whose return type the library or the language documents, keyed by
 # the receiver's type id. The value is the returned type id and, for a list,
@@ -1033,6 +1033,33 @@ def mapping_value_type(
     if default is not None and default.get("type_id") != value_type.get("type_id"):
         return None
     return value_type
+
+
+# A slice of these is of their own type: text[2:] is a str, items[1:] a list.
+_SLICED_TYPE_IDS = frozenset(
+    {"builtin:bytes", "builtin:list", "builtin:str", "builtin:tuple"}
+)
+
+
+def sliced_value_type(source: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The type of a slice of a value of type ``source``, or None.
+
+    A str, bytes, list or tuple slice is of the same type, element types
+    included; a subscript of these otherwise reads an element, which a slice
+    is not. A tuple's element is read only where every member has one type,
+    which a slice of it keeps.
+    """
+
+    if not source:
+        return None
+    wrapped = union_alternatives(source) is not None
+    value = single_value_type(source)
+    if value.get("type_id") not in _SLICED_TYPE_IDS:
+        return None
+    sliced = {**value, "strategy": "slice_value"}
+    if wrapped or value.get("typed_value_evidence"):
+        sliced["typed_value_evidence"] = True
+    return sliced
 
 
 def mapping_default(node: ast.Call) -> ast.expr | None:

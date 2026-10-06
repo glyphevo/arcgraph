@@ -133,14 +133,23 @@ class _CallResolutionContext:
             bindings, key=lambda b: (b.get("line", 0), b.get("column", 0))
         )
         binding_id = latest.get("binding_id")
-        if len(refs) < 2:
-            # With one typed binding, its type stands for the name unless the
-            # value called is certainly another: an untyped parameter, as in
-            # def f(x): x.build(); x = Other(), or no binding yet. An earlier
-            # assignment of unrecorded type may still hold that type.
-            if latest.get("kind") != "parameter" or any(
-                r.get("binding_id") == binding_id for r in refs
-            ):
+        if len(refs) < 2 and not any(r.get("binding_id") == binding_id for r in refs):
+            # With one typed binding, its type is not the value called when
+            # another binding holds there: an untyped parameter, as in
+            # def f(x): x.build(); x = Other(), is of unknown type, and an
+            # assignment whose type is not known, as in x: Box; x = flag,
+            # leaves the value of no type, read as any untyped value is.
+            if latest.get("kind") in {"assignment", "annotated_assignment"}:
+                # A value that carried evidence of its type, or was one of
+                # several, does not survive an unknown write, not even as a
+                # guess from its name; otherwise the value has no type.
+                if fallback is not None and (
+                    fallback.get("typed_value_evidence")
+                    or union_alternatives(fallback) is not None
+                ):
+                    return unknown_union_result(name)
+                return None
+            if latest.get("kind") != "parameter":
                 return fallback
         return next(
             (r for r in refs if r.get("binding_id") == binding_id),

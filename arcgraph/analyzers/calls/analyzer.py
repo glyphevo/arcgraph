@@ -74,6 +74,7 @@ from arcgraph.analyzers.external_types import (
     mapping_default,
     mapping_value_type,
     may_be_path_segment,
+    sliced_value_type,
     method_return_type,
     type_id_of_qualname,
 )
@@ -995,6 +996,8 @@ class CallAnalyzer:
                 receiver_type
             ):
                 return unknown_union_result(self._unparse(node))
+            if isinstance(node.slice, ast.Slice):
+                return sliced_value_type(receiver_type)
             return self._subscript_value_type_ref(receiver_type)
 
         if isinstance(node, ast.Call):

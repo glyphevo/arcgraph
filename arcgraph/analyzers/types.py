@@ -16,6 +16,7 @@ from arcgraph.analyzers.external_types import (
     mapping_value_type,
     may_be_path_segment,
     method_return_type,
+    sliced_value_type,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.analyzers.type_unions import (
@@ -78,6 +79,73 @@ _PYDANTIC_INSTANCE_CLASSMETHOD_STRATEGIES = {
     "model_validate": "pydantic_model_validate",
     "parse_obj": "pydantic_parse_obj",
 }
+
+
+def _statement_blocks(stmt: ast.stmt) -> list[list[ast.stmt]]:
+    blocks = [
+        getattr(stmt, field)
+        for field in ("body", "orelse", "finalbody")
+        if isinstance(getattr(stmt, field, None), list)
+    ]
+    for handler in getattr(stmt, "handlers", []) or []:
+        blocks.append(handler.body)
+    for case in getattr(stmt, "cases", []) or []:
+        blocks.append(case.body)
+    return [block for block in blocks if block]
+
+
+def _binds_name(stmt: ast.AST, name: str) -> bool:
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.Name) and node.id == name:
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                return True
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == name:
+                return True
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            if any(
+                (alias.asname or alias.name.split(".")[0]) == name
+                for alias in node.names
+            ):
+                return True
+    return False
+
+
+def _exits_unless_present(stmt: ast.stmt, name: str) -> bool:
+    """Whether ``stmt`` is if not name: return (or raise, continue, break),
+    with name is None in place of not name, alone or among or-ed tests."""
+
+    if not isinstance(stmt, ast.If) or stmt.orelse or not stmt.body:
+        return False
+    if not isinstance(stmt.body[-1], (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+        return False
+    tests = (
+        stmt.test.values
+        if isinstance(stmt.test, ast.BoolOp) and isinstance(stmt.test.op, ast.Or)
+        else [stmt.test]
+    )
+
+    def absent(test: ast.expr) -> bool:
+        if (
+            isinstance(test, ast.UnaryOp)
+            and isinstance(test.op, ast.Not)
+            and isinstance(test.operand, ast.Name)
+            and test.operand.id == name
+        ):
+            return True
+        return (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Is)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == name
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value is None
+        )
+
+    if any(isinstance(node, ast.NamedExpr) for node in ast.walk(stmt.test)):
+        return False
+    return any(absent(test) for test in tests)
 
 
 @dataclass(frozen=True)
@@ -387,6 +455,22 @@ class TypeRefAnalyzer:
                 else context.resolve_scoped_value(parsed, node, local_types)
             )
         )
+        if (
+            source is not None
+            and isinstance(parsed, ast.Name)
+            and binding.get("kind") in {"assignment", "annotated_assignment"}
+            and any(
+                member.get("type_id") == "builtin:None"
+                for member in union_alternatives(source) or []
+            )
+            and isinstance(binding.get("line"), int)
+            and context.none_excluded_before(
+                node, parsed.id, binding["line"], int(binding.get("column") or 0)
+            )
+        ):
+            # if not source: return before shared = source: what is assigned
+            # is not None.
+            source = {**single_value_type(source), "strategy": "none_excluded"}
         untyped_comprehension = (
             binding.get("kind") == "comprehension_target" and source is None
         )
@@ -916,9 +1000,22 @@ class _TypeContext:
                 return None
             if union_alternatives(receiver) is not None and not receiver.get("type_id"):
                 return unknown_union_result(self._unparse(node))
+            if isinstance(node.slice, ast.Slice):
+                return sliced_value_type(receiver)
             return self._subscript_value_type_source(receiver)
         if isinstance(node, ast.Call):
             return self._resolve_call(node, local_types, scope_node=scope_node)
+        if isinstance(node, ast.JoinedStr):
+            # An f-string is a str whatever it formats.
+            return self._value_type_record(
+                self._resolve_named_type("str", use_imports=False),
+                strategy="literal",
+                source_expression=self._unparse(node),
+            )
+        if isinstance(node, ast.BoolOp):
+            # a or b and a and b give one of their operands: of a type every
+            # operand has, when they share one.
+            return self.same_type_of(node.values, scope_node, local_types)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             left = self.resolve_scoped_value(node.left, scope_node, local_types)
             if (
@@ -938,6 +1035,123 @@ class _TypeContext:
                 return self._path_value_type(right, node, strategy="path_join")
             return None
         return self.resolve_value(node, local_types)
+
+    def none_excluded_before(
+        self, scope: Node, name: str, line: int, column: int
+    ) -> bool:
+        """Whether, where a statement at ``line`` and ``column`` runs, ``name``
+        is known not to be None: an earlier statement of an enclosing block
+        leaves the function or loop when it is, as in if not name: return,
+        and nothing binds it in between, nor anywhere in a loop around it."""
+
+        function = next(
+            (
+                n
+                for n in ast.walk(self.tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and n.lineno == scope.start_line
+            ),
+            None,
+        )
+        if function is None:
+            return False
+        levels: list[tuple[list[ast.stmt], int, ast.stmt]] = []
+        statements: list[ast.stmt] = function.body
+        while True:
+            index = next(
+                (
+                    i
+                    for i, stmt in enumerate(statements)
+                    if (stmt.lineno, stmt.col_offset)
+                    <= (line, column)
+                    <= (stmt.end_lineno or stmt.lineno, stmt.end_col_offset or 0)
+                ),
+                None,
+            )
+            if index is None:
+                return False
+            stmt = statements[index]
+            levels.append((statements, index, stmt))
+            if (stmt.lineno, stmt.col_offset) == (line, column):
+                break
+            inner = next(
+                (
+                    block
+                    for block in _statement_blocks(stmt)
+                    if any(
+                        (child.lineno, child.col_offset)
+                        <= (line, column)
+                        <= (child.end_lineno or child.lineno, child.end_col_offset or 0)
+                        for child in block
+                    )
+                ),
+                None,
+            )
+            if inner is None:
+                return False
+            statements = inner
+        for depth in range(len(levels) - 1, -1, -1):
+            statements, index, stmt = levels[depth]
+            if depth < len(levels) - 1 and isinstance(
+                stmt, (ast.For, ast.AsyncFor, ast.While)
+            ):
+                # A later iteration may run after the name is rebound.
+                if _binds_name(stmt, name):
+                    return False
+            for prior in reversed(statements[:index]):
+                if _exits_unless_present(prior, name):
+                    return True
+                if _binds_name(prior, name):
+                    return False
+        return False
+
+    def same_type_of(
+        self,
+        operands: list[ast.expr],
+        scope_node: Node,
+        local_types: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """The single type every one of ``operands`` has, or None if one has
+        no known type, may be of several, or differs from the others.
+
+        A name among them must have one stable binding in this scope and no
+        default, so that its type is the value it holds here: a rewritten or
+        conditionally bound name, or a parameter whose default may differ
+        from its annotation, gives no type.
+        """
+
+        for operand in operands:
+            for name in ast.walk(operand):
+                if not isinstance(name, ast.Name):
+                    continue
+                found = self.lexical.lookup(scope_node, name.id)
+                if (
+                    found is None
+                    or not self.lexical.stable(*found)
+                    or self.parameter_defaults.get(scope_node.start_line, {}).get(
+                        name.id
+                    )
+                    is not None
+                ):
+                    return None
+        shared: dict[str, Any] | None = None
+        for operand in operands:
+            source = self.resolve_scoped_value(operand, scope_node, local_types)
+            if (
+                not source
+                or union_alternatives(source) is not None
+                or not isinstance(source.get("type_id"), str)
+            ):
+                return None
+            if shared is None:
+                shared = source
+            elif source.get("type_id") != shared.get("type_id") or source.get(
+                "type_args"
+            ) != shared.get("type_args"):
+                return None
+        if shared is None:
+            return None
+        return {**shared, "strategy": "same_type_operands"}
 
     def _may_be_path_segment(
         self,
