@@ -73,6 +73,15 @@ def may_be_path_segment(
         return isinstance(node.value, str)
     if isinstance(node, ast.JoinedStr):
         return True
+    # A conditional or boolean expression evaluates to one of its operands, so
+    # each operand must be a segment; otherwise ``1 if flag else 2`` has no
+    # resolved type and would pass as unknown.
+    if isinstance(node, ast.IfExp):
+        return may_be_path_segment(node.body, resolve) and may_be_path_segment(
+            node.orelse, resolve
+        )
+    if isinstance(node, ast.BoolOp):
+        return all(may_be_path_segment(value, resolve) for value in node.values)
     ref = resolve(node)
     members = union_alternatives(ref)
     if members is None:

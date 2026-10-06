@@ -88,6 +88,27 @@ def not_a_path(count: int) -> None:
     (count / 2).is_integer()
 
 
+def str_if_exp_segment(root: Path, flag: bool) -> None:
+    (root / ("a" if flag else "b")).is_symlink()
+
+
+def str_bool_op_segment(root: Path, name: str) -> None:
+    (root / (name or "x")).is_symlink()
+
+
+def int_if_exp_segment(root: Path, flag: bool) -> None:
+    (root / (1 if flag else 2)).is_symlink()
+
+
+def int_bool_op_segment(root: Path, name) -> None:
+    (root / (name or 1)).is_symlink()
+
+
+def assigned_int_if_exp_segment(root: Path, flag: bool) -> None:
+    joined = root / (1 if flag else 2)
+    joined.is_symlink()
+
+
 def optional_parent(maybe: Optional[Path]) -> None:
     maybe.parent.is_symlink()
 
@@ -173,6 +194,9 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         "pure_parent": {"extsym:pathlib.PurePosixPath.with_suffix"},
         "joined": {"extsym:pathlib.Path.is_symlink"},
         "joined_parent": {"extsym:pathlib.Path.chmod"},
+        # A conditional or boolean segment whose operands are all strings.
+        "str_if_exp_segment": {"extsym:pathlib.Path.is_symlink"},
+        "str_bool_op_segment": {"extsym:pathlib.Path.is_symlink"},
         # A documented path-returning method yields a path, not a receiver
         # named after the method, such as pathlib.Path.resolve.is_symlink.
         "resolved": {"extsym:pathlib.Path.resolve", "extsym:pathlib.Path.is_symlink"},
@@ -190,17 +214,27 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         resolutions.get("nested_scope", set())
     )
 
-    # Neither an int segment nor an int dividend makes a path, and a union
-    # does not say which member's parent is taken.
-    for name in ("not_a_segment", "not_a_path", "optional_parent"):
+    # Neither an int segment, nor a conditional or boolean segment with an int
+    # operand, nor an int dividend makes a path, inline or assigned, and a
+    # union does not say which member's parent is taken.
+    for name in (
+        "not_a_segment",
+        "int_if_exp_segment",
+        "int_bool_op_segment",
+        "assigned_int_if_exp_segment",
+        "not_a_path",
+        "optional_parent",
+    ):
         assert not any(
             target.startswith("extsym:pathlib.")
             for target, _ in resolutions.get(name, set())
         ), name
     # An Optional receiver keeps the union rules, which leave the result of
-    # maybe.resolve() untyped.
+    # maybe.resolve() untyped: neither the method nor a receiver named after
+    # resolve is linked.
     assert not any(
         target == "extsym:pathlib.Path.is_symlink"
+        or target.startswith("extsym:pathlib.Path.resolve.")
         for target, _ in resolutions.get("optional_resolved", set())
     )
     # A parent keeps its receiver's evidence barrier, under which
