@@ -15,6 +15,9 @@ from arcgraph.analyzers.calls.constants import (
     BUILTIN_METHODS_BY_TYPE,
     BUILTIN_TYPE_ATTRIBUTE_METHODS,
     COMMON_BOUNDARY_METHOD_TARGETS,
+    DB_METHOD_OWNERS,
+    EXTERNAL_TARGET_KINDS,
+    PEP249_METHODS_BY_CLASS,
     GUESSED_METHODS_BY_OWNER,
     MOCK_ASSERT_METHOD_OWNERS,
     NETWORKX_GRAPH_METHOD_OWNERS,
@@ -151,7 +154,14 @@ class CallAnalyzer:
                 raw_name = str(identified_callsite.get("name"))
                 edge_kind = self._edge_kind(source, identified_callsite, resolved)
                 if resolved.target.id.startswith(
-                    ("config:", "decl:", "extsym:", "local:", "unresolved:")
+                    (
+                        "config:",
+                        "decl:",
+                        "extsym:",
+                        "local:",
+                        "protocol:",
+                        "unresolved:",
+                    )
                 ):
                     generated_nodes.setdefault(resolved.target.id, resolved.target)
                 edges.append(
@@ -752,7 +762,7 @@ class CallAnalyzer:
                 strategy="inherited_receiver_type",
                 candidate_count=1,
                 confidence="inferred",
-                edge_kind="uses" if inherited.kind == "external_symbol" else None,
+                edge_kind="uses" if inherited.kind in EXTERNAL_TARGET_KINDS else None,
                 receiver_expression=receiver_expression,
                 receiver_type=self._type_id(receiver_type),
                 receiver_type_ref_id=self._type_ref_id(receiver_type),
@@ -1019,7 +1029,7 @@ class CallAnalyzer:
                         known = self._external_return_type_ref(resolved.target)
                         if known is not None:
                             return {**known, "typed_value_evidence": True}
-                        if resolved.target.kind != "external_symbol":
+                        if resolved.target.kind not in EXTERNAL_TARGET_KINDS:
                             returned = context.return_type_by_target.get(
                                 resolved.target.id
                             )
@@ -1725,13 +1735,12 @@ class CallAnalyzer:
                 "strategy": "external_return_boundary",
             }
         method_name = qualname.rsplit(".", 1)[-1]
-        if qualname in {
-            "dbapi.Connection.execute",
-            "sqlite3.Connection.execute",
-        }:
+        if qualname == "sqlite3.Connection.execute":
+            # sqlite3 documents its execute shortcut as returning a cursor;
+            # PEP 249 defines no execute on a connection, nor what it returns.
             return {
-                "type_id": "extsym:dbapi.Cursor",
-                "type_expression": "dbapi.Cursor",
+                "type_id": "extsym:sqlite3.Cursor",
+                "type_expression": "sqlite3.Cursor",
                 "strategy": "external_return_boundary",
             }
         if qualname in {
@@ -1941,7 +1950,7 @@ class CallAnalyzer:
             return "constructs"
         if resolved.edge_kind:
             return resolved.edge_kind
-        if resolved.target.kind == "external_symbol":
+        if resolved.target.kind in EXTERNAL_TARGET_KINDS:
             return "uses"
         return "calls"
 
@@ -2051,6 +2060,26 @@ class CallAnalyzer:
         ):
             return None
         return self._guessed_symbol(owner, method_name, source="common_boundary_method")
+
+    @staticmethod
+    def _protocol_symbol(owner: str, method_name: str) -> Node | None:
+        """A guessed method of a protocol with no module to import, such as
+        PEP 249's, named by the protocol class that defines it."""
+
+        if method_name not in PEP249_METHODS_BY_CLASS.get(owner, frozenset()):
+            return None
+        qualname = f"{owner}.{method_name}"
+        return Node(
+            id=f"protocol:{qualname}",
+            kind="protocol_symbol",
+            name=method_name,
+            qualname=qualname,
+            properties={
+                "source": "receiver_name_boundary_method",
+                "boundary": "protocol",
+                "protocol": "PEP 249",
+            },
+        )
 
     def _guessed_symbol(
         self,
@@ -2188,7 +2217,10 @@ class CallAnalyzer:
         if method_name in DB_CONNECTION_METHODS and self._looks_like_db_receiver(
             receiver_tail
         ):
-            return self._guessed_symbol("dbapi.Connection", method_name)
+            owner = DB_METHOD_OWNERS[method_name]
+            if method_name == "close" and "cursor" in receiver_tail:
+                owner = "pep249.Cursor"
+            return self._protocol_symbol(owner, method_name)
 
         if method_name == "add_recognizer" and receiver_tail == "registry":
             return self._guessed_symbol(
@@ -2667,12 +2699,18 @@ class CallAnalyzer:
     @staticmethod
     def _looks_like_result_receiver(receiver_lower: str) -> bool:
         tail = receiver_lower.rsplit(".", 1)[-1]
-        return (
+        if (
             tail == "result"
             or tail.endswith("_result")
-            or ".execute(" in receiver_lower
             or ".scalars(" in receiver_lower
-        )
+        ):
+            return True
+        if ".execute(" not in receiver_lower:
+            return False
+        # A connection or cursor named so is taken for PEP 249's, as the
+        # database guess takes it, whose execute returns nothing defined.
+        executor = receiver_lower.rsplit(".execute(", 1)[0].rsplit(".", 1)[-1]
+        return not CallAnalyzer._looks_like_db_receiver(executor.strip("_"))
 
     @classmethod
     def _looks_like_prometheus_receiver(cls, receiver_expression: str) -> bool:
@@ -3139,7 +3177,7 @@ class CallAnalyzer:
             "target_symbol",
             (
                 resolved.target.qualname
-                if resolved.target.kind == "external_symbol"
+                if resolved.target.kind in EXTERNAL_TARGET_KINDS
                 else None
             ),
         )

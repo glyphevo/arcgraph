@@ -333,7 +333,7 @@ def add_visual_parser(subparsers: Any) -> None:
     visual_force.add_argument(
         "--include-external",
         action="store_true",
-        help="Include external_symbol nodes in the symbol graph.",
+        help="Include external_symbol and protocol_symbol nodes in the symbol graph.",
     )
     visual_force.add_argument(
         "--include-structural-edges",
@@ -409,7 +409,7 @@ def add_visual_parser(subparsers: Any) -> None:
     visual_workbench.add_argument(
         "--include-external",
         action="store_true",
-        help="Include external_symbol nodes in the symbol graph.",
+        help="Include external_symbol and protocol_symbol nodes in the symbol graph.",
     )
     visual_workbench.add_argument(
         "--include-structural-edges",
@@ -488,7 +488,7 @@ def add_visual_parser(subparsers: Any) -> None:
     visual_serve.add_argument(
         "--include-external",
         action="store_true",
-        help="Include external_symbol nodes in focus/API results.",
+        help="Include external_symbol and protocol_symbol nodes in focus/API results.",
     )
     visual_serve.add_argument(
         "--include-structural-edges",
@@ -579,7 +579,7 @@ def add_visual_parser(subparsers: Any) -> None:
     visual_smoke.add_argument(
         "--include-external",
         action="store_true",
-        help="Include external_symbol nodes in focus/API results.",
+        help="Include external_symbol and protocol_symbol nodes in focus/API results.",
     )
     visual_smoke.add_argument(
         "--include-structural-edges",

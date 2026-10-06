@@ -88,6 +88,7 @@ _NODE_ID_PREFIXES_BY_KIND: dict[str, frozenset[str]] = {
     "module": frozenset({"mod"}),
     "package": frozenset({"package"}),
     "pydantic_model": frozenset({"schema"}),
+    "protocol_symbol": frozenset({"protocol"}),
     "pytest_fixture": frozenset({"fixture"}),
     "queue": frozenset({"queue"}),
     "route": frozenset({"route"}),

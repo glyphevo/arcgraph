@@ -43,17 +43,10 @@
     },
     {
       "source": "fn:bench.db.load_external_count",
-      "target": "extsym:dbapi.Connection.execute",
+      "target": "protocol:pep249.Cursor.execute",
       "kind": "uses",
       "confidence": "heuristic",
       "strategy": "receiver_name_boundary_method"
-    },
-    {
-      "source": "fn:bench.db.load_external_count",
-      "target": "extsym:dbapi.Cursor.fetchone",
-      "kind": "uses",
-      "confidence": "heuristic",
-      "strategy": "external_receiver_type"
     },
     {
       "source": "fn:bench.service.sqlalchemy_boundaries",
@@ -168,9 +161,9 @@
     }
   ],
   "unresolved_summary": {
-    "total": 3,
+    "total": 4,
     "category_counts": {
-      "true_dynamic_call": 3,
+      "true_dynamic_call": 4,
       "static_candidate": 0,
       "missing_type_context": 0
     },

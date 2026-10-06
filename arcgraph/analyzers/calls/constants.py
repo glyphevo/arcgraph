@@ -957,6 +957,40 @@ COMMON_TEXT_RECEIVER_SUFFIXES = (
     "_text",
     "_value",
 )
+# PEP 249 is a protocol with no module to import. A guessed database method is
+# named by the protocol class that defines it, as a protocol_symbol target:
+# PEP 249 gives a connection close, commit, cursor and rollback, and a cursor
+# the rest; conn.execute() is a driver's shortcut that runs a cursor's.
+PEP249_METHODS_BY_CLASS = {
+    "pep249.Connection": frozenset({"close", "commit", "cursor", "rollback"}),
+    "pep249.Cursor": frozenset(
+        {
+            "callproc",
+            "close",
+            "execute",
+            "executemany",
+            "fetchall",
+            "fetchmany",
+            "fetchone",
+            "nextset",
+            "setinputsizes",
+            "setoutputsize",
+        }
+    ),
+}
+# The class of each guessed database method; close, which both define, is
+# the cursor's on a receiver named like one.
+DB_METHOD_OWNERS = {
+    "commit": "pep249.Connection",
+    "rollback": "pep249.Connection",
+    "close": "pep249.Connection",
+    **{
+        method: "pep249.Cursor"
+        for method in ("execute", "executemany", "fetchall", "fetchone")
+    },
+}
+# Target kinds outside the project: an external symbol, or a protocol method.
+EXTERNAL_TARGET_KINDS = frozenset({"external_symbol", "protocol_symbol"})
 # The class a guessed method is on, where a family of methods spans classes.
 ARGPARSE_METHOD_OWNERS = {
     **{method: "argparse.ArgumentParser" for method in ARGPARSE_METHODS},
@@ -1016,7 +1050,6 @@ GUESSED_METHODS_BY_OWNER = _methods_by_owner(
     _same_owner("sqlalchemy.engine.Result", SQLALCHEMY_RESULT_METHODS),
     _same_owner("redis.asyncio.Redis", REDIS_METHODS),
     _same_owner("httpx.Client", HTTP_CLIENT_METHODS),
-    _same_owner("dbapi.Connection", DB_CONNECTION_METHODS),
     _same_owner("presidio_analyzer.RecognizerRegistry", {"add_recognizer"}),
     _same_owner("importlib.abc.InspectLoader", {"exec_module"}),
     _same_owner("datetime.datetime", {"isoformat", "strftime"}),

@@ -202,7 +202,7 @@ def test_v2_call_analyzer_resolves_property_and_local_alias_receiver_types() -> 
     }
 
 
-def test_v2_call_analyzer_resolves_db_execute_fetchone_chain() -> None:
+def test_v2_call_analyzer_names_db_execute_by_protocol_without_a_cursor() -> None:
     source = "\n".join(
         [
             "def load_count(conn) -> object:",
@@ -217,17 +217,20 @@ def test_v2_call_analyzer_resolves_db_execute_fetchone_chain() -> None:
     by_pair = {(edge.source, edge.target): edge for edge in edges}
     load_count_id = function_id("pkg.calls.load_count")
 
-    execute_edge = by_pair[(load_count_id, "extsym:dbapi.Connection.execute")]
-    fetchone_edge = by_pair[(load_count_id, "extsym:dbapi.Cursor.fetchone")]
+    # PEP 249 has no module: execute is its Cursor's, a protocol target.
+    execute_edge = by_pair[(load_count_id, "protocol:pep249.Cursor.execute")]
 
+    assert execute_edge.kind == "uses"
     assert execute_edge.resolution.strategy == "receiver_name_boundary_method"
     assert execute_edge.properties["callsite"]["receiver_expression"] == "conn"
-    assert fetchone_edge.resolution.strategy == "external_receiver_type"
-    assert fetchone_edge.properties["callsite"]["receiver_expression"] == (
-        "conn.execute('select 1')"
+    assert execute_edge.properties["callsite"]["target_symbol"] == (
+        "pep249.Cursor.execute"
     )
-    assert fetchone_edge.properties["callsite"]["receiver_type"] == (
-        "extsym:dbapi.Cursor"
+    # PEP 249 does not say what execute returns, so the next call is not
+    # typed as a cursor's.
+    assert not any(
+        edge.source == load_count_id and edge.target.endswith(".fetchone")
+        for edge in edges
     )
     assert not any(
         edge.source == function_id("pkg.calls.ambiguous_fetchone")

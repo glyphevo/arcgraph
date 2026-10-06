@@ -182,7 +182,8 @@ class SimilarityAnalyzer:
         return {
             value
             for value in _strings(values)
-            if value in valid_target_ids or value.startswith(("ext:", "extsym:"))
+            if value in valid_target_ids
+            or value.startswith(("ext:", "extsym:", "protocol:"))
         }
 
     def _profile_for_node(

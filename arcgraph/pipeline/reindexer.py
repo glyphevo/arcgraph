@@ -1323,7 +1323,8 @@ class ArcGraphReindexer:
 
 def _is_pathless_synthetic_node(node: Node) -> bool:
     return node.path is None and (
-        node.kind in {"external_symbol", "config"} or node.id.startswith("extsym:")
+        node.kind in {"external_symbol", "protocol_symbol", "config"}
+        or node.id.startswith(("extsym:", "protocol:"))
     )
 
 

@@ -57,9 +57,6 @@ THIRD_PARTY_VERIFIED: dict[str, str] = {
     "starlette.testclient.TestClient": "starlette 1.6.0",
     "typer.Typer": "typer 0.27.2",
 }
-# PEP 249 is a protocol with no module to import; how its guesses are named is
-# an open decision (LEDGER E245), so they are not checked here yet.
-PROTOCOL_PENDING = frozenset({"dbapi.Connection"})
 
 
 def _owner_class(owner: str) -> object:
@@ -75,9 +72,7 @@ def test_every_owner_is_checked_somewhere():
     unchecked = sorted(
         owner
         for owner in GUESSED_METHODS_BY_OWNER
-        if not _is_standard_library(owner)
-        and owner not in THIRD_PARTY_VERIFIED
-        and owner not in PROTOCOL_PENDING
+        if not _is_standard_library(owner) and owner not in THIRD_PARTY_VERIFIED
     )
     assert unchecked == []
 

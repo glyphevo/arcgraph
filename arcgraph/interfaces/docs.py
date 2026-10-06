@@ -799,7 +799,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "items": [
                         "`--include-tests` adds test files and test-only nodes to the export.",
                         "`--include-generated` adds generated, coverage, backup, and build-output files.",
-                        "`--include-external` adds `external_symbol` nodes to the symbol graph.",
+                        "`--include-external` adds `external_symbol` and `protocol_symbol` nodes to the symbol graph.",
                         "`--include-structural-edges` adds `references/uses/contains/defines/declares` edges that are hidden by default.",
                         "`--include-edge-kind KIND` restricts the export to specific edge kinds (repeatable).",
                         "`--exclude-edge-kind KIND` removes specific edge kinds (repeatable).",

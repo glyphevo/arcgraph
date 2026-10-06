@@ -553,7 +553,7 @@ def test_any_names_no_type(resolutions):
             for target in _targets(resolutions, name)
         ), name
     # With Any read as no type, conn keeps the database boundary its name gives.
-    assert "extsym:dbapi.Cursor.fetchone" in _targets(resolutions, "any_connection")
+    assert "protocol:pep249.Cursor.execute" in _targets(resolutions, "any_connection")
 
 
 def test_a_known_type_without_the_method_links_nothing(resolutions):
@@ -569,7 +569,7 @@ def test_a_known_type_without_the_method_links_nothing(resolutions):
     # Nor does a name: a str called conn has no execute, so it is not taken
     # for a database connection, and its result is no cursor.
     assert not any(
-        target.startswith("extsym:dbapi.")
+        target.startswith("protocol:pep249.")
         for target in _targets(resolutions, "str_named_conn")
     )
 

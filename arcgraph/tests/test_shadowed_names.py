@@ -205,7 +205,7 @@ def test_a_typed_local_resolves_by_its_own_type(resolutions):
         ("via_alias", "method:lab.Aliases.target"),
         ("built_by_cls", "class:lab.Aliases"),
         # A parameter that hides nothing keeps the boundary its name gives.
-        ("unhidden_param", "extsym:dbapi.Connection.fetchone"),
+        ("unhidden_param", "protocol:pep249.Cursor.fetchone"),
     ],
 )
 def test_a_name_no_local_hides_still_resolves(resolutions, name, target):

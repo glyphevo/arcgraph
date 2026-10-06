@@ -57,6 +57,8 @@ BASE_EXCLUDED_NODE_KINDS = {
     "source_root",
 }
 TEST_NODE_KINDS = {"test_case", "pytest_fixture"}
+# Symbols outside the project, shown only with include_external.
+_OUTSIDE_PROJECT_KINDS = {"external_symbol", "protocol_symbol"}
 SYMBOL_EXCLUDED_NODE_KINDS = BASE_EXCLUDED_NODE_KINDS | {"module", "package"}
 
 EDGE_KIND_WEIGHTS = {
@@ -480,7 +482,7 @@ def _focus_symbol_ids(
         node_id
         for node_id, node in nodes.items()
         if node.get("kind") not in SYMBOL_EXCLUDED_NODE_KINDS
-        and (node.get("kind") != "external_symbol" or options.include_external)
+        and (node.get("kind") not in _OUTSIDE_PROJECT_KINDS or options.include_external)
     }
 
 
@@ -669,7 +671,7 @@ def _node_exclusion_reason(
     source_root = str(node.get("source_root") or "")
     if kind in BASE_EXCLUDED_NODE_KINDS:
         return "node_kind"
-    if kind == "external_symbol" and not options.include_external:
+    if kind in _OUTSIDE_PROJECT_KINDS and not options.include_external:
         return "external"
     if not options.include_tests and (
         kind in TEST_NODE_KINDS or _is_test_path(path, source_root)
@@ -771,7 +773,7 @@ def _symbol_graph(
         node_id
         for node_id, node in nodes.items()
         if node.get("kind") not in SYMBOL_EXCLUDED_NODE_KINDS
-        and (node.get("kind") != "external_symbol" or options.include_external)
+        and (node.get("kind") not in _OUTSIDE_PROJECT_KINDS or options.include_external)
     }
     degree: Counter[str] = Counter()
     for edge in edges:
