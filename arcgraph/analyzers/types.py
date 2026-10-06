@@ -8,6 +8,12 @@ from typing import Any
 
 from arcgraph.analyzers.calls.lexical import LexicalScopes
 from arcgraph.analyzers.exports import exported_class
+from arcgraph.analyzers.external_types import (
+    EXTERNAL_METHOD_RETURN_OWNERS,
+    EXTERNAL_METHOD_RETURN_TYPES,
+    PATH_TYPE_IDS,
+    may_be_path_segment,
+)
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.analyzers.type_unions import (
     contains_union,
@@ -59,51 +65,6 @@ _EXTERNAL_CONSTRUCTOR_TYPES = {
     "extsym:threading.Thread",
     "extsym:tempfile.TemporaryDirectory",
 }
-# Factory methods on external types whose return type is part of the library's
-# documented contract. Without them a receiver produced by the factory carries
-# no type, and every later method call on it stays unresolved. Each entry
-# claims only that the named method returns the named type; add one when the
-# library documents the factory, not to move a metric.
-_EXTERNAL_METHOD_RETURN_TYPES = {
-    ("argparse.ArgumentParser", "add_subparsers"): "argparse._SubParsersAction",
-    ("argparse._SubParsersAction", "add_parser"): "argparse.ArgumentParser",
-    ("argparse.ArgumentParser", "add_argument_group"): "argparse._ArgumentGroup",
-    (
-        "argparse.ArgumentParser",
-        "add_mutually_exclusive_group",
-    ): "argparse._MutuallyExclusiveGroup",
-    # pathlib documents each of these as returning a new path.
-    **{
-        ("pathlib.Path", method): "pathlib.Path"
-        for method in (
-            "absolute",
-            "expanduser",
-            "joinpath",
-            "relative_to",
-            "resolve",
-            "with_name",
-            "with_stem",
-            "with_suffix",
-        )
-    },
-}
-# pathlib documents ``path / segment`` as a path of the left operand's flavour,
-# and ``path.parent`` as its logical parent of the same flavour.
-_PATH_TYPE_IDS = frozenset(
-    f"extsym:pathlib.{name}"
-    for name in (
-        "Path",
-        "PosixPath",
-        "PurePath",
-        "PurePosixPath",
-        "PureWindowsPath",
-        "WindowsPath",
-    )
-)
-_PATH_SEGMENT_TYPE_IDS = _PATH_TYPE_IDS | {"builtin:str", "extsym:os.PathLike"}
-_EXTERNAL_METHOD_RETURN_OWNERS = frozenset(
-    owner for owner, _ in _EXTERNAL_METHOD_RETURN_TYPES
-)
 _PYDANTIC_MODEL_BASES = {
     "pydantic.BaseModel",
     "pydantic.BaseSettings",
@@ -889,7 +850,7 @@ class _TypeContext:
             if union_alternatives(receiver) is not None and not receiver.get("type_id"):
                 return unknown_union_result(self._unparse(node))
             type_id = receiver.get("type_id") if receiver else None
-            if node.attr == "parent" and type_id in _PATH_TYPE_IDS:
+            if node.attr == "parent" and type_id in PATH_TYPE_IDS:
                 return self._path_value_type(receiver, node, strategy="path_parent")
             if isinstance(type_id, str) and type_id.startswith("class:"):
                 class_qualname = type_id.removeprefix("class:")
@@ -914,7 +875,7 @@ class _TypeContext:
             left = self.resolve_scoped_value(node.left, scope_node, local_types)
             if (
                 left is not None
-                and left.get("type_id") in _PATH_TYPE_IDS
+                and left.get("type_id") in PATH_TYPE_IDS
                 and self._may_be_path_segment(node.right, scope_node, local_types)
             ):
                 return self._path_value_type(left, node, strategy="path_join")
@@ -927,19 +888,9 @@ class _TypeContext:
         scope_node: Node,
         local_types: dict[str, dict[str, Any]],
     ) -> bool:
-        # pathlib joins str and os.PathLike segments. Any other operand raises
-        # TypeError or hands the result to its own ``__rtruediv__``. A segment
-        # of unknown type is usually an unannotated string.
-        if isinstance(node, ast.Constant):
-            return isinstance(node.value, str)
-        if isinstance(node, ast.JoinedStr):
-            return True
-        ref = self.resolve_scoped_value(node, scope_node, local_types)
-        members = union_alternatives(ref)
-        if members is None:
-            members = [ref] if ref and ref.get("type_id") else []
-        return all(
-            member.get("type_id") in _PATH_SEGMENT_TYPE_IDS for member in members
+        return may_be_path_segment(
+            node,
+            lambda operand: self.resolve_scoped_value(operand, scope_node, local_types),
         )
 
     def _path_value_type(
@@ -1669,7 +1620,7 @@ class _TypeContext:
         owner = self._external_receiver_qualname(receiver)
         if owner is None:
             return None
-        returned = _EXTERNAL_METHOD_RETURN_TYPES.get((owner, method_name))
+        returned = EXTERNAL_METHOD_RETURN_TYPES.get((owner, method_name))
         if returned is None:
             return None
         type_id = f"extsym:{returned}"
@@ -1705,10 +1656,10 @@ class _TypeContext:
             simple_base = base.strip("\"'").split("[", 1)[0].strip()
             if not simple_base:
                 continue
-            if simple_base in _EXTERNAL_METHOD_RETURN_OWNERS:
+            if simple_base in EXTERNAL_METHOD_RETURN_OWNERS:
                 return simple_base
             resolved = self._resolve_alias(simple_base, use_imports=True)
-            if resolved in _EXTERNAL_METHOD_RETURN_OWNERS:
+            if resolved in EXTERNAL_METHOD_RETURN_OWNERS:
                 return resolved
         return None
 
