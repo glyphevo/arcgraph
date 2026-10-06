@@ -339,9 +339,17 @@ class CallAnalyzer:
         if self.enable_v2:
             root = context.lexical.root_name(callsite.get("name"))
             found = context.lexical.lookup(source, root) if root else None
-            if found and any(b.get("pytest_parameter") for b in found[1]):
-                # Fixture inputs require binding evidence, even outside closures.
-                # Bypass every class-name/unique-method fallback for this receiver.
+            if found and (
+                any(b.get("pytest_parameter") for b in found[1])
+                or (
+                    source.id not in context.lexical.strict
+                    and context.lexical.shadowed(source, root)
+                )
+            ):
+                # Fixture inputs require binding evidence, even outside closures,
+                # and so does a local value that hides an import, a module
+                # definition or a builtin of its name. Bypass every import,
+                # class-name and unique-method fallback for this receiver.
                 receiver, attribute = callsite.get("receiver"), callsite.get(
                     "attribute"
                 )

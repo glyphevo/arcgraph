@@ -1550,7 +1550,7 @@ class _TypeContext:
         func_name = self._name(node.func)
         if func_name:
             constructed = self._resolve_named_type(func_name, use_imports=True)
-            if scope_node is not None and scope_node.id in self.lexical.strict:
+            if scope_node is not None and self._binding_decides(scope_node, func_name):
                 root = self.lexical.root_name(func_name)
                 found = self.lexical.lookup(scope_node, root) if root else None
                 if found is not None:
@@ -1604,7 +1604,7 @@ class _TypeContext:
                 else self.resolve_value(node.func.value, local_types)
             )
             if receiver is None:
-                receiver = self._class_reference_value(node.func.value)
+                receiver = self._class_reference_value(node.func.value, scope_node)
             if (
                 receiver is None
                 and scope_node is not None
@@ -1872,10 +1872,20 @@ class _TypeContext:
             ),
         )
 
-    def _class_reference_value(self, node: ast.AST) -> dict[str, Any] | None:
+    def _class_reference_value(
+        self, node: ast.AST, scope_node: Node | None = None
+    ) -> dict[str, Any] | None:
         name = self._name(node)
         if not name:
             return None
+        if scope_node is not None and self._binding_decides(scope_node, name):
+            root = self.lexical.root_name(name)
+            found = self.lexical.lookup(scope_node, root) if root else None
+            if found is not None and (
+                not self.lexical.stable(*found)
+                or found[1][0].get("kind") not in {"class_definition", "import_alias"}
+            ):
+                return None
         resolved = self._resolve_named_type(name, use_imports=True)
         if not resolved.type_id or not resolved.type_id.startswith("class:"):
             return None
@@ -1888,7 +1898,7 @@ class _TypeContext:
     def _function_return_type(
         self, name: str, scope_node: Node | None = None
     ) -> _ResolvedType | None:
-        if scope_node is not None and scope_node.id in self.lexical.strict:
+        if scope_node is not None and self._binding_decides(scope_node, name):
             root = self.lexical.root_name(name)
             found = self.lexical.lookup(scope_node, root) if root else None
             if found is not None:
@@ -1911,6 +1921,16 @@ class _TypeContext:
         if len(candidates) == 1:
             return candidates[0]
         return None
+
+    def _binding_decides(self, scope_node: Node, name: str) -> bool:
+        """Whether the binding the root of ``name`` has in scope, rather than a
+        module-wide alias, decides what it names: in a strict scope, and where
+        a local value hides an import, a definition or a builtin."""
+
+        if scope_node.id in self.lexical.strict:
+            return True
+        root = self.lexical.root_name(name)
+        return root is not None and self.lexical.shadowed(scope_node, root)
 
     @staticmethod
     def _class_qualname_for_scope(node: Node) -> str | None:

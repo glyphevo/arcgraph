@@ -10,6 +10,19 @@ from arcgraph.analyzers.calls.constants import BUILTIN_CALLS
 from arcgraph.core.schemas import Node
 from arcgraph.analyzers.type_unions import union_alternatives
 
+# Bindings that name an import or a definition rather than a local value.
+_DEFINITION_KINDS = frozenset(
+    {
+        "class_definition",
+        "function_definition",
+        "import_alias",
+        "method_definition",
+        "re_export",
+        "star_import",
+        "type_checking_import_alias",
+    }
+)
+
 
 class LexicalScopes:
     def __init__(
@@ -215,6 +228,24 @@ class LexicalScopes:
             return False
         # An unknown local masks ancestors and same-name global/class heuristics.
         return self.type_ref(source, root) is None
+
+    def shadowed(self, source: Node, name: str) -> bool:
+        """Whether ``name`` is a local value of ``source`` that hides a module
+        binding or a builtin of that name. A parameter, an assignment, a del or
+        any other binding of a value makes the name local in the whole body,
+        even before that binding; a global declaration does not."""
+
+        if source.kind == "module":
+            return False
+        own = self.bindings.get(source.id, {}).get(name, [])
+        if not own or any(b.get("kind") in {"global", "nonlocal"} for b in own):
+            return False
+        if all(b.get("kind") in _DEFINITION_KINDS for b in own):
+            return False
+        module = self.modules.get(source.path)
+        if module is not None and name in self.bindings.get(module.id, {}):
+            return True
+        return name in BUILTIN_CALLS
 
     @staticmethod
     def callsite_position(callsite: dict[str, Any] | None) -> tuple[int, int] | None:
