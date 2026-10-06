@@ -9,8 +9,10 @@ builtins.dict.get.get.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
+import subprocess
 import sys
 
 import pytest
@@ -21,6 +23,7 @@ from arcgraph.analyzers.external_types import (
     FUNCTION_RETURN_TYPES,
     LOWERCASE_STDLIB_CLASSES,
     METHOD_RETURN_TYPES,
+    function_return_type,
 )
 from arcgraph.tests.test_path_receiver_types import _resolutions_by_function
 
@@ -31,6 +34,7 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PosixPath, PurePosixPath
+from subprocess import check_output
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -258,6 +262,51 @@ def assigned_chain(text: str) -> None:
     stripped.lower()
     parts = text.split(",")
     parts.append("x")
+
+
+def output_bytes() -> None:
+    subprocess.check_output(["echo"]).decode()
+
+
+def output_text(kw: dict) -> None:
+    subprocess.check_output(["echo"], encoding="utf-8").casefold()
+    out = subprocess.check_output(["echo"], universal_newlines=True)
+    out.zfill(3)
+    subprocess.check_output(["echo"], text=True, **kw).isdecimal()
+
+
+def output_unknown(flag: bool, kw: dict) -> None:
+    subprocess.check_output(["echo"], text=flag).upper()
+    subprocess.check_output(["echo"], **kw).upper()
+    out = subprocess.check_output(["echo"], -1)
+    out.upper()
+
+
+def output_assigned() -> None:
+    out = subprocess.check_output(["echo"])
+    out.decode()
+
+
+def hashed_assigned(data: bytes) -> None:
+    digest = hashlib.sha256(data)
+    digest.hexdigest()
+
+
+def run_assigned() -> None:
+    completed = subprocess.run(["echo"])
+    completed.check_returncode()
+
+
+def output_shadowed(subprocess) -> None:
+    subprocess.check_output(["echo"]).upper()
+    out = subprocess.check_output(["echo"])
+    out.upper()
+
+
+def output_rebound(make: Any) -> None:
+    check_output = make()
+    out = check_output(["echo"])
+    out.upper()
 """
 
 
@@ -315,6 +364,14 @@ def test_a_guessed_callee_types_nothing(resolutions):
         ("stamped", "extsym:builtins.str.replace"),
         ("assigned_chain", "extsym:builtins.str.lower"),
         ("assigned_chain", "extsym:builtins.list.append"),
+        ("output_bytes", "extsym:builtins.bytes.decode"),
+        ("output_text", "extsym:builtins.str.casefold"),
+        ("output_text", "extsym:builtins.str.zfill"),
+        ("output_text", "extsym:builtins.str.isdecimal"),
+        # The type analyzer reads the same table for an assigned call.
+        ("output_assigned", "extsym:builtins.bytes.decode"),
+        ("hashed_assigned", "extsym:_hashlib.HASH.hexdigest"),
+        ("run_assigned", "extsym:subprocess.CompletedProcess.check_returncode"),
     ],
 )
 def test_documented_returns_type_the_next_call(resolutions, name, target):
@@ -462,8 +519,8 @@ def test_a_with_block_binds_unconditionally(resolutions):
 
 
 def test_no_callee_types_a_value_it_does_not_return(resolutions):
-    # check_output returns str with text=True and bytes without, so it has no
-    # entry; NamedTemporaryFile and SubElement are functions capitalised like
+    # check_output returns str with text=True, which has no decode;
+    # NamedTemporaryFile and SubElement are functions capitalised like
     # classes, so their calls do not construct themselves.
     assert not any(
         target.startswith("extsym:builtins.bytes.")
@@ -522,3 +579,65 @@ def test_a_display_iterates_the_type_its_elements_share(resolutions):
     assert ("extsym:pathlib.Path.exists", "external_receiver_type") not in (
         resolutions.get("mixed_elements", set())
     )
+
+
+def test_check_output_types_by_text_mode_or_not_at_all(resolutions):
+    # Text mode is unknown when a keyword is not a constant, a ** argument may
+    # set it, or a second positional argument reaches universal_newlines.
+    typed = {"builtin_receiver_type", "external_receiver_type", "receiver_type"}
+    for name in ("output_unknown", "output_shadowed", "output_rebound"):
+        assert not any(
+            strategy in typed for _, strategy in resolutions.get(name, set())
+        ), (name, sorted(resolutions.get(name, set())))
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        ('f(["a"])', "builtin:bytes"),
+        ('f(args=["a"])', "builtin:bytes"),
+        ('f(["a"], text=True)', "builtin:str"),
+        ('f(["a"], universal_newlines=1)', "builtin:str"),
+        ('f(["a"], encoding="utf-8")', "builtin:str"),
+        ('f(["a"], errors="strict")', "builtin:str"),
+        ('f(["a"], text=False, encoding=None)', "builtin:bytes"),
+        ('f(["a"], encoding="")', "builtin:bytes"),
+        ('f(["a"], input=b"x", timeout=1)', "builtin:bytes"),
+        ('f(["a"], text=flag)', None),
+        ('f(["a"], **kw)', None),
+        ("f(*args)", None),
+        ('f(["a"], -1)', None),
+        ('f(["a"], text=True, **kw)', "builtin:str"),
+        ('f(["a"], -1, text=True)', "builtin:str"),
+        ('f(["a"], text=flag, encoding="utf-8")', "builtin:str"),
+    ],
+)
+def test_check_output_return_follows_its_text_keywords(call, expected):
+    returned = function_return_type(
+        "subprocess.check_output", ast.parse(call, mode="eval").body
+    )
+    assert (returned or {}).get("type_id") == expected
+
+
+@pytest.mark.parametrize(
+    "keywords",
+    [
+        {},
+        {"text": True},
+        {"universal_newlines": 1},
+        {"encoding": "utf-8"},
+        {"errors": "strict"},
+        {"text": False, "encoding": None},
+        {"encoding": ""},
+    ],
+)
+def test_check_output_rule_matches_the_runtime(keywords):
+    call = "f(['a'], " + ", ".join(f"{k}={v!r}" for k, v in keywords.items()) + ")"
+    returned = subprocess.check_output([sys.executable, "-c", ""], **keywords)
+    expected = function_return_type(
+        "subprocess.check_output", ast.parse(call, mode="eval").body
+    )
+    assert expected == {
+        "type_id": "builtin:" + type(returned).__name__,
+        "type_expression": type(returned).__name__,
+    }

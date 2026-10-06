@@ -147,7 +147,8 @@ METHOD_RETURN_TYPES: dict[tuple[str, str], tuple[str, str | None]] = {
 # Standard library functions and class methods whose documented return does not
 # depend on their arguments, by qualified name. A function whose result type
 # follows its input, such as re.sub, or that may return None, such as
-# os.environ.get, has no entry.
+# os.environ.get, has no entry; subprocess.check_output, whose return its
+# keywords decide, is read from its call (see _ARGUMENT_DEPENDENT_RETURNS).
 _OPENSSL_HASHES = ("md5", "sha1", "sha224", "sha256", "sha384", "sha512")
 FUNCTION_RETURN_TYPES: dict[str, tuple[str, str | None]] = {
     **{f"hashlib.{name}": ("extsym:_hashlib.HASH", None) for name in _OPENSSL_HASHES},
@@ -486,14 +487,53 @@ def method_return_type(owner: str, method: str) -> dict[str, Any] | None:
     return ref
 
 
-def function_return_type(qualname: str) -> dict[str, Any] | None:
-    """The documented return of the external function ``qualname``."""
+def function_return_type(qualname: str, call: ast.Call) -> dict[str, Any] | None:
+    """The documented return of the external function ``qualname`` at ``call``."""
 
-    returned = FUNCTION_RETURN_TYPES.get(qualname)
-    if returned is None:
-        return None
-    type_id, _ = returned
+    reader = _ARGUMENT_DEPENDENT_RETURNS.get(qualname)
+    type_id = reader(call) if reader is not None else None
+    if type_id is None:
+        returned = FUNCTION_RETURN_TYPES.get(qualname)
+        if returned is None:
+            return None
+        type_id, _ = returned
     return {"type_id": type_id, "type_expression": type_id.split(":", 1)[1]}
+
+
+# Popen runs in text mode when any of these is true, and check_output then
+# returns str; otherwise it returns bytes.
+_TEXT_MODE_KEYWORDS = frozenset({"encoding", "errors", "text", "universal_newlines"})
+
+
+def _check_output_return(call: ast.Call) -> str | None:
+    """str or bytes by the call's text-mode keywords, or None if unknown.
+
+    Only constant keyword values are read. A second positional argument, which
+    reaches Popen's positional universal_newlines, or a ``*`` or ``**``
+    argument leaves the type unknown unless a constant already makes it str.
+    """
+
+    truths: list[bool | None] = []
+    if len(call.args) > 1 or any(isinstance(a, ast.Starred) for a in call.args):
+        truths.append(None)
+    for keyword in call.keywords:
+        if keyword.arg is None:
+            truths.append(None)
+        elif keyword.arg in _TEXT_MODE_KEYWORDS:
+            value = keyword.value
+            truths.append(
+                bool(value.value) if isinstance(value, ast.Constant) else None
+            )
+    if True in truths:
+        return "builtin:str"
+    if None in truths:
+        return None
+    return "builtin:bytes"
+
+
+# Functions whose documented return type depends on their arguments, read from
+# the call; FUNCTION_RETURN_TYPES has no entry for them.
+_ARGUMENT_DEPENDENT_RETURNS = {"subprocess.check_output": _check_output_return}
 
 
 def type_id_of_qualname(qualname: str) -> str:

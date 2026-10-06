@@ -11,6 +11,7 @@ from arcgraph.analyzers.exports import exported_class
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
     PATH_TYPE_IDS,
+    function_return_type,
     mapping_default,
     mapping_value_type,
     may_be_path_segment,
@@ -1586,6 +1587,15 @@ class _TypeContext:
                     strategy="constructor",
                     source_expression=self._unparse(node),
                 )
+            documented = self._external_function_return_type(
+                node, func_name, scope_node
+            )
+            if documented is not None:
+                return self._value_type_record(
+                    documented,
+                    strategy="external_function_return",
+                    source_expression=self._unparse(node),
+                )
 
         if isinstance(node.func, ast.Attribute):
             receiver = (
@@ -1675,6 +1685,35 @@ class _TypeContext:
                     source_expression=self._unparse(node),
                 )
         return None
+
+    def _external_function_return_type(
+        self,
+        node: ast.Call,
+        func_name: str,
+        scope_node: Node | None,
+    ) -> _ResolvedType | None:
+        """The documented return of an imported standard library function, as
+        the call analyzer reads the same call."""
+
+        if not self._is_external_alias(func_name):
+            return None
+        if scope_node is not None:
+            # The name must still be the import: a parameter or an assignment
+            # of the same name, or an import under a condition, gives no type.
+            root = self.lexical.root_name(func_name)
+            found = self.lexical.lookup(scope_node, root) if root else None
+            if (
+                found is None
+                or not self.lexical.stable(*found)
+                or found[1][0].get("kind") != "import_alias"
+            ):
+                return None
+        returned = function_return_type(
+            self._resolve_alias(func_name, use_imports=True), node
+        )
+        if returned is None:
+            return None
+        return self._resolved_type_from_record(returned)
 
     def _external_method_return_type(
         self,

@@ -1002,6 +1002,8 @@ class CallAnalyzer:
             return self._type_ref_from_target(
                 resolved.target,
                 context,
+                node,
+                imported=self._bound_by_import(source, node.func, context),
                 guessed=resolved.strategy in _NAME_GUESS_STRATEGIES,
             )
 
@@ -1433,7 +1435,9 @@ class CallAnalyzer:
         self,
         target: Node,
         context: _CallResolutionContext,
+        call: ast.Call,
         *,
+        imported: bool,
         guessed: bool = False,
     ) -> dict[str, Any] | None:
         if target.kind == "class":
@@ -1452,7 +1456,11 @@ class CallAnalyzer:
                 return None
             qualname = target.qualname or target.id.removeprefix("extsym:")
             owner, _, method = qualname.rpartition(".")
-            documented = function_return_type(qualname) or (
+            # A documented function return is read only through a name that is
+            # still its import, as the type analyzer reads an assigned call.
+            documented = (
+                function_return_type(qualname, call) if imported else None
+            ) or (
                 method_return_type(type_id_of_qualname(owner), method)
                 if owner
                 else None
@@ -1478,6 +1486,20 @@ class CallAnalyzer:
                 "strategy": "external_symbol",
             }
         return context.return_type_by_target.get(target.id)
+
+    def _bound_by_import(
+        self, source: Node, func: ast.expr, context: _CallResolutionContext
+    ) -> bool:
+        """Whether the root name of ``func`` is a stable import where it is
+        called, not a parameter or an assignment of the same name."""
+
+        root = context.lexical.root_name(self._unparse(func))
+        found = context.lexical.lookup(source, root) if root else None
+        return (
+            found is not None
+            and context.lexical.stable(*found)
+            and found[1][0].get("kind") == "import_alias"
+        )
 
     @staticmethod
     def _is_external_class(qualname: str) -> bool:
