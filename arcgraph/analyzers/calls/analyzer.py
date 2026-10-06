@@ -368,6 +368,7 @@ class CallAnalyzer:
             callsite,
             context.by_name,
             context.by_qualname,
+            after_v2=self.enable_v2,
         )
         if target is None:
             return None
@@ -436,6 +437,11 @@ class CallAnalyzer:
                     candidate_count=1,
                     receiver_expression=receiver_expression,
                 )
+            parent_method = self._super_method_target(
+                source, receiver_expression, attribute, context
+            )
+            if parent_method is not None:
+                return parent_method
 
             ast_visitor_target = self._ast_node_visitor_method_target(
                 source,
@@ -812,10 +818,23 @@ class CallAnalyzer:
         if "." in raw_name:
             return None
 
+        builtin_target = self._builtin_function_target(raw_name)
+        if builtin_target is not None and (
+            self._module_qualname(source) not in context.star_import_modules
+        ):
+            # A bare name that is neither defined, nor imported, nor bound in
+            # this module is the builtin, however many symbols elsewhere in the
+            # project share the name; only a star import could bring another.
+            return _ResolvedCallTarget(
+                target=builtin_target,
+                strategy="builtin_function",
+                candidate_count=1,
+                confidence="confirmed",
+                edge_kind="uses",
+            )
         candidates = context.by_name.get(raw_name, [])
         if len(candidates) == 1:
             return self._resolved_name_target(candidates[0], "unique_short_name")
-        builtin_target = self._builtin_function_target(raw_name)
         if builtin_target is not None:
             return _ResolvedCallTarget(
                 target=builtin_target,
@@ -1142,6 +1161,24 @@ class CallAnalyzer:
     ) -> _ResolvedCallTarget | None:
         if isinstance(node.func, ast.Attribute):
             receiver_expression = self._unparse(node.func.value)
+            # The same rules as a call at the top of an expression, so that
+            # self.factory().method() reads the factory's return type.
+            if receiver_expression in {"self", "cls"}:
+                same_class = self._resolve_same_class_method(
+                    source, node.func.attr, context
+                )
+                if same_class is not None:
+                    return _ResolvedCallTarget(
+                        target=same_class,
+                        strategy="same_class_receiver",
+                        candidate_count=1,
+                        receiver_expression=receiver_expression,
+                    )
+            parent_method = self._super_method_target(
+                source, receiver_expression, node.func.attr, context
+            )
+            if parent_method is not None:
+                return parent_method
             receiver_type = self._receiver_type_ref(
                 source, receiver_expression, context
             )
@@ -1161,6 +1198,17 @@ class CallAnalyzer:
                     receiver_type=self._type_id(receiver_type),
                     receiver_type_ref_id=self._type_ref_id(receiver_type),
                 )
+            if receiver_type is None:
+                class_attribute = self._resolve_class_attribute_method(
+                    receiver_expression, node.func.attr, context
+                )
+                if class_attribute is not None:
+                    return _ResolvedCallTarget(
+                        target=class_attribute,
+                        strategy="class_attribute_method",
+                        candidate_count=1,
+                        receiver_expression=receiver_expression,
+                    )
             builtin_target = self._builtin_method_target(receiver_type, node.func.attr)
             if builtin_target is not None:
                 return _ResolvedCallTarget(
@@ -1269,18 +1317,27 @@ class CallAnalyzer:
         )
 
     def _inherited_method_target(
-        self, ref: dict[str, Any] | None, method: str, context: _CallResolutionContext
+        self,
+        ref: dict[str, Any] | None,
+        method: str,
+        context: _CallResolutionContext,
+        *,
+        skip_own: bool = False,
     ) -> Node | None:
+        """The method a class inherits through its single base chain; with
+        ``skip_own``, the one ``super()`` reaches past the class's own."""
+
         current = context.by_id.get(self._type_id(ref) or "")
         seen: set[str] = set()
         while (
             current is not None and current.kind == "class" and current.id not in seen
         ):
+            own = skip_own and not seen
             seen.add(current.id)
             class_bindings: list[dict[str, Any]] = current.properties.get(
                 "bindings", []
             )
-            if any(b.get("name") == method for b in class_bindings):
+            if not own and any(b.get("name") == method for b in class_bindings):
                 return None
             bases: list[str] = current.properties.get("bases", [])
             if len(bases) != 1:
@@ -3031,6 +3088,8 @@ class CallAnalyzer:
         callsite: dict[str, Any],
         by_name: dict[str, list[Node]],
         by_qualname: dict[str, Node],
+        *,
+        after_v2: bool = False,
     ) -> Node | None:
         raw_name = callsite.get("name")
         if not isinstance(raw_name, str) or not raw_name:
@@ -3047,15 +3106,29 @@ class CallAnalyzer:
                 if target:
                     return target
 
+        exact_target = by_qualname.get(raw_name)
+        if exact_target and not (receiver_expression and exact_target.id == source.id):
+            return exact_target
+        if (
+            after_v2
+            and receiver_expression
+            and receiver_expression
+            not in {
+                "self",
+                "cls",
+            }
+        ):
+            # Receiver resolution has found no target for this method call,
+            # and its name alone does not say which function it is:
+            # item["targets"].add() is not the one function named add in this
+            # module or in the project. Legacy mode keeps its name matching.
+            return None
+
         same_module_target = self._resolve_same_module(source, raw_name, by_name)
         if same_module_target and not (
             receiver_expression and same_module_target.id == source.id
         ):
             return same_module_target
-
-        exact_target = by_qualname.get(raw_name)
-        if exact_target and not (receiver_expression and exact_target.id == source.id):
-            return exact_target
 
         if "." in raw_name:
             return None
@@ -3069,6 +3142,32 @@ class CallAnalyzer:
         if len(candidates) == 1:
             return candidates[0]
         return None
+
+    def _super_method_target(
+        self,
+        source: Node,
+        receiver_expression: str,
+        method: str,
+        context: _CallResolutionContext,
+    ) -> _ResolvedCallTarget | None:
+        """``super().method()`` in a method: the parent class's method."""
+
+        if receiver_expression != "super()" or source.kind != "method":
+            return None
+        class_node = context.by_qualname.get(self._class_qualname(source) or "")
+        if class_node is None or class_node.kind != "class":
+            return None
+        target = self._inherited_method_target(
+            {"type_id": class_node.id}, method, context, skip_own=True
+        )
+        if target is None:
+            return None
+        return _ResolvedCallTarget(
+            target=target,
+            strategy="super_receiver",
+            candidate_count=1,
+            receiver_expression=receiver_expression,
+        )
 
     def _resolve_same_class_method(
         self,

@@ -26,7 +26,7 @@ SOURCE = """import datetime
 import hashlib
 import json
 from pathlib import Path, PosixPath, PurePosixPath
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import select
 
@@ -127,6 +127,89 @@ def untyped_elements(rules: list[str] | None) -> None:
 def constructed_set() -> None:
     set().add(1)
     set().mkdir()
+
+
+class Accumulator:
+    def add(self, value: int) -> None:
+        pass
+
+
+def stored_set(item: dict[str, Any]) -> None:
+    item["targets"].add("x")
+
+
+class Service:
+    def get_view(self, plan_id: str) -> str:
+        return plan_id
+
+
+class Group:
+    def _service(self) -> Service:
+        return Service()
+
+    def plan(self) -> str:
+        return self._service().get_view("p")
+
+    def plan_assigned(self) -> str:
+        service = self._service()
+        return service.get_view("p")
+
+
+class ChildGroup(Group):
+    def _service(self) -> Service:
+        return Service()
+
+    def parent_plan(self) -> str:
+        return super()._service().get_view("p")
+
+
+class Base:
+    def explain(self) -> str:
+        return ""
+
+
+class Probe(Base):
+    def explain(self) -> str:
+        return super().explain()
+
+
+class Failure(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+class Reader:
+    @classmethod
+    def open(cls, path: str) -> "Reader":
+        return cls()
+
+    def diagnostics(self) -> list:
+        return []
+
+
+def read_back() -> list:
+    return Reader.open("x").diagnostics()
+
+
+class Resolution:
+    def to_dict(self) -> dict:
+        return {}
+
+
+class Engine:
+    def _scope(self, conn: Any) -> tuple[list[str], Optional[Resolution]]:
+        return [], None
+
+    def in_with(self) -> object:
+        with open("x") as conn:
+            ids, resolution = self._scope(conn)
+            return resolution.to_dict() if resolution else None
+
+    def in_branch(self, flag: bool) -> object:
+        if flag:
+            ids, resolution = self._scope(None)
+            return resolution.to_dict()
+        return None
 
 
 def path_mkdir(path: Path) -> None:
@@ -303,3 +386,43 @@ def test_a_builtin_constructor_gives_a_builtin_type(resolutions):
     assert ("extsym:builtins.set.add", "builtin_receiver_type") in constructed
     # A set has no mkdir; as an external symbol it accepted any method name.
     assert not any(target.endswith(".mkdir") for target, _ in constructed)
+
+
+def test_a_method_on_a_value_is_not_found_by_its_name_alone(resolutions):
+    # item["targets"] is of no type; add is not the one add of the project.
+    assert "method:lab.Accumulator.add" not in _targets(resolutions, "stored_set")
+
+
+@pytest.mark.parametrize(
+    ("name", "target", "strategy"),
+    [
+        ("plan", "method:lab.Service.get_view", "receiver_type"),
+        ("plan_assigned", "method:lab.Service.get_view", "receiver_type"),
+        ("explain", "method:lab.Base.explain", "super_receiver"),
+        ("parent_plan", "method:lab.Group._service", "super_receiver"),
+        ("parent_plan", "method:lab.Service.get_view", "receiver_type"),
+        ("read_back", "method:lab.Reader.diagnostics", "receiver_type"),
+    ],
+)
+def test_project_methods_resolve_through_their_class(
+    resolutions, name, target, strategy
+):
+    assert (target, strategy) in resolutions.get(name, set()), sorted(
+        resolutions.get(name, set())
+    )
+
+
+def test_super_of_an_external_base_names_no_builtins_super(resolutions):
+    assert not any(
+        target.startswith("extsym:builtins.super.")
+        for target in _targets(resolutions, "__init__")
+    )
+
+
+def test_a_with_block_binds_unconditionally(resolutions):
+    # A with block runs its body like the function around it, so a value bound
+    # there is available to a later call in it; one bound under an if is not.
+    assert ("method:lab.Resolution.to_dict", "receiver_type") in resolutions.get(
+        "in_with", set()
+    )
+    assert "method:lab.Resolution.to_dict" not in _targets(resolutions, "in_branch")

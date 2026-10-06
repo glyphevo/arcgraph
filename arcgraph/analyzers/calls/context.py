@@ -62,6 +62,17 @@ class _CallResolutionContext:
         self.module_import_aliases_by_path: dict[str, dict[str, str]] = {}
         self._build_type_indexes(nodes)
         self._build_binding_indexes(nodes)
+        # Modules with ``from m import *``, through which any name may arrive.
+        self.star_import_modules = {
+            node.qualname
+            for node in nodes
+            if node.kind == "module"
+            and node.qualname
+            and any(
+                isinstance(binding, dict) and binding.get("kind") == "star_import"
+                for binding in node.properties.get("bindings", [])
+            )
+        }
         self.lexical = LexicalScopes(nodes, self.scope_type_refs)
 
     def type_ref_at(self, source: Node, name: str) -> dict[str, Any] | None:

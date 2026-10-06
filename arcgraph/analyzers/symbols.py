@@ -234,9 +234,7 @@ class SymbolAnalyzer:
             "async": isinstance(stmt, ast.AsyncFunctionDef),
             "decorators": self._decorators(stmt.decorator_list),
             "params": self._params(stmt.args),
-            "scope_body_positions": [
-                [child.lineno, child.col_offset] for child in stmt.body
-            ],
+            "scope_body_positions": _unconditional_positions(stmt.body),
             "returns": self._unparse(stmt.returns) if stmt.returns else None,
             "callsites": list(self._callsites(stmt)),
         }
@@ -315,6 +313,23 @@ class SymbolAnalyzer:
             return ast.unparse(node)
         except Exception:
             return node.__class__.__name__
+
+
+def _unconditional_positions(statements: list[ast.stmt]) -> list[list[int]]:
+    """The statements of a body that run whenever the body does.
+
+    A with block runs its body in order like the function around it; if its
+    context manager swallows an exception, later code can find a name unbound,
+    but never bound to another value. Statements under if, for, while, try and
+    match may not run, and are left out.
+    """
+
+    positions: list[list[int]] = []
+    for child in statements:
+        positions.append([child.lineno, child.col_offset])
+        if isinstance(child, (ast.With, ast.AsyncWith)):
+            positions.extend(_unconditional_positions(child.body))
+    return positions
 
 
 class _ScopedCallsiteVisitor(ast.NodeVisitor):

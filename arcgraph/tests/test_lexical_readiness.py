@@ -217,3 +217,43 @@ def test_builtin_methods_cover_every_public_method():
             and method not in methods
         )
         assert missing == [], name
+
+
+def test_bare_builtin_wins_over_a_unique_name_elsewhere(tmp_path):
+    from pathlib import Path
+
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = Path(tmp_path) / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "helpers.py").write_text(
+        "def format(value):\n    return value\n", encoding="utf-8"
+    )
+    (package / "plain.py").write_text(
+        "def use():\n    return format(1)\n", encoding="utf-8"
+    )
+    (package / "starred.py").write_text(
+        "from pkg.helpers import *\n\n\ndef use():\n    return format(1)\n",
+        encoding="utf-8",
+    )
+    output = Path(tmp_path) / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+    ).build()
+    targets = {
+        edge.source: edge.target
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.source.endswith(".use")
+        and edge.resolution.status == "resolved"
+        and (edge.properties.get("callsite") or edge.properties.get("callsites"))
+    }
+    # plain.py neither defines nor imports format, so the call is the builtin,
+    # not the one function of that name elsewhere in the project; a star
+    # import can bring the project's own.
+    assert targets["fn:pkg.plain.use"] == "extsym:builtins.format"
+    assert targets["fn:pkg.starred.use"] == "fn:pkg.helpers.format"

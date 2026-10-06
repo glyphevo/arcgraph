@@ -1556,6 +1556,17 @@ class _TypeContext:
             )
             if receiver is None:
                 receiver = self._class_reference_value(node.func.value)
+            if (
+                receiver is None
+                and scope_node is not None
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in {"self", "cls"}
+            ):
+                # self.factory() returns what the class's factory is annotated
+                # to return, as the call analyzer reads the same call.
+                class_qualname = self._class_qualname_for_scope(scope_node)
+                if class_qualname:
+                    receiver = {"type_id": f"class:{class_qualname}"}
             if receiver is not None:
                 if union_alternatives(receiver) is not None and not receiver.get(
                     "type_id"
