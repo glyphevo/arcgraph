@@ -52,6 +52,11 @@ from arcgraph.analyzers.calls.context import (
     _CallResolutionContext,
     _ResolvedCallTarget,
 )
+from arcgraph.analyzers.external_types import (
+    EXTERNAL_METHOD_RETURN_TYPES,
+    PATH_TYPE_IDS,
+    may_be_path_segment,
+)
 from arcgraph.analyzers.type_unions import (
     single_value_type,
     tuple_element_type,
@@ -816,6 +821,10 @@ class CallAnalyzer:
                 )
                 if field is not None:
                     return field
+            if node.attr == "parent":
+                parent = self._path_value_type_ref(receiver_type, "path_parent")
+                if parent is not None:
+                    return parent
             if scoped_root is not None:
                 return unknown_union_result(full_name)
             return None
@@ -833,6 +842,11 @@ class CallAnalyzer:
                 receiver_ref = self._receiver_type_ref_node(
                     source, node.func.value, context
                 )
+                documented = self._external_method_return_type_ref(
+                    receiver_ref, node.func.attr
+                )
+                if documented is not None:
+                    return documented
                 value = single_value_type(receiver_ref) if receiver_ref else {}
                 if value.get("type_id") in {
                     "typing:Mapping",
@@ -869,7 +883,73 @@ class CallAnalyzer:
                 return None
             return self._type_ref_from_target(resolved.target, context)
 
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            left = self._receiver_type_ref_node(source, node.left, context)
+            if self._type_id(left) in PATH_TYPE_IDS and may_be_path_segment(
+                node.right,
+                lambda operand: self._receiver_type_ref_node(source, operand, context),
+            ):
+                return self._path_value_type_ref(left, "path_join")
+            return None
+
         return None
+
+    @classmethod
+    def _path_value_type_ref(
+        cls,
+        receiver: dict[str, Any] | None,
+        strategy: str,
+    ) -> dict[str, Any] | None:
+        """A path derived from ``receiver``, of the same pathlib flavour."""
+
+        # A union such as ``Path | None`` does not say which member is used.
+        if not receiver or union_alternatives(receiver) is not None:
+            return None
+        type_id = cls._type_id(receiver)
+        if type_id is None or type_id not in PATH_TYPE_IDS:
+            return None
+        return cls._derived_type_ref(receiver, type_id, strategy)
+
+    @classmethod
+    def _external_method_return_type_ref(
+        cls,
+        receiver: dict[str, Any] | None,
+        method_name: str,
+    ) -> dict[str, Any] | None:
+        """The documented return type of a method on a known external type."""
+
+        # A union receiver keeps the evidence rules applied to its calls.
+        if not receiver or union_alternatives(receiver) is not None:
+            return None
+        type_id = cls._type_id(receiver)
+        if type_id is None or not type_id.startswith("extsym:"):
+            return None
+        returned = EXTERNAL_METHOD_RETURN_TYPES.get(
+            (type_id.removeprefix("extsym:"), method_name)
+        )
+        if returned is None:
+            return None
+        return cls._derived_type_ref(
+            receiver, f"extsym:{returned}", "external_method_return"
+        )
+
+    @staticmethod
+    def _derived_type_ref(
+        receiver: dict[str, Any],
+        type_id: str,
+        strategy: str,
+    ) -> dict[str, Any]:
+        derived: dict[str, Any] = {
+            "type_id": type_id,
+            "type_expression": type_id.removeprefix("extsym:"),
+            "strategy": strategy,
+        }
+        # A derived value keeps its receiver's evidence, as a subscript does.
+        if receiver.get("typed_value_evidence"):
+            derived["typed_value_evidence"] = True
+        if isinstance(receiver.get("type_ref_id"), str):
+            derived["type_ref_id"] = receiver["type_ref_id"]
+        return derived
 
     @staticmethod
     def _subscript_value_type_ref(
