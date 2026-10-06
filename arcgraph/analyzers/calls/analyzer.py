@@ -54,6 +54,7 @@ from arcgraph.analyzers.calls.context import (
     _ResolvedCallTarget,
 )
 from arcgraph.analyzers.external_types import (
+    EXTERNAL_METHODS_BY_TYPE,
     LOWERCASE_STDLIB_CLASSES,
     PATH_TYPE_IDS,
     function_return_type,
@@ -471,6 +472,12 @@ class CallAnalyzer:
             )
             if typed_target is not None:
                 return typed_target
+            if self._known_type_lacks_method(
+                source, receiver_expression, attribute, context
+            ):
+                # The receiver's type is known to have no such method, so no
+                # guess from the method's name may stand in for it.
+                return self._generated_dynamic_target(source, callsite, context)
 
             receiver_name_target = self._receiver_name_boundary_method_target(
                 source,
@@ -1180,6 +1187,10 @@ class CallAnalyzer:
                     receiver_type=self._type_id(receiver_type),
                     receiver_type_ref_id=self._type_ref_id(receiver_type),
                 )
+            if self._known_type_lacks_method(
+                source, receiver_expression, node.func.attr, context
+            ):
+                return None
             receiver_name_target = self._receiver_name_boundary_method_target(
                 source,
                 receiver_expression,
@@ -1395,6 +1406,14 @@ class CallAnalyzer:
                 # no known type. Taking the callee itself as that type named
                 # targets that do not exist, such as builtins.dict.get.get.
                 return None
+            if qualname.startswith("builtins."):
+                # set() is a builtin set, whose methods the builtin lists know,
+                # not an external symbol that would accept any method name.
+                return {
+                    "type_id": type_id_of_qualname(qualname),
+                    "type_expression": qualname.removeprefix("builtins."),
+                    "strategy": "constructor",
+                }
             return {
                 "type_id": target.id,
                 "type_expression": target.qualname or target.name,
@@ -1665,6 +1684,25 @@ class CallAnalyzer:
         ).lower()
         return "logger" in receiver_type
 
+    def _known_type_lacks_method(
+        self,
+        source: Node,
+        receiver_expression: str,
+        method_name: str,
+        context: _CallResolutionContext,
+    ) -> bool:
+        receiver_type = self._receiver_type_ref(source, receiver_expression, context)
+        if union_alternatives(receiver_type) is not None:
+            return False
+        type_id = self._type_id(receiver_type)
+        if type_id is None:
+            return False
+        if type_id.startswith("builtin:"):
+            known = BUILTIN_METHODS_BY_TYPE.get(type_id.removeprefix("builtin:"))
+        else:
+            known = EXTERNAL_METHODS_BY_TYPE.get(type_id)
+        return known is not None and method_name not in known
+
     def _external_method_target(
         self,
         type_ref: dict[str, Any] | None,
@@ -1672,6 +1710,10 @@ class CallAnalyzer:
     ) -> Node | None:
         type_id = self._type_id(type_ref)
         if not type_id or not type_id.startswith("extsym:"):
+            return None
+        known = EXTERNAL_METHODS_BY_TYPE.get(type_id)
+        if known is not None and method_name not in known:
+            # The type is known not to have the method.
             return None
         qualname = f"{type_id.removeprefix('extsym:')}.{method_name}"
         return Node(

@@ -15,6 +15,7 @@ import inspect
 import pytest
 
 from arcgraph.analyzers.external_types import (
+    EXTERNAL_METHODS_BY_TYPE,
     FUNCTION_RETURN_TYPES,
     LOWERCASE_STDLIB_CLASSES,
     METHOD_RETURN_TYPES,
@@ -100,6 +101,36 @@ def any_connection(conn: Any) -> None:
 
 def any_value(value: Any) -> None:
     value.get("a").strip()
+
+
+def pure_mkdir(pure: PurePosixPath) -> None:
+    pure.mkdir()
+
+
+def pure_parent_mkdir(pure: PurePosixPath) -> None:
+    pure.parent.mkdir()
+
+
+def str_mkdir(text: str) -> None:
+    text.mkdir()
+
+
+def str_named_conn(conn: str) -> None:
+    conn.execute("SELECT 1").fetchall()
+
+
+def untyped_elements(rules: list[str] | None) -> None:
+    for rule in tuple(rules or ()):
+        rule.endswith("/")
+
+
+def constructed_set() -> None:
+    set().add(1)
+    set().mkdir()
+
+
+def path_mkdir(path: Path) -> None:
+    path.mkdir()
 
 
 def select_statement(model: type) -> None:
@@ -226,3 +257,49 @@ def test_any_names_no_type(resolutions):
         ), name
     # With Any read as no type, conn keeps the database boundary its name gives.
     assert "extsym:dbapi.Cursor.fetchone" in _targets(resolutions, "any_connection")
+
+
+def test_a_known_type_without_the_method_links_nothing(resolutions):
+    # A pure path has no mkdir and a str none either; no target, and no guess
+    # from the method name, stands in for it.
+    for name in ("pure_mkdir", "pure_parent_mkdir", "str_mkdir"):
+        assert not any(
+            target.endswith(".mkdir") for target in _targets(resolutions, name)
+        ), name
+    assert ("extsym:pathlib.Path.mkdir", "external_receiver_type") in (
+        resolutions.get("path_mkdir", set())
+    )
+    # Nor does a name: a str called conn has no execute, so it is not taken
+    # for a database connection, and its result is no cursor.
+    assert not any(
+        target.startswith("extsym:dbapi.")
+        for target in _targets(resolutions, "str_named_conn")
+    )
+
+
+def test_external_methods_cover_every_public_method():
+    for type_id, methods in EXTERNAL_METHODS_BY_TYPE.items():
+        module_name, _, name = type_id.removeprefix("extsym:").rpartition(".")
+        external_type = getattr(importlib.import_module(module_name), name)
+        missing = sorted(
+            method
+            for method in dir(external_type)
+            if not method.startswith("_")
+            and callable(getattr(external_type, method))
+            and method not in methods
+        )
+        assert missing == [], type_id
+
+
+def test_an_element_of_unknown_type_is_not_its_container(resolutions):
+    # tuple(...) has no element type, so rule is untyped and endswith is left
+    # to the fallbacks an untyped receiver has; it was typed as the tuple
+    # itself, which has no endswith, and lost the call.
+    assert "extsym:builtins.str.endswith" in _targets(resolutions, "untyped_elements")
+
+
+def test_a_builtin_constructor_gives_a_builtin_type(resolutions):
+    constructed = resolutions.get("constructed_set", set())
+    assert ("extsym:builtins.set.add", "builtin_receiver_type") in constructed
+    # A set has no mkdir; as an external symbol it accepted any method name.
+    assert not any(target.endswith(".mkdir") for target, _ in constructed)

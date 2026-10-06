@@ -414,6 +414,11 @@ class TypeRefAnalyzer:
             iterated = self._iterated_type_source(source)
             if iterated is not None:
                 source = iterated
+            elif binding.get("kind") == "for_target":
+                # An element of a container of unknown element type has no
+                # known type; it is not the container, which typed the loop
+                # variable of for path in (*a, *b) as a tuple.
+                return None
             elif binding.get("kind") == "comprehension_target":
                 untyped_comprehension = (
                     untyped_comprehension or union_alternatives(source) is None
