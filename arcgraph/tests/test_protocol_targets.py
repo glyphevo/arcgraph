@@ -42,7 +42,7 @@ def test_each_guessed_database_method_is_its_protocol_class_s():
     ("call", "target"),
     [
         ("conn.execute('select 1')", "protocol:pep249.Cursor.execute"),
-        ("conn.fetchone()", "protocol:pep249.Cursor.fetchone"),
+        ("db_cursor.fetchone()", "protocol:pep249.Cursor.fetchone"),
         ("conn.commit()", "protocol:pep249.Connection.commit"),
         ("conn.close()", "protocol:pep249.Connection.close"),
         ("db_cursor.close()", "protocol:pep249.Cursor.close"),
@@ -141,4 +141,55 @@ def test_a_protocol_execute_result_is_not_another_library_s():
     ]
     assert [e.properties["callsite"]["receiver_expression"] for e in fetchall] == [
         "session.execute('select 1')"
+    ]
+
+
+def test_symbol_queries_do_not_take_a_protocol_target_for_a_project_symbol(
+    tmp_path,
+):
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.core.target_resolver import TargetResolver
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = tmp_path / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "store.py").write_text(
+        "def use(conn):\n    conn.execute('select 1')\n    conn.commit()\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+    ).build()
+    store = GraphStoreReader.from_current(output)
+    assert any(n.kind == "protocol_symbol" for n in store.read_nodes())
+    resolver = TargetResolver(str(package.parents[1]))
+    with store.connect() as conn:
+        # By name, qualname, suffix or search, a protocol method is not a
+        # project symbol, as an external one is not.
+        for query in ("execute", "commit", "pep249.Cursor.execute", "Cursor.execute"):
+            assert resolver.resolve(conn, query).status != "resolved", query
+        assert not [
+            row
+            for row in resolver._suggestions(conn, "execute")
+            if str(row["id"]).startswith("protocol:")
+        ]
+        # Its own id still names it.
+        by_id = resolver.resolve(conn, "protocol:pep249.Cursor.execute")
+        assert by_id.status == "resolved"
+
+
+def test_a_connection_named_receiver_has_no_fetch_method():
+    result = CallAnalyzer(enable_v2=True).analyze(
+        _analyzed_nodes("def use(conn) -> None:\n    conn.fetchone()\n")
+    )
+    assert not [
+        e
+        for e in result.edges
+        if e.source == function_id("pkg.calls.use")
+        and e.resolution.status == "resolved"
     ]

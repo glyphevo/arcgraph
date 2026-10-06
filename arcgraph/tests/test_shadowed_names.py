@@ -127,7 +127,7 @@ def comprehension(items: list) -> None:
 
 
 def unhidden_param(conn) -> None:
-    conn.fetchone()
+    conn.commit()
 
 
 def unshadowed() -> None:
@@ -156,11 +156,9 @@ def test_source_parses() -> None:
     "name",
     [
         "module_param",
-        "assigned_import",
         "method_param",
         "super_param",
         "builtin_param",
-        "builtin_assigned",
         # Bound later in the body, the name is local at the call too, which
         # raises UnboundLocalError rather than calling the import.
         "assigned_after",
@@ -205,7 +203,7 @@ def test_a_typed_local_resolves_by_its_own_type(resolutions):
         ("via_alias", "method:lab.Aliases.target"),
         ("built_by_cls", "class:lab.Aliases"),
         # A parameter that hides nothing keeps the boundary its name gives.
-        ("unhidden_param", "protocol:pep249.Cursor.fetchone"),
+        ("unhidden_param", "protocol:pep249.Connection.commit"),
     ],
 )
 def test_a_name_no_local_hides_still_resolves(resolutions, name, target):
@@ -410,3 +408,100 @@ def test_the_own_receiver_is_the_class(receivers, name, target, strategy):
 def test_a_value_through_a_static_self_has_no_class_type(receivers, name):
     # The type analyzer reads self as the class only where it is the receiver.
     assert "method:lab.Other.build" not in {t for t, _ in receivers.get(name, set())}
+
+
+@pytest.mark.parametrize("name", ["assigned_import", "builtin_assigned"])
+def test_a_local_bound_to_a_name_calls_what_that_name_is(resolutions, name):
+    # join = str and len = str: the call is str's, not the import's or the
+    # builtin's that the local hides.
+    assert resolutions.get(name) == {("extsym:builtins.str", "local_callable_alias")}
+
+
+ORDER = """class Other:
+    def build(self):
+        return 1
+
+
+def helper():
+    return 1
+
+
+class Box:
+    def build(self):
+        return 2
+
+    def self_before(self):
+        self.build()
+        self = Other()
+
+    def self_after(self):
+        self = Other()
+        self.build()
+
+    @classmethod
+    def cls_as_str(cls):
+        cls = str
+        return cls()
+
+
+def param_before(x):
+    x.build()
+    x = Other()
+
+
+def local_before():
+    y.build()
+    y = Other()
+
+
+def local_after():
+    z = Other()
+    z.build()
+
+
+def alias_before():
+    run()
+    run = helper
+
+
+def alias_after():
+    run = helper
+    run()
+
+
+def alias_cycle():
+    first = second
+    second = first
+    first()
+"""
+
+
+@pytest.fixture(scope="module")
+def order(tmp_path_factory: pytest.TempPathFactory) -> dict[str, set[tuple[str, str]]]:
+    return _resolutions_by_function(tmp_path_factory.mktemp("order"), ORDER)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["self_before", "param_before", "local_before", "alias_before", "alias_cycle"],
+)
+def test_a_call_before_a_binding_is_not_read_by_it(order, name):
+    # The value a later assignment binds is not the one called before it.
+    assert not any(
+        target in {"method:lab.Other.build", "fn:lab.helper"}
+        for target, _ in order.get(name, set())
+    ), sorted(order.get(name, set()))
+
+
+@pytest.mark.parametrize(
+    ("name", "target", "strategy"),
+    [
+        ("self_after", "method:lab.Other.build", "receiver_type"),
+        ("local_after", "method:lab.Other.build", "receiver_type"),
+        ("alias_after", "fn:lab.helper", "local_callable_alias"),
+        # cls = str in a class method: cls() is str's.
+        ("cls_as_str", "extsym:builtins.str", "local_callable_alias"),
+    ],
+)
+def test_a_call_after_a_binding_is_read_by_it(order, name, target, strategy):
+    assert (target, strategy) in order.get(name, set())

@@ -89,7 +89,7 @@ class _CallResolutionContext:
             and r.get("subject_kind") == "binding"
             and not r.get("comprehension_binding")
         ]
-        if len(refs) < 2:
+        if not refs:
             return fallback
         line = self.callsite_position[1]
         recorded_bindings: list[dict[str, Any]] = source.properties.get("bindings", [])
@@ -101,11 +101,27 @@ class _CallResolutionContext:
             and (b.get("line", 0) < line or b.get("kind") == "parameter")
         ]
         if not bindings:
+            if any(
+                b.get("name") == name and b.get("line") == line
+                for b in recorded_bindings
+            ):
+                # Bound on the call's own line, as in c = Client(); c.send(),
+                # whose order there the line alone does not settle.
+                return fallback
             return unknown_union_result(name)
         latest: dict[str, Any] = max(
             bindings, key=lambda b: (b.get("line", 0), b.get("column", 0))
         )
         binding_id = latest.get("binding_id")
+        if len(refs) < 2:
+            # With one typed binding, its type stands for the name unless the
+            # value called is certainly another: an untyped parameter, as in
+            # def f(x): x.build(); x = Other(), or no binding yet. An earlier
+            # assignment of unrecorded type may still hold that type.
+            if latest.get("kind") != "parameter" or any(
+                r.get("binding_id") == binding_id for r in refs
+            ):
+                return fallback
         return next(
             (r for r in refs if r.get("binding_id") == binding_id),
             unknown_union_result(name),

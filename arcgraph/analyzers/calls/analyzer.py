@@ -1877,7 +1877,31 @@ class CallAnalyzer:
         value = self._str_or_none(matches[0].get("value"))
         if not value or value == raw_name:
             return None
+        position = context.callsite_position
+        if (
+            position is not None
+            and position[0] == source.id
+            and isinstance(matches[0].get("line"), int)
+            and matches[0]["line"] >= position[1]
+        ):
+            # Before its assignment the name is not yet the alias.
+            return None
         parsed = self._parse_expression(value)
+        if isinstance(parsed, ast.Name):
+            # helper = str: the name it is bound to, read as a bare call is,
+            # unless that name is itself a local value of this scope.
+            if self._called_local_value(source, parsed.id, context):
+                return None
+            named = self._resolve_name_target(source, parsed.id, context)
+            if named is None:
+                return None
+            return _ResolvedCallTarget(
+                target=named.target,
+                strategy="local_callable_alias",
+                candidate_count=named.candidate_count,
+                confidence=named.confidence,
+                edge_kind=named.edge_kind,
+            )
         if not isinstance(parsed, ast.Attribute):
             return None
         resolved = self._resolve_expression_target(source, parsed, context)
@@ -2218,8 +2242,13 @@ class CallAnalyzer:
             receiver_tail
         ):
             owner = DB_METHOD_OWNERS[method_name]
-            if method_name == "close" and "cursor" in receiver_tail:
+            looks_like_cursor = "cursor" in receiver_tail
+            if method_name == "close" and looks_like_cursor:
                 owner = "pep249.Cursor"
+            if method_name in {"fetchall", "fetchone"} and not looks_like_cursor:
+                # A connection has no fetch method, nor a driver shortcut for
+                # one as it has for execute.
+                return None
             return self._protocol_symbol(owner, method_name)
 
         if method_name == "add_recognizer" and receiver_tail == "registry":

@@ -177,7 +177,7 @@ class TargetResolver:
 
         exact_qualname = self._rows(
             conn,
-            "kind != 'external_symbol' AND qualname = ?",
+            "kind NOT IN ('external_symbol', 'protocol_symbol') AND qualname = ?",
             (normalized,),
             limit=self.candidate_limit + 1,
         )
@@ -207,7 +207,7 @@ class TargetResolver:
 
         exact_name = self._rows(
             conn,
-            "kind != 'external_symbol' AND name = ?",
+            "kind NOT IN ('external_symbol', 'protocol_symbol') AND name = ?",
             (normalized,),
             limit=self.candidate_limit + 1,
         )
@@ -216,7 +216,7 @@ class TargetResolver:
 
         suffix_rows = self._rows(
             conn,
-            "kind != 'external_symbol' "
+            "kind NOT IN ('external_symbol', 'protocol_symbol') "
             "AND qualname IS NOT NULL "
             "AND substr(qualname, -(length(?) + 1)) = '.' || ?",
             (normalized, normalized),
@@ -381,7 +381,7 @@ class TargetResolver:
         pattern = f"%{escaped}%"
         return self._rows(
             conn,
-            "kind != 'external_symbol' AND "
+            "kind NOT IN ('external_symbol', 'protocol_symbol') AND "
             "(name LIKE ? ESCAPE '\\' OR qualname LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')",
             (pattern, pattern, pattern),
             limit=self.candidate_limit,
