@@ -174,6 +174,49 @@ class ChildGroup(Group):
         return super()._service().get_view("p")
 
 
+class Explicit(Group):
+    def _service(self) -> Service:
+        return Service()
+
+    def explicit_plan(self) -> str:
+        return super(Explicit, self)._service().get_view("p")
+
+    @classmethod
+    def explicit_cls(cls) -> Service:
+        return super(Explicit, cls)._service()
+
+    def explicit_other_class(self) -> Service:
+        return super(Group, self)._service()
+
+    def explicit_other_object(self, other: "Explicit") -> Service:
+        return super(Explicit, other)._service()
+
+    def shadowed_super(self, super: Any) -> Service:
+        return super()._service()
+
+    def unbound_super(self) -> Service:
+        return super(Explicit)._service()
+
+    def starred_super(self, *rest: Any) -> Service:
+        return super(Explicit, *rest)._service()
+
+    def dynamic_super(self) -> Service:
+        return super(type(self), self)._service()
+
+
+class Deeper(Explicit):
+    def _service(self) -> Service:
+        return Service()
+
+    def past_explicit(self) -> Service:
+        # Past Explicit's own _service, to Group's; not past Deeper's.
+        return super(Explicit, self)._service()
+
+
+def explicit_outside(item: Explicit) -> Service:
+    return super(Explicit, item)._service()
+
+
 class Base:
     def explain(self) -> str:
         return ""
@@ -528,6 +571,14 @@ def test_a_method_on_a_value_is_not_found_by_its_name_alone(resolutions):
         ("explain", "method:lab.Base.explain", "super_receiver"),
         ("parent_plan", "method:lab.Group._service", "super_receiver"),
         ("parent_plan", "method:lab.Service.get_view", "receiver_type"),
+        # super(C, obj) reaches the method after C's own, wherever it is
+        # written and whatever obj is.
+        ("explicit_plan", "method:lab.Group._service", "super_receiver"),
+        ("explicit_plan", "method:lab.Service.get_view", "receiver_type"),
+        ("explicit_cls", "method:lab.Group._service", "super_receiver"),
+        ("explicit_other_object", "method:lab.Group._service", "super_receiver"),
+        ("past_explicit", "method:lab.Group._service", "super_receiver"),
+        ("explicit_outside", "method:lab.Group._service", "super_receiver"),
         ("read_back", "method:lab.Reader.diagnostics", "receiver_type"),
     ],
 )
@@ -697,3 +748,63 @@ def test_documented_hash_types_are_the_runtime_types():
 def test_hash_and_array_types_link_no_method_they_lack(resolutions):
     for name in ("blake_lacks", "array_lacks"):
         assert not any(t.endswith(".mkdir") for t in _targets(resolutions, name)), name
+
+
+def test_super_past_a_class_without_the_method_is_not_resolved(resolutions):
+    # super(Group, self) looks past Group, whose bases have no _service; a
+    # parameter named super is not the builtin; super(C) is unbound; a starred
+    # or computed argument names no known class.
+    for name in (
+        "explicit_other_class",
+        "shadowed_super",
+        "unbound_super",
+        "starred_super",
+        "dynamic_super",
+    ):
+        found = resolutions.get(name, set())
+        assert not any(t.startswith("method:lab.") for t, _ in found), (name, found)
+        assert not any(s == "super_receiver" for _, s in found), (name, found)
+
+
+def test_super_names_its_class_by_import_and_only_by_a_stable_binding(tmp_path):
+    from pathlib import Path
+
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = Path(tmp_path) / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "base.py").write_text(
+        "class Group:\n    def service(self):\n        return 1\n\n\n"
+        "class Child(Group):\n    def service(self):\n        return 2\n",
+        encoding="utf-8",
+    )
+    (package / "use.py").write_text(
+        "from pkg.base import Child, Group\n\n\n"
+        "class Twice(Group):\n    pass\n\n\n"
+        "class Twice(Child):\n    pass\n\n\n"
+        "def imported(item):\n    return super(Child, item).service()\n\n\n"
+        "def twice(item):\n    return super(Twice, item).service()\n",
+        encoding="utf-8",
+    )
+    output = Path(tmp_path) / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+    ).build()
+    targets = {
+        (edge.source, edge.target)
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.resolution.status == "resolved"
+    }
+    # Child is imported, and super(Child, item) reaches Group's service.
+    assert ("fn:pkg.use.imported", "method:pkg.base.Group.service") in targets
+    # Twice is defined twice on different bases, so which class it names, and
+    # so which service it reaches, is not settled.
+    assert not any(
+        source == "fn:pkg.use.twice" and target.startswith("method:")
+        for source, target in targets
+    )

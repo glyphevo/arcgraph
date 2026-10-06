@@ -3175,11 +3175,22 @@ class CallAnalyzer:
         method: str,
         context: _CallResolutionContext,
     ) -> _ResolvedCallTarget | None:
-        """``super().method()`` in a method: the parent class's method."""
+        """``super().method()`` in a method: the parent class's method;
+        ``super(C, obj).method()``: the method after C's own."""
 
-        if receiver_expression != "super()" or source.kind != "method":
+        if not receiver_expression.startswith("super("):
             return None
-        class_node = context.by_qualname.get(self._class_qualname(source) or "")
+        if context.lexical.lookup(source, "super") is not None:
+            # A local, parameter or import named super is not the builtin.
+            return None
+        if receiver_expression == "super()":
+            if source.kind != "method":
+                return None
+            class_node = context.by_qualname.get(self._class_qualname(source) or "")
+        else:
+            class_node = self._explicit_super_class(
+                source, receiver_expression, context
+            )
         if class_node is None or class_node.kind != "class":
             return None
         target = self._inherited_method_target(
@@ -3193,6 +3204,41 @@ class CallAnalyzer:
             candidate_count=1,
             receiver_expression=receiver_expression,
         )
+
+    @staticmethod
+    def _explicit_super_class(
+        source: Node,
+        receiver_expression: str,
+        context: _CallResolutionContext,
+    ) -> Node | None:
+        """The project class C of ``super(C, obj)``, looked past as ``super()``
+        looks past the class it is written in. Like ``super()``, it follows
+        C's declared bases, not the order of obj's class."""
+
+        try:
+            parsed = ast.parse(receiver_expression, mode="eval").body
+        except SyntaxError:
+            return None
+        if not (
+            isinstance(parsed, ast.Call)
+            and isinstance(parsed.func, ast.Name)
+            and len(parsed.args) == 2
+            and isinstance(parsed.args[0], ast.Name)
+            and not isinstance(parsed.args[1], ast.Starred)
+        ):
+            return None
+        found = context.lexical.lookup(source, parsed.args[0].id)
+        if found is None or not context.lexical.stable(*found):
+            return None
+        binding: dict[str, Any] = found[1][0]
+        if binding.get("kind") == "class_definition":
+            return context.by_id.get(str(binding.get("target", "")))
+        if binding.get("kind") == "import_alias":
+            qualified = str(binding.get("target_qualname", ""))
+            return context.by_id.get(
+                exported_class(qualified, context.lexical.nodes) or f"class:{qualified}"
+            )
+        return None
 
     def _resolve_same_class_method(
         self,
