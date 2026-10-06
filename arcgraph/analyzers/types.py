@@ -412,6 +412,10 @@ class TypeRefAnalyzer:
 
         if binding.get("kind") in {"for_target", "comprehension_target"}:
             iterated = self._iterated_type_source(source)
+            if iterated is None and isinstance(parsed, (ast.Tuple, ast.List, ast.Set)):
+                iterated = self._display_element_type(
+                    parsed, node, context, local_types
+                )
             if iterated is not None:
                 source = iterated
             elif binding.get("kind") == "for_target":
@@ -529,6 +533,41 @@ class TypeRefAnalyzer:
                 return unknown_union_result(expression)
             result = args[index]
         return {**result, "strategy": "tuple_element", "source_expression": expression}
+
+    def _display_element_type(
+        self,
+        display: ast.Tuple | ast.List | ast.Set,
+        scope_node: Node,
+        context: "_TypeContext",
+        local_types: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """The one type every element of a display has, a starred element
+        contributing the elements of what it unpacks: for path in (*a, *b)
+        iterates paths when a and b are tuples of paths."""
+
+        items: list[dict[str, Any]] = []
+        for element in display.elts:
+            if isinstance(element, ast.Starred):
+                container = context.resolve_scoped_value(
+                    element.value, scope_node, local_types
+                )
+                item = self._iterated_type_source(container) if container else None
+            else:
+                item = context.resolve_scoped_value(element, scope_node, local_types)
+            if (
+                not item
+                or union_alternatives(item) is not None
+                or not isinstance(item.get("type_id"), str)
+            ):
+                return None
+            items.append(item)
+        if not items or len({type_identity(item) for item in items}) != 1:
+            return None
+        element = dict(items[0])
+        element["strategy"] = "iteration_element"
+        if any(item.get("typed_value_evidence") for item in items):
+            element["typed_value_evidence"] = True
+        return element
 
     @staticmethod
     def _iterated_type_source(source: dict[str, Any]) -> dict[str, Any] | None:

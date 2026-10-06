@@ -580,7 +580,8 @@ def _values(
     if isinstance(node, ast.Lambda):
         return frozenset({("other", "true")})
     if isinstance(node, ast.Compare):
-        return _BOOL
+        outcome = _literal_comparison(node)
+        return _BOOL if outcome is None else frozenset({("int", _truth(outcome))})
     if isinstance(node, ast.UnaryOp):
         literal = _int_literal(node)
         if literal is not None:
@@ -604,6 +605,10 @@ def _values(
         return _conditional_values(node, resolve)
     if isinstance(node, ast.BoolOp):
         return _boolean_values(node, resolve)
+    if isinstance(node, ast.BinOp):
+        literal = _int_literal(node)
+        if literal is not None:
+            return frozenset({("int", _truth(literal != 0))})
     typed = _typed_values(resolve(node))
     if typed is not None:
         return typed
@@ -774,8 +779,15 @@ def _positive_int_literal(node: ast.expr) -> bool:
 
 
 def _int_literal(node: ast.expr) -> int | None:
-    """The value of an int or bool literal, with literal signs and inversions."""
+    """The value of an int expression of literals, or None.
 
+    Signs, inversions and arithmetic between int or bool literals are
+    evaluated, but a power, a product or a left shift only while it stays
+    small, so a literal such as 2 ** 10 ** 9 is not computed.
+    """
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+        return int(node.value)
     if isinstance(node, ast.UnaryOp) and isinstance(
         node.op, (ast.USub, ast.UAdd, ast.Invert)
     ):
@@ -785,9 +797,75 @@ def _int_literal(node: ast.expr) -> int | None:
         if isinstance(node.op, ast.Invert):
             return ~value
         return -value if isinstance(node.op, ast.USub) else value
-    if isinstance(node, ast.Constant) and isinstance(node.value, int):
-        return int(node.value)
+    if not isinstance(node, ast.BinOp):
+        return None
+    left, right = _int_literal(node.left), _int_literal(node.right)
+    if left is None or right is None:
+        return None
+    small = abs(left) <= 2**16 and abs(right) <= 2**16
+    op = node.op
+    if isinstance(op, ast.Add):
+        return left + right
+    if isinstance(op, ast.Sub):
+        return left - right
+    if isinstance(op, ast.Mult) and small:
+        return left * right
+    if isinstance(op, (ast.FloorDiv, ast.Mod)) and right != 0:
+        return left // right if isinstance(op, ast.FloorDiv) else left % right
+    if isinstance(op, ast.Pow) and small and 0 <= right <= 64:
+        return int(left**right)
+    if isinstance(op, ast.LShift) and small and 0 <= right <= 64:
+        return left << right
+    if isinstance(op, ast.RShift) and right >= 0:
+        return left >> right
+    if isinstance(op, ast.BitAnd):
+        return left & right
+    if isinstance(op, ast.BitOr):
+        return left | right
+    if isinstance(op, ast.BitXor):
+        return left ^ right
     return None
+
+
+_COMPARISONS: dict[type[ast.cmpop], Callable[[Any, Any], bool]] = {
+    ast.Eq: lambda a, b: a == b,
+    ast.NotEq: lambda a, b: a != b,
+    ast.Lt: lambda a, b: a < b,
+    ast.LtE: lambda a, b: a <= b,
+    ast.Gt: lambda a, b: a > b,
+    ast.GtE: lambda a, b: a >= b,
+    ast.Is: lambda a, b: a is b,
+    ast.IsNot: lambda a, b: a is not b,
+}
+
+
+def _literal_comparison(node: ast.Compare) -> bool | None:
+    """The outcome of a comparison of int, str or None literals, or None."""
+
+    operands: list[object] = []
+    for operand in (node.left, *node.comparators):
+        value = _int_literal(operand)
+        if value is not None:
+            operands.append(value)
+        elif isinstance(operand, ast.Constant) and (
+            operand.value is None or isinstance(operand.value, str)
+        ):
+            operands.append(operand.value)
+        else:
+            return None
+    outcome = True
+    for op, left, right in zip(node.ops, operands, operands[1:]):
+        compare = _COMPARISONS.get(type(op))
+        if compare is None:
+            return None
+        if isinstance(op, (ast.Is, ast.IsNot)) and not (left is None and right is None):
+            # The identity of equal ints depends on the interpreter.
+            return None
+        try:
+            outcome = outcome and compare(left, right)
+        except TypeError:
+            return None
+    return outcome
 
 
 def _binary_kind(op: ast.operator, left: str, right: str) -> str:

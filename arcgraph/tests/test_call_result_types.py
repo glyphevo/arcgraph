@@ -233,6 +233,18 @@ def int_mkdir(count: int) -> None:
     count.mkdir()
 
 
+def starred_paths(
+    directories: tuple[Path, ...], files: tuple[Path, ...], root: Path
+) -> None:
+    for path in (*directories, *files):
+        path.relative_to(root)
+
+
+def mixed_elements(root: Path) -> None:
+    for item in (root, "a"):
+        item.exists()
+
+
 def path_mkdir(path: Path) -> None:
     path.mkdir()
 
@@ -500,3 +512,13 @@ def test_capitalised_stdlib_functions():
             and name not in names
         )
         assert missing == [], module_name
+
+
+def test_a_display_iterates_the_type_its_elements_share(resolutions):
+    assert ("extsym:pathlib.Path.relative_to", "external_receiver_type") in (
+        resolutions.get("starred_paths", set())
+    )
+    # A path and a str share no type, so the element is untyped.
+    assert ("extsym:pathlib.Path.exists", "external_receiver_type") not in (
+        resolutions.get("mixed_elements", set())
+    )

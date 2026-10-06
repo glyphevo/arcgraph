@@ -7,6 +7,7 @@ same expression.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -408,6 +409,16 @@ SEGMENT_CASES = {
     "negated_not_or": ("", '(-(not 1)) or "x"', True),
     "positive_not_or": ("", '(+(not 1)) or "x"', True),
     "inverted_not_or": ("", '(~(not 1)) or "x"', False),
+    # Comparisons and arithmetic of literals have known values.
+    "false_comparison_or": ("", '(1 == 2) or "x"', True),
+    "true_comparison_or": ("", '(2 > 1) or "x"', False),
+    "chained_comparison_or": ("", '(1 < 2 < 1) or "x"', True),
+    "none_identity_or": ("", '(None is not None) or "x"', True),
+    "int_identity_or": ("", '(1 is 2) or "x"', False),
+    "zero_difference_or": ("", '(1 - 1) or "x"', True),
+    "nonzero_sum_or": ("", '(1 + 1) or "x"', False),
+    "huge_power_or": ("", '(2 ** 100000 - 2 ** 100000) or "x"', False),
+    "computed_count_times_str": ("", '("a" * (1 - 1)) or 1', False),
     "negative_repetition_or": ("", '("a" * -2) or 1', False),
     "repetition_or": ("", '("a" * 2) or 1', True),
     "empty_repetition_or": ("", '("a" * 0) or 1', False),
@@ -510,7 +521,10 @@ def _segment_source() -> str:
         ]
     source = "\n".join(lines) + "\n"
     # A case that does not parse would silently drop every case from the index.
-    compile(source, "lab.py", "exec")
+    with warnings.catch_warnings():
+        # (1 is 2) is a case on purpose.
+        warnings.simplefilter("ignore", SyntaxWarning)
+        compile(source, "lab.py", "exec")
     return source
 
 
@@ -518,9 +532,11 @@ def _segment_source() -> str:
 def segment_resolutions(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[str, set[tuple[str, str]]]:
-    return _resolutions_by_function(
-        tmp_path_factory.mktemp("segments"), _segment_source()
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        return _resolutions_by_function(
+            tmp_path_factory.mktemp("segments"), _segment_source()
+        )
 
 
 @pytest.mark.parametrize("form", ["", "_assigned"])
