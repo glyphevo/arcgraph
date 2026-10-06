@@ -25,6 +25,7 @@ SOURCE = """import datetime
 import hashlib
 import json
 from pathlib import Path, PosixPath, PurePosixPath
+from typing import Any
 
 from sqlalchemy import select
 
@@ -91,6 +92,14 @@ def dumped(value: dict) -> None:
 
 def stamped() -> None:
     datetime.datetime.now().isoformat().replace("T", " ")
+
+
+def any_connection(conn: Any) -> None:
+    conn.execute("SELECT 1").fetchone()
+
+
+def any_value(value: Any) -> None:
+    value.get("a").strip()
 
 
 def select_statement(model: type) -> None:
@@ -207,3 +216,13 @@ def test_lowercase_stdlib_classes_are_classes():
 def test_source_parses() -> None:
     # A source that does not parse would drop every case from the index.
     compile(SOURCE, "results.py", "exec")
+
+
+def test_any_names_no_type(resolutions):
+    for name in ("any_connection", "any_value"):
+        assert not any(
+            target.startswith("extsym:typing.Any")
+            for target in _targets(resolutions, name)
+        ), name
+    # With Any read as no type, conn keeps the database boundary its name gives.
+    assert "extsym:dbapi.Cursor.fetchone" in _targets(resolutions, "any_connection")

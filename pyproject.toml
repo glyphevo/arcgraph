@@ -130,8 +130,14 @@ source_roots = ["."]
 floor_percent = 92
 
 [tool.arcgraph.ci.semantic_quality_targets]
-overall_callsite_resolution_rate = 0.95
-attribute_call_resolution_rate = 0.92
+# The overall and attribute targets were 0.95 and 0.92 until the maintainer
+# lowered them on 2026-10-06, when the analyzers stopped linking calls on
+# receivers typed Any, or on a value typed as its own callee, to targets that
+# do not exist, such as typing.Any.execute or builtins.dict.get.get. Those
+# targets had counted as resolved; the rates they inflated were 0.9617 and
+# 0.9333, and are 0.9502 and 0.9145 without them.
+overall_callsite_resolution_rate = 0.945
+attribute_call_resolution_rate = 0.91
 chain_call_resolution_rate = 0.89
 known_framework_registration_resolution_rate = 0.95
 
@@ -141,8 +147,11 @@ known_framework_registration_resolution_rate = 0.95
 # below this value, which turns the quality gate from a fixed target the
 # repository grows into, into a ratchet against its own best measured state.
 # Raise it deliberately after a verified improvement; never lower it to make a
-# build pass. Measured with `arcgraph semantic-stats`.
-resolution_rate = 0.9693
+# build pass. Measured with `arcgraph semantic-stats`. The one exception so
+# far, by the maintainer's decision on 2026-10-06, re-measured it from 0.9693
+# when the rate stopped counting links to targets that do not exist (see the
+# targets above): it is not a lower bar, but the same bar without them.
+resolution_rate = 0.9498
 
 # Innermost first. An import from an earlier entry to a later one runs against
 # the dependency direction and is reported by the `layer_violations` check.

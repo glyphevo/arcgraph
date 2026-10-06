@@ -76,6 +76,8 @@ from arcgraph.core.ids import (
 )
 from arcgraph.core.schemas import Edge, Evidence, Node
 
+# Type ids that name no type: a receiver annotated Any is of unknown type.
+_UNKNOWN_TYPE_IDS = frozenset({"extsym:typing.Any", "typing:Any"})
 # Strategies that pick a callee by its name alone, without a binding or a type.
 _NAME_GUESS_STRATEGIES = frozenset(
     {
@@ -3159,6 +3161,10 @@ class CallAnalyzer:
         if type_ref is None:
             return None
         type_id = type_ref.get("type_id")
+        if type_id in _UNKNOWN_TYPE_IDS:
+            # Any says nothing about the value; typing.Any has no methods, so
+            # a call on it named targets such as typing.Any.execute.
+            return None
         return type_id if isinstance(type_id, str) else None
 
     @staticmethod
