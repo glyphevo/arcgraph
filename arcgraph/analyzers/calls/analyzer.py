@@ -15,6 +15,12 @@ from arcgraph.analyzers.calls.constants import (
     BUILTIN_METHODS_BY_TYPE,
     BUILTIN_TYPE_ATTRIBUTE_METHODS,
     COMMON_BOUNDARY_METHOD_TARGETS,
+    GUESSED_METHODS_BY_OWNER,
+    MOCK_ASSERT_METHOD_OWNERS,
+    NETWORKX_GRAPH_METHOD_OWNERS,
+    PROMETHEUS_METRIC_METHOD_OWNERS,
+    SQLALCHEMY_STATEMENT_METHOD_OWNERS,
+    ARGPARSE_METHOD_OWNERS,
     COMMON_MAPPING_RECEIVER_NAMES,
     COMMON_MAPPING_RECEIVER_SUFFIXES,
     COMMON_SEQUENCE_RECEIVER_NAMES,
@@ -1763,12 +1769,6 @@ class CallAnalyzer:
                 "type_expression": "sqlalchemy.engine.Result",
                 "strategy": "external_return_boundary",
             }
-        if qualname == "prometheus_client.MetricWrapperBase.labels":
-            return {
-                "type_id": "extsym:prometheus_client.MetricWrapperBase",
-                "type_expression": "prometheus_client.MetricWrapperBase",
-                "strategy": "external_return_boundary",
-            }
         return None
 
     def _class_constructor_target(
@@ -2035,12 +2035,13 @@ class CallAnalyzer:
         if owner is None:
             return None
         receiver_tail = self._receiver_tail(receiver_expression)
-        if owner == "builtins.mapping" and not self._looks_like_mapping_receiver(
-            receiver_tail
-        ):
+        if owner in {
+            "collections.abc.Mapping",
+            "collections.abc.MutableMapping",
+        } and not self._looks_like_mapping_receiver(receiver_tail):
             return None
-        if owner == "builtins.sequence" and not self._looks_like_sequence_receiver(
-            receiver_tail
+        if owner == "collections.abc.MutableSequence" and not (
+            self._looks_like_sequence_receiver(receiver_tail)
         ):
             return None
         if owner == "builtins.set" and not self._looks_like_set_receiver(receiver_tail):
@@ -2049,10 +2050,22 @@ class CallAnalyzer:
             receiver_tail
         ):
             return None
+        return self._guessed_symbol(owner, method_name, source="common_boundary_method")
+
+    def _guessed_symbol(
+        self,
+        owner: str,
+        method_name: str,
+        *,
+        source: str = "receiver_name_boundary_method",
+    ) -> Node | None:
+        """The external method a name-based guess links: only one listed in
+        GUESSED_METHODS_BY_OWNER, whose entries are checked to exist."""
+
+        if method_name not in GUESSED_METHODS_BY_OWNER.get(owner, frozenset()):
+            return None
         return self._external_symbol_node(
-            f"{owner}.{method_name}",
-            name=method_name,
-            source="common_boundary_method",
+            f"{owner}.{method_name}", name=method_name, source=source
         )
 
     @staticmethod
@@ -2116,69 +2129,45 @@ class CallAnalyzer:
         if method_name in LOGGER_METHODS and self._looks_like_logger_receiver(
             receiver_tail
         ):
-            return self._external_symbol_node(
-                f"logging.Logger.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("logging.Logger", method_name)
 
         if method_name in FASTAPI_ROUTE_METHODS and self._looks_like_router_receiver(
             receiver_tail
         ):
-            return self._external_symbol_node(
-                f"fastapi.APIRouter.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("fastapi.APIRouter", method_name)
 
         if (
             method_name in SQLALCHEMY_SESSION_METHODS
             and self._looks_like_session_receiver(receiver_tail)
         ):
-            return self._external_symbol_node(
-                f"sqlalchemy.orm.Session.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("sqlalchemy.orm.Session", method_name)
 
         if (
             method_name in SQLALCHEMY_STATEMENT_METHODS
             and self._looks_like_statement_receiver(receiver_lower)
         ):
-            return self._external_symbol_node(
-                f"sqlalchemy.sql.Select.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
+            return self._guessed_symbol(
+                SQLALCHEMY_STATEMENT_METHOD_OWNERS[method_name], method_name
             )
 
         if (
             method_name in SQLALCHEMY_RESULT_METHODS
             and self._looks_like_result_receiver(receiver_lower)
         ):
-            return self._external_symbol_node(
-                f"sqlalchemy.engine.Result.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("sqlalchemy.engine.Result", method_name)
 
         if (
             method_name in PROMETHEUS_METRIC_METHODS
             and self._looks_like_prometheus_receiver(receiver)
         ):
-            return self._external_symbol_node(
-                f"prometheus_client.MetricWrapperBase.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
+            return self._guessed_symbol(
+                PROMETHEUS_METRIC_METHOD_OWNERS[method_name], method_name
             )
 
         if method_name in REDIS_METHODS and self._looks_like_redis_receiver(
             receiver_tail
         ):
-            return self._external_symbol_node(
-                f"redis.asyncio.Redis.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("redis.asyncio.Redis", method_name)
 
         if method_name in ARGPARSE_METHODS and (
             self._looks_like_argparse_receiver(receiver_tail)
@@ -2187,207 +2176,113 @@ class CallAnalyzer:
                 and self._looks_like_argparse_receiver_broad(receiver_tail)
             )
         ):
-            return self._external_symbol_node(
-                f"argparse.ArgumentParser.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
+            return self._guessed_symbol(
+                ARGPARSE_METHOD_OWNERS[method_name], method_name
             )
 
         if method_name in HTTP_CLIENT_METHODS and self._looks_like_http_receiver(
             receiver_tail
         ):
-            return self._external_symbol_node(
-                f"httpx.Client.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("httpx.Client", method_name)
 
         if method_name in DB_CONNECTION_METHODS and self._looks_like_db_receiver(
             receiver_tail
         ):
-            return self._external_symbol_node(
-                f"dbapi.Connection.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("dbapi.Connection", method_name)
 
         if method_name == "add_recognizer" and receiver_tail == "registry":
-            return self._external_symbol_node(
-                "presidio_analyzer.RecognizerRegistry.add_recognizer",
-                name=method_name,
-                source="receiver_name_boundary_method",
+            return self._guessed_symbol(
+                "presidio_analyzer.RecognizerRegistry", method_name
             )
 
         if method_name == "exec_module" and receiver_tail == "loader":
-            return self._external_symbol_node(
-                "importlib.abc.Loader.exec_module",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
-
-        if method_name in {
-            "record_failure",
-            "record_success",
-        } and receiver_tail.endswith("circuit_breaker"):
-            return self._external_symbol_node(
-                f"circuit_breaker.CircuitBreaker.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("importlib.abc.InspectLoader", method_name)
 
         if method_name == "isoformat" and self._looks_like_datetime_receiver(
             receiver_lower
         ):
-            return self._external_symbol_node(
-                "datetime.datetime.isoformat",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("datetime.datetime", method_name)
 
         if method_name in _MONKEYPATCH_METHODS and receiver_tail == "monkeypatch":
-            return self._external_symbol_node(
-                f"pytest.MonkeyPatch.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("pytest.MonkeyPatch", method_name)
 
         if method_name in HTTP_CLIENT_METHODS and (
             self._looks_like_test_client(receiver_tail)
             or (receiver_tail == "client" and self._is_test_file(source.path))
         ):
-            return self._external_symbol_node(
-                f"starlette.testclient.TestClient.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("starlette.testclient.TestClient", method_name)
 
         # --- re.Match methods ---
         if method_name in _RE_MATCH_METHODS and receiver_tail == "match":
-            return self._external_symbol_node(
-                f"re.Match.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("re.Match", method_name)
 
         # --- asyncio.Task methods ---
         if method_name in {"cancel", "done", "result"} and receiver_tail == "task":
-            return self._external_symbol_node(
-                f"asyncio.Task.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("asyncio.Task", method_name)
 
         # --- networkx.Graph methods ---
         if method_name in _NETWORKX_GRAPH_METHODS and receiver_tail == "graph":
-            return self._external_symbol_node(
-                f"networkx.Graph.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
+            return self._guessed_symbol(
+                NETWORKX_GRAPH_METHOD_OWNERS[method_name], method_name
             )
 
         # --- pytest benchmark / item ---
         if method_name == "pedantic" and receiver_tail == "benchmark":
-            return self._external_symbol_node(
-                "pytest_benchmark.fixture.BenchmarkFixture.pedantic",
-                name=method_name,
-                source="receiver_name_boundary_method",
+            return self._guessed_symbol(
+                "pytest_benchmark.fixture.BenchmarkFixture", method_name
             )
 
         if method_name == "add_marker" and receiver_tail == "item":
-            return self._external_symbol_node(
-                "pytest.Item.add_marker",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("pytest.Item", method_name)
 
         # --- click.testing.CliRunner ---
         if method_name == "invoke" and receiver_tail == "runner":
-            return self._external_symbol_node(
-                "click.testing.CliRunner.invoke",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("click.testing.CliRunner", method_name)
 
         # --- typer / FastAPI app ---
         if method_name in _TYPER_APP_METHODS and (
             receiver_tail in {"app", "export_app"} or receiver_tail.endswith("_app")
         ):
-            return self._external_symbol_node(
-                f"typer.Typer.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("typer.Typer", method_name)
 
         if method_name in _FASTAPI_APP_METHODS and receiver_tail == "app":
-            return self._external_symbol_node(
-                f"fastapi.FastAPI.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("fastapi.FastAPI", method_name)
 
         if method_name in _CLICK_GROUP_METHODS and self._looks_like_click_receiver(
             receiver_tail
         ):
-            return self._external_symbol_node(
-                f"click.Group.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("click.Group", method_name)
 
         # --- pydantic model_validate ---
         if method_name == "model_validate" and receiver_tail.endswith("model"):
-            return self._external_symbol_node(
-                "pydantic.BaseModel.model_validate",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("pydantic.BaseModel", method_name)
 
         # --- ast.NodeVisitor ---
         if method_name == "generic_visit" and receiver_expression == "self":
-            return self._external_symbol_node(
-                "ast.NodeVisitor.generic_visit",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("ast.NodeVisitor", method_name)
 
         # --- presidio recognizer ---
         if method_name == "analyze" and receiver_tail in {
             "recognizer",
             "analyzer",
         }:
-            return self._external_symbol_node(
-                f"presidio_analyzer.AnalyzerEngine.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("presidio_analyzer.AnalyzerEngine", method_name)
 
         # --- psutil.Process ---
         if method_name == "memory_info" and receiver_tail == "process":
-            return self._external_symbol_node(
-                "psutil.Process.memory_info",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("psutil.Process", method_name)
 
         # --- datetime.strftime ---
         if method_name == "strftime" and self._looks_like_datetime_receiver(
             receiver_lower
         ):
-            return self._external_symbol_node(
-                "datetime.datetime.strftime",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("datetime.datetime", method_name)
 
         # --- SQLAlchemy column ordering ---
         if method_name in {"desc", "asc"} and receiver_tail.endswith(
             ("column", "expr", "field")
         ):
-            return self._external_symbol_node(
-                f"sqlalchemy.sql.ColumnElement.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("sqlalchemy.sql.ColumnElement", method_name)
 
         # --- file handle IO ---
         if method_name in {"write", "read", "readline", "readlines", "flush"} and (
@@ -2404,19 +2299,11 @@ class CallAnalyzer:
                 "f",
             }
         ):
-            return self._external_symbol_node(
-                f"io.IOBase.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("typing.IO", method_name)
 
         # --- httpx/requests Response ---
         if method_name in {"raise_for_status", "json"} and receiver_tail == "response":
-            return self._external_symbol_node(
-                f"httpx.Response.{method_name}",
-                name=method_name,
-                source="receiver_name_boundary_method",
-            )
+            return self._guessed_symbol("httpx.Response", method_name)
 
         return None
 
@@ -2461,9 +2348,9 @@ class CallAnalyzer:
         if not in_test_file and not has_mock_receiver:
             return None
 
-        return self._external_symbol_node(
-            f"unittest.mock.Mock.{method_name}",
-            name=method_name,
+        return self._guessed_symbol(
+            MOCK_ASSERT_METHOD_OWNERS[method_name],
+            method_name,
             source="mock_assert_method",
         )
 

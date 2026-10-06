@@ -440,7 +440,7 @@ def _targets(resolutions: dict[str, set[tuple[str, str]]], name: str) -> set[str
     ("name", "absent"),
     [
         ("undocumented_function", "extsym:json.loads.get"),
-        ("unannotated_mapping", "extsym:builtins.mapping.get.get"),
+        ("unannotated_mapping", "extsym:collections.abc.Mapping.get.get"),
         ("guessed_receiver", "extsym:builtins.str.strip.lower"),
     ],
 )

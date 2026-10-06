@@ -92,17 +92,17 @@
     },
     {
       "source": "fn:bench.service.sqlalchemy_boundaries",
-      "target": "extsym:prometheus_client.MetricWrapperBase.labels",
+      "target": "extsym:prometheus_client.metrics.MetricWrapperBase.labels",
       "kind": "uses",
       "confidence": "heuristic",
       "strategy": "receiver_name_boundary_method"
     },
     {
       "source": "fn:bench.service.sqlalchemy_boundaries",
-      "target": "extsym:prometheus_client.MetricWrapperBase.inc",
+      "target": "extsym:prometheus_client.Counter.inc",
       "kind": "uses",
       "confidence": "heuristic",
-      "strategy": "external_receiver_type"
+      "strategy": "receiver_name_boundary_method"
     },
     {
       "source": "route:POST:/items",

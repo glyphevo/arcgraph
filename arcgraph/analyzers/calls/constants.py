@@ -348,7 +348,6 @@ _FASTAPI_APP_METHODS = frozenset(
         "patch",
         "post",
         "put",
-        "route",
         "websocket",
     }
 )
@@ -621,12 +620,15 @@ BUILTIN_METHODS_BY_TYPE = {
     },
 }
 COMMON_BOUNDARY_METHOD_TARGETS = {
+    # A receiver named like a mapping or a sequence is of no known class, so
+    # its method is the abstract base class's that defines it.
     **{
-        method: "builtins.mapping"
-        for method in {"clear", "get", "items", "keys", "setdefault", "values"}
+        method: "collections.abc.Mapping"
+        for method in {"get", "items", "keys", "values"}
     },
+    **{method: "collections.abc.MutableMapping" for method in {"clear", "setdefault"}},
     **{
-        method: "builtins.sequence"
+        method: "collections.abc.MutableSequence"
         for method in {"append", "extend", "insert", "reverse"}
     },
     **{method: "builtins.set" for method in {"discard", "intersection", "union"}},
@@ -954,4 +956,85 @@ COMMON_TEXT_RECEIVER_SUFFIXES = (
     "_raw",
     "_text",
     "_value",
+)
+# The class a guessed method is on, where a family of methods spans classes.
+ARGPARSE_METHOD_OWNERS = {
+    **{method: "argparse.ArgumentParser" for method in ARGPARSE_METHODS},
+    "add_parser": "argparse._SubParsersAction",
+}
+SQLALCHEMY_STATEMENT_METHOD_OWNERS = {
+    **{method: "sqlalchemy.sql.Select" for method in SQLALCHEMY_STATEMENT_METHODS},
+    # Insert, Update and Delete have returning; Select has not.
+    "returning": "sqlalchemy.sql.dml.UpdateBase",
+}
+PROMETHEUS_METRIC_METHOD_OWNERS = {
+    **{
+        method: "prometheus_client.metrics.MetricWrapperBase"
+        for method in ("clear", "labels", "remove")
+    },
+    "inc": "prometheus_client.Counter",
+    "dec": "prometheus_client.Gauge",
+    "set": "prometheus_client.Gauge",
+    "observe": "prometheus_client.Histogram",
+    "time": "prometheus_client.Histogram",
+}
+NETWORKX_GRAPH_METHOD_OWNERS = {
+    **{method: "networkx.Graph" for method in _NETWORKX_GRAPH_METHODS},
+    "successors": "networkx.DiGraph",
+}
+MOCK_ASSERT_METHOD_OWNERS = {
+    method: "unittest.mock.AsyncMock" if "await" in method else "unittest.mock.Mock"
+    for method in MOCK_ASSERT_METHODS
+}
+
+
+def _methods_by_owner(*tables: dict[str, str]) -> dict[str, frozenset[str]]:
+    owners: dict[str, set[str]] = {}
+    for table in tables:
+        for method, owner in table.items():
+            owners.setdefault(owner, set()).add(method)
+    return {owner: frozenset(methods) for owner, methods in owners.items()}
+
+
+def _same_owner(owner: str, methods: set[str] | frozenset[str]) -> dict[str, str]:
+    return {method: owner for method in methods}
+
+
+# Every external method a name-based guess may link, by its class. A guess
+# links only a method listed here, and test_guessed_targets checks each one
+# against the class it names: a guess must name a method that exists.
+GUESSED_METHODS_BY_OWNER = _methods_by_owner(
+    COMMON_BOUNDARY_METHOD_TARGETS,
+    ARGPARSE_METHOD_OWNERS,
+    SQLALCHEMY_STATEMENT_METHOD_OWNERS,
+    PROMETHEUS_METRIC_METHOD_OWNERS,
+    NETWORKX_GRAPH_METHOD_OWNERS,
+    MOCK_ASSERT_METHOD_OWNERS,
+    _same_owner("logging.Logger", LOGGER_METHODS),
+    _same_owner("fastapi.APIRouter", FASTAPI_ROUTE_METHODS),
+    _same_owner("sqlalchemy.orm.Session", SQLALCHEMY_SESSION_METHODS),
+    _same_owner("sqlalchemy.engine.Result", SQLALCHEMY_RESULT_METHODS),
+    _same_owner("redis.asyncio.Redis", REDIS_METHODS),
+    _same_owner("httpx.Client", HTTP_CLIENT_METHODS),
+    _same_owner("dbapi.Connection", DB_CONNECTION_METHODS),
+    _same_owner("presidio_analyzer.RecognizerRegistry", {"add_recognizer"}),
+    _same_owner("importlib.abc.InspectLoader", {"exec_module"}),
+    _same_owner("datetime.datetime", {"isoformat", "strftime"}),
+    _same_owner("pytest.MonkeyPatch", _MONKEYPATCH_METHODS),
+    _same_owner("starlette.testclient.TestClient", HTTP_CLIENT_METHODS),
+    _same_owner("re.Match", _RE_MATCH_METHODS),
+    _same_owner("asyncio.Task", {"cancel", "done", "result"}),
+    _same_owner("pytest_benchmark.fixture.BenchmarkFixture", {"pedantic"}),
+    _same_owner("pytest.Item", {"add_marker"}),
+    _same_owner("click.testing.CliRunner", {"invoke"}),
+    _same_owner("typer.Typer", _TYPER_APP_METHODS),
+    _same_owner("fastapi.FastAPI", _FASTAPI_APP_METHODS),
+    _same_owner("click.Group", _CLICK_GROUP_METHODS),
+    _same_owner("pydantic.BaseModel", {"model_validate"}),
+    _same_owner("ast.NodeVisitor", {"generic_visit"}),
+    _same_owner("presidio_analyzer.AnalyzerEngine", {"analyze"}),
+    _same_owner("psutil.Process", {"memory_info"}),
+    _same_owner("sqlalchemy.sql.ColumnElement", {"asc", "desc"}),
+    _same_owner("typing.IO", {"flush", "read", "readline", "readlines", "write"}),
+    _same_owner("httpx.Response", {"json", "raise_for_status"}),
 )

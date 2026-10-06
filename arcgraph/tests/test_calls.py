@@ -587,7 +587,7 @@ def test_v2_call_analyzer_resolves_builtins_import_aliases_and_common_methods() 
         == "external_receiver_type"
     )
     assert (
-        by_pair[(stdlib_id, "extsym:io.IOBase.write")].resolution.strategy
+        by_pair[(stdlib_id, "extsym:typing.IO.write")].resolution.strategy
         == "receiver_name_boundary_method"
     )
 
@@ -636,7 +636,7 @@ def test_v2_call_analyzer_resolves_builtins_import_aliases_and_common_methods() 
     )
 
     ambiguous_id = function_id("pkg.calls.ambiguous_common")
-    assert (ambiguous_id, "extsym:builtins.mapping.get") not in by_pair
+    assert (ambiguous_id, "extsym:collections.abc.Mapping.get") not in by_pair
     assert (ambiguous_id, "extsym:builtins.set.add") not in by_pair
     assert (ambiguous_id, "extsym:builtins.set.update") not in by_pair
     assert {
@@ -647,33 +647,41 @@ def test_v2_call_analyzer_resolves_builtins_import_aliases_and_common_methods() 
 
     container_id = function_id("pkg.calls.container_like")
     assert (
-        by_pair[(container_id, "extsym:builtins.mapping.get")].resolution.strategy
+        by_pair[
+            (container_id, "extsym:collections.abc.Mapping.get")
+        ].resolution.strategy
         == "common_boundary_method"
     )
     assert (
-        by_pair[(container_id, "extsym:builtins.sequence.append")].resolution.strategy
+        by_pair[
+            (container_id, "extsym:collections.abc.MutableSequence.append")
+        ].resolution.strategy
         == "common_boundary_method"
     )
 
     relation_maps_id = function_id("pkg.calls.relation_maps")
     assert (
-        by_pair[(relation_maps_id, "extsym:builtins.mapping.get")].resolution.strategy
+        by_pair[
+            (relation_maps_id, "extsym:collections.abc.Mapping.get")
+        ].resolution.strategy
         == "common_boundary_method"
     )
     assert (
-        by_pair[(relation_maps_id, "extsym:builtins.mapping.items")].resolution.strategy
+        by_pair[
+            (relation_maps_id, "extsym:collections.abc.Mapping.items")
+        ].resolution.strategy
         == "common_boundary_method"
     )
 
     claims_id = function_id("pkg.calls.claims_like")
     assert (
-        by_pair[(claims_id, "extsym:builtins.mapping.get")].resolution.strategy
+        by_pair[(claims_id, "extsym:collections.abc.Mapping.get")].resolution.strategy
         == "common_boundary_method"
     )
     assert (
-        by_pair[(claims_id, "extsym:builtins.mapping.get")].properties["callsite"][
-            "receiver_expression"
-        ]
+        by_pair[(claims_id, "extsym:collections.abc.Mapping.get")].properties[
+            "callsite"
+        ]["receiver_expression"]
         == "token.claims"
     )
 
@@ -732,17 +740,13 @@ def test_v2_call_analyzer_resolves_common_framework_boundaries() -> None:
     assert by_pair[(run_id, "extsym:sqlalchemy.engine.Result.scalars")].kind == "uses"
     assert by_pair[(run_id, "extsym:sqlalchemy.engine.Result.all")].kind == "uses"
     assert (
-        by_pair[(run_id, "extsym:prometheus_client.MetricWrapperBase.labels")].kind
+        by_pair[
+            (run_id, "extsym:prometheus_client.metrics.MetricWrapperBase.labels")
+        ].kind
         == "uses"
     )
-    assert (
-        by_pair[(run_id, "extsym:prometheus_client.MetricWrapperBase.inc")].kind
-        == "uses"
-    )
-    assert (
-        by_pair[(run_id, "extsym:prometheus_client.MetricWrapperBase.set")].kind
-        == "uses"
-    )
+    assert by_pair[(run_id, "extsym:prometheus_client.Counter.inc")].kind == "uses"
+    assert by_pair[(run_id, "extsym:prometheus_client.Gauge.set")].kind == "uses"
     assert by_pair[(run_id, "extsym:datetime.datetime.isoformat")].kind == "uses"
     assert by_pair[(run_id, "extsym:builtins.ValueError")].kind == "uses"
     assert by_pair[(run_id, "extsym:logging.Logger.warning")].resolution.strategy == (
@@ -751,7 +755,7 @@ def test_v2_call_analyzer_resolves_common_framework_boundaries() -> None:
     config_id = function_id("pkg.calls.config_call")
     assert (
         config_id,
-        "extsym:prometheus_client.MetricWrapperBase.labels",
+        "extsym:prometheus_client.metrics.MetricWrapperBase.labels",
     ) not in by_pair
     assert any(
         edge.source == config_id
@@ -926,13 +930,13 @@ def test_v2_call_analyzer_resolves_mock_assert_in_test_files() -> None:
     )
     edges = CallAnalyzer(enable_v2=True).analyze(nodes).edges
     mock_edges = [
-        edge for edge in edges if edge.target.startswith("extsym:unittest.mock.Mock.")
+        edge for edge in edges if edge.target.startswith("extsym:unittest.mock.")
     ]
 
     assert len(mock_edges) == 2
     assert all(edge.resolution.strategy == "mock_assert_method" for edge in mock_edges)
     assert {edge.target for edge in mock_edges} == {
-        "extsym:unittest.mock.Mock.assert_awaited_once",
+        "extsym:unittest.mock.AsyncMock.assert_awaited_once",
         "extsym:unittest.mock.Mock.assert_called_once_with",
     }
 
@@ -953,7 +957,7 @@ def test_v2_call_analyzer_rejects_mock_assert_in_non_test_non_mock_context() -> 
     )
     edges = CallAnalyzer(enable_v2=True).analyze(nodes).edges
     mock_edges = [
-        edge for edge in edges if edge.target.startswith("extsym:unittest.mock.Mock.")
+        edge for edge in edges if edge.target.startswith("extsym:unittest.mock.")
     ]
     dynamic_edges = [
         edge
@@ -985,9 +989,7 @@ def test_v2_call_analyzer_rejects_mock_assert_in_contest_path() -> None:
         nodes = _analyzed_nodes(source, module=module, path=path)
         edges = CallAnalyzer(enable_v2=True).analyze(nodes).edges
         mock_edges = [
-            edge
-            for edge in edges
-            if edge.target.startswith("extsym:unittest.mock.Mock.")
+            edge for edge in edges if edge.target.startswith("extsym:unittest.mock.")
         ]
         assert not mock_edges, f"False positive on production path: {path}"
 

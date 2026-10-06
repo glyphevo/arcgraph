@@ -230,7 +230,7 @@ def test_untyped_comprehension_keeps_only_explicit_generic_heuristics(tmp_path: 
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
     edges = [e for e in graph.edges if e.source == "fn:sample.use"]
-    assert len(edges) == 1 and edges[0].target == "extsym:builtins.mapping.get"
+    assert len(edges) == 1 and edges[0].target == "extsym:collections.abc.Mapping.get"
     assert edges[0].confidence == "heuristic"
 
 
