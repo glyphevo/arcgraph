@@ -9,7 +9,7 @@ import inspect
 import pytest
 
 from arcgraph.analyzers.calls import CallAnalyzer
-from arcgraph.analyzers.calls.constants import BUILTIN_CALLS
+from arcgraph.analyzers.calls.constants import BUILTIN_CALLS, BUILTIN_METHODS_BY_TYPE
 from arcgraph.interfaces.cli_visual import add_visual_parser
 from arcgraph.tests.test_calls import _analyzed_nodes
 
@@ -203,3 +203,17 @@ def test_visual_parser_runtime_and_explicit_argparse_factory_contract():
     ]
     assert len(parser_calls) >= 60
     assert all(e.resolution.strategy == "external_receiver_type" for e in parser_calls)
+
+
+def test_builtin_methods_cover_every_public_method():
+    # A method missing from the list is never linked on a typed receiver.
+    for name, methods in BUILTIN_METHODS_BY_TYPE.items():
+        builtin_type = getattr(builtins, name)
+        missing = sorted(
+            method
+            for method in dir(builtin_type)
+            if not method.startswith("_")
+            and callable(getattr(builtin_type, method))
+            and method not in methods
+        )
+        assert missing == [], name

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 from collections import defaultdict
 from typing import Any
 
@@ -53,9 +54,14 @@ from arcgraph.analyzers.calls.context import (
     _ResolvedCallTarget,
 )
 from arcgraph.analyzers.external_types import (
-    EXTERNAL_METHOD_RETURN_TYPES,
+    LOWERCASE_STDLIB_CLASSES,
     PATH_TYPE_IDS,
+    function_return_type,
+    mapping_default,
+    mapping_value_type,
     may_be_path_segment,
+    method_return_type,
+    type_id_of_qualname,
 )
 from arcgraph.analyzers.type_unions import (
     single_value_type,
@@ -69,6 +75,16 @@ from arcgraph.core.ids import (
     stable_callsite_subject_key,
 )
 from arcgraph.core.schemas import Edge, Evidence, Node
+
+# Strategies that pick a callee by its name alone, without a binding or a type.
+_NAME_GUESS_STRATEGIES = frozenset(
+    {
+        "common_boundary_method",
+        "receiver_name_boundary_method",
+        "unique_method_fallback",
+        "unique_short_name_fallback",
+    }
+)
 
 
 class CallAnalyzer:
@@ -915,6 +931,11 @@ class CallAnalyzer:
                 )
                 if documented is not None:
                     return documented
+                element = self._mapping_value_type_ref(
+                    source, node, receiver_ref, context
+                )
+                if element is not None:
+                    return element
                 value = single_value_type(receiver_ref) if receiver_ref else {}
                 if value.get("type_id") in {
                     "typing:Mapping",
@@ -949,7 +970,11 @@ class CallAnalyzer:
                     if union_alternatives(receiver) is not None:
                         return unknown_union_result(self._unparse(node))
                 return None
-            return self._type_ref_from_target(resolved.target, context)
+            return self._type_ref_from_target(
+                resolved.target,
+                context,
+                guessed=resolved.strategy in _NAME_GUESS_STRATEGIES,
+            )
 
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
 
@@ -986,7 +1011,11 @@ class CallAnalyzer:
         type_id = cls._type_id(receiver)
         if type_id is None or type_id not in PATH_TYPE_IDS:
             return None
-        return cls._derived_type_ref(receiver, type_id, strategy)
+        return cls._derived_type_ref(
+            receiver,
+            {"type_id": type_id, "type_expression": type_id.removeprefix("extsym:")},
+            strategy,
+        )
 
     @classmethod
     def _external_method_return_type_ref(
@@ -994,34 +1023,68 @@ class CallAnalyzer:
         receiver: dict[str, Any] | None,
         method_name: str,
     ) -> dict[str, Any] | None:
-        """The documented return type of a method on a known external type."""
+        """The documented return type of a method on a known external or
+        builtin type."""
 
         # A union receiver keeps the evidence rules applied to its calls.
         if not receiver or union_alternatives(receiver) is not None:
             return None
         type_id = cls._type_id(receiver)
-        if type_id is None or not type_id.startswith("extsym:"):
+        if type_id is None:
             return None
-        returned = EXTERNAL_METHOD_RETURN_TYPES.get(
-            (type_id.removeprefix("extsym:"), method_name)
-        )
+        returned = method_return_type(type_id, method_name)
         if returned is None:
             return None
-        return cls._derived_type_ref(
-            receiver, f"extsym:{returned}", "external_method_return"
+        strategy = (
+            "builtin_method_return"
+            if type_id.startswith("builtin:")
+            else "external_method_return"
         )
+        return cls._derived_type_ref(receiver, returned, strategy)
+
+    def _mapping_value_type_ref(
+        self,
+        source: Node,
+        node: ast.Call,
+        receiver: dict[str, Any] | None,
+        context: _CallResolutionContext,
+    ) -> dict[str, Any] | None:
+        """The value ``dict.get`` or ``dict.setdefault`` returns, by the rule
+        the type analyzer applies to a local assigned from the same call."""
+
+        if (
+            not receiver
+            or union_alternatives(receiver) is not None
+            or not isinstance(node.func, ast.Attribute)
+        ):
+            return None
+        default = mapping_default(node)
+        value = mapping_value_type(
+            receiver,
+            node.func.attr,
+            (
+                self._receiver_type_ref_node(source, default, context)
+                if default is not None
+                else None
+            ),
+        )
+        if value is None:
+            return None
+        # An element keeps its container's evidence, as a subscript does.
+        element: dict[str, Any] = {**value, "strategy": "builtin_method_return"}
+        if receiver.get("typed_value_evidence"):
+            element["typed_value_evidence"] = True
+        if isinstance(receiver.get("type_ref_id"), str):
+            element["type_ref_id"] = receiver["type_ref_id"]
+        return element
 
     @staticmethod
     def _derived_type_ref(
         receiver: dict[str, Any],
-        type_id: str,
+        returned: dict[str, Any],
         strategy: str,
     ) -> dict[str, Any]:
-        derived: dict[str, Any] = {
-            "type_id": type_id,
-            "type_expression": type_id.removeprefix("extsym:"),
-            "strategy": strategy,
-        }
+        derived: dict[str, Any] = {**returned, "strategy": strategy}
         # A derived value keeps its receiver's evidence, as a subscript does,
         # and is available exactly where the receiver's binding is, since it
         # is computed from that value alone.
@@ -1299,6 +1362,8 @@ class CallAnalyzer:
         self,
         target: Node,
         context: _CallResolutionContext,
+        *,
+        guessed: bool = False,
     ) -> dict[str, Any] | None:
         if target.kind == "class":
             return {
@@ -1307,15 +1372,42 @@ class CallAnalyzer:
                 "strategy": "constructor",
             }
         if target.id.startswith("extsym:"):
+            # Boundary returns are written for callees guessed from receiver
+            # names, such as conn.execute; nothing else follows from a guess.
             external_return = self._external_return_type_ref(target)
             if external_return is not None:
                 return external_return
+            if guessed:
+                return None
+            qualname = target.qualname or target.id.removeprefix("extsym:")
+            owner, _, method = qualname.rpartition(".")
+            documented = function_return_type(qualname) or (
+                method_return_type(type_id_of_qualname(owner), method)
+                if owner
+                else None
+            )
+            if documented is not None:
+                return {**documented, "strategy": "external_method_return"}
+            if not self._is_external_class(qualname):
+                # A function or method of undocumented return gives a value of
+                # no known type. Taking the callee itself as that type named
+                # targets that do not exist, such as builtins.dict.get.get.
+                return None
             return {
                 "type_id": target.id,
                 "type_expression": target.qualname or target.name,
                 "strategy": "external_symbol",
             }
         return context.return_type_by_target.get(target.id)
+
+    @staticmethod
+    def _is_external_class(qualname: str) -> bool:
+        """Whether calling the external ``qualname`` constructs an instance."""
+
+        name = qualname.rsplit(".", 1)[-1]
+        if qualname.startswith("builtins."):
+            return isinstance(getattr(builtins, name, None), type)
+        return name[:1].isupper() or qualname in LOWERCASE_STDLIB_CLASSES
 
     @staticmethod
     def _external_return_type_ref(target: Node) -> dict[str, Any] | None:
@@ -1338,6 +1430,16 @@ class CallAnalyzer:
             return {
                 "type_id": "extsym:dbapi.Cursor",
                 "type_expression": "dbapi.Cursor",
+                "strategy": "external_return_boundary",
+            }
+        if qualname in {
+            "sqlalchemy.select",
+            "sqlalchemy.sql.select",
+            "sqlalchemy.sql.expression.select",
+        }:
+            return {
+                "type_id": "extsym:sqlalchemy.sql.Select",
+                "type_expression": "sqlalchemy.sql.Select",
                 "strategy": "external_return_boundary",
             }
         if qualname in {
@@ -2517,7 +2619,9 @@ class CallAnalyzer:
         strategy: str = "import_alias",
     ) -> _ResolvedCallTarget | None:
         parts = raw_name.split(".")
-        if not parts:
+        if not parts or not all(part.isidentifier() for part in parts):
+            # Only a dotted name is an import path; hashlib.sha256(data).hexdigest
+            # is a call on a value, not a symbol of hashlib.
             return None
         aliases = self._visible_import_aliases(source, context)
         resolved_base = aliases.get(parts[0])

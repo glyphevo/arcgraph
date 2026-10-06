@@ -10,9 +10,11 @@ from arcgraph.analyzers.calls.lexical import LexicalScopes
 from arcgraph.analyzers.exports import exported_class
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
-    EXTERNAL_METHOD_RETURN_TYPES,
     PATH_TYPE_IDS,
+    mapping_default,
+    mapping_value_type,
     may_be_path_segment,
+    method_return_type,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.analyzers.type_unions import (
@@ -1624,19 +1626,25 @@ class _TypeContext:
         receiver: dict[str, Any],
         method_name: str,
     ) -> _ResolvedType | None:
-        """Resolve a documented factory method on a known external type."""
+        """Resolve a documented method on a known external or builtin type."""
 
-        owner = self._external_receiver_qualname(receiver)
-        if owner is None:
-            return None
-        returned = EXTERNAL_METHOD_RETURN_TYPES.get((owner, method_name))
+        type_id = receiver.get("type_id")
+        if isinstance(type_id, str) and type_id.startswith("builtin:"):
+            owner = type_id
+        else:
+            qualname = self._external_receiver_qualname(receiver)
+            if qualname is None:
+                return None
+            owner = f"extsym:{qualname}"
+        returned = method_return_type(owner, method_name)
         if returned is None:
             return None
-        type_id = f"extsym:{returned}"
+        resolved = self._resolved_type_from_record(returned)
         return _ResolvedType(
-            expression=returned.rsplit(".", 1)[-1],
-            type_id=type_id,
-            symbol_id=type_id,
+            expression=str(returned["type_expression"]).rsplit(".", 1)[-1],
+            type_id=resolved.type_id,
+            symbol_id=resolved.type_id,
+            type_args=resolved.type_args,
             status="resolved",
         )
 
@@ -1722,38 +1730,16 @@ class _TypeContext:
     ) -> _ResolvedType | None:
         if not isinstance(node.func, ast.Attribute):
             return None
-        type_id = receiver.get("type_id")
-        method_name = node.func.attr
-        if type_id != "builtin:dict" or method_name not in {"get", "setdefault"}:
-            return None
-
-        default = None
-        if len(node.args) >= 2:
-            default = node.args[1]
-        else:
-            for keyword in node.keywords:
-                if keyword.arg == "default":
-                    default = keyword.value
-                    break
+        default = mapping_default(node)
+        default_source = None
         if default is not None:
             default_source = (
                 self.resolve_scoped_value(default, scope_node, local_types)
                 if scope_node is not None
                 else self.resolve_value(default, local_types)
             )
-            if default_source is not None and isinstance(
-                default_source.get("type_id"), str
-            ):
-                return self._resolved_type_from_record(default_source)
-
-        type_args = receiver.get("type_args")
-        if isinstance(type_args, list) and len(type_args) >= 2:
-            value_type = type_args[1]
-            if isinstance(value_type, dict) and isinstance(
-                value_type.get("type_id"), str
-            ):
-                return self._resolved_type_from_record(value_type)
-        return None
+        value = mapping_value_type(receiver, node.func.attr, default_source)
+        return self._resolved_type_from_record(value) if value is not None else None
 
     @staticmethod
     def _resolved_type_from_record(record: dict[str, Any]) -> _ResolvedType:

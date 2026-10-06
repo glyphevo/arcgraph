@@ -13,37 +13,226 @@ from typing import Any
 
 from arcgraph.analyzers.type_unions import union_alternatives
 
-# Factory methods on external types whose return type is part of the library's
-# documented contract. Without them a receiver produced by the factory carries
-# no type, and every later method call on it stays unresolved. Each entry
-# claims only that the named method returns the named type; add one when the
-# library documents the factory, not to move a metric.
-EXTERNAL_METHOD_RETURN_TYPES = {
-    ("argparse.ArgumentParser", "add_subparsers"): "argparse._SubParsersAction",
-    ("argparse._SubParsersAction", "add_parser"): "argparse.ArgumentParser",
-    ("argparse.ArgumentParser", "add_argument_group"): "argparse._ArgumentGroup",
-    (
-        "argparse.ArgumentParser",
-        "add_mutually_exclusive_group",
-    ): "argparse._MutuallyExclusiveGroup",
-    # pathlib documents each of these as returning a new path.
+# Methods whose return type the library or the language documents, keyed by
+# the receiver's type id. The value is the returned type id and, for a list,
+# its element type id. Without an entry, a value returned by the method carries
+# no type and later calls on it are not linked by type. Each entry claims only
+# what the documentation says; add one for that reason, not to move a metric.
+_PATH_FLAVOURS = ("Path", "PosixPath", "WindowsPath")
+_PURE_PATH_FLAVOURS = ("PurePath", "PurePosixPath", "PureWindowsPath")
+_STR_RETURNING = (
+    "capitalize",
+    "casefold",
+    "center",
+    "expandtabs",
+    "format",
+    "join",
+    "ljust",
+    "lower",
+    "lstrip",
+    "removeprefix",
+    "removesuffix",
+    "replace",
+    "rjust",
+    "rstrip",
+    "strip",
+    "swapcase",
+    "title",
+    "translate",
+    "upper",
+    "zfill",
+)
+_BYTES_RETURNING = (
+    "join",
+    "lower",
+    "lstrip",
+    "removeprefix",
+    "removesuffix",
+    "replace",
+    "rstrip",
+    "strip",
+    "upper",
+)
+_BOOL_RETURNING = ("endswith", "startswith")
+_STR_PREDICATES = (
+    "isalnum",
+    "isalpha",
+    "isascii",
+    "isdecimal",
+    "isdigit",
+    "isidentifier",
+    "islower",
+    "isnumeric",
+    "isprintable",
+    "isspace",
+    "istitle",
+    "isupper",
+)
+_INT_RETURNING = ("count", "find", "index", "rfind", "rindex")
+METHOD_RETURN_TYPES: dict[tuple[str, str], tuple[str, str | None]] = {
+    ("extsym:argparse.ArgumentParser", "add_subparsers"): (
+        "extsym:argparse._SubParsersAction",
+        None,
+    ),
+    ("extsym:argparse._SubParsersAction", "add_parser"): (
+        "extsym:argparse.ArgumentParser",
+        None,
+    ),
+    ("extsym:argparse.ArgumentParser", "add_argument_group"): (
+        "extsym:argparse._ArgumentGroup",
+        None,
+    ),
+    ("extsym:argparse.ArgumentParser", "add_mutually_exclusive_group"): (
+        "extsym:argparse._MutuallyExclusiveGroup",
+        None,
+    ),
+    # pathlib: every flavour derives a path of its own flavour and a str; a
+    # concrete path also resolves itself and reads the file system.
     **{
-        ("pathlib.Path", method): "pathlib.Path"
+        (f"extsym:pathlib.{flavour}", method): (f"extsym:pathlib.{flavour}", None)
+        for flavour in _PATH_FLAVOURS + _PURE_PATH_FLAVOURS
         for method in (
-            "absolute",
-            "expanduser",
             "joinpath",
             "relative_to",
-            "resolve",
             "with_name",
             "with_stem",
             "with_suffix",
         )
     },
+    **{
+        (f"extsym:pathlib.{flavour}", "as_posix"): ("builtin:str", None)
+        for flavour in _PATH_FLAVOURS + _PURE_PATH_FLAVOURS
+    },
+    **{
+        (f"extsym:pathlib.{flavour}", method): (f"extsym:pathlib.{flavour}", None)
+        for flavour in _PATH_FLAVOURS
+        for method in ("absolute", "expanduser", "resolve")
+    },
+    **{
+        (f"extsym:pathlib.{flavour}", method): returned
+        for flavour in _PATH_FLAVOURS
+        for method, returned in (
+            ("read_text", ("builtin:str", None)),
+            ("read_bytes", ("builtin:bytes", None)),
+            ("exists", ("builtin:bool", None)),
+            ("is_dir", ("builtin:bool", None)),
+            ("is_file", ("builtin:bool", None)),
+            ("is_symlink", ("builtin:bool", None)),
+        )
+    },
+    # str and bytes, as the language reference documents their methods.
+    **{("builtin:str", method): ("builtin:str", None) for method in _STR_RETURNING},
+    **{
+        ("builtin:str", method): ("builtin:list", "builtin:str")
+        for method in ("rsplit", "split", "splitlines")
+    },
+    ("builtin:str", "encode"): ("builtin:bytes", None),
+    **{
+        ("builtin:str", method): ("builtin:bool", None)
+        for method in _BOOL_RETURNING + _STR_PREDICATES
+    },
+    **{("builtin:str", method): ("builtin:int", None) for method in _INT_RETURNING},
+    **{
+        ("builtin:bytes", method): ("builtin:bytes", None)
+        for method in _BYTES_RETURNING
+    },
+    **{
+        ("builtin:bytes", method): ("builtin:list", "builtin:bytes")
+        for method in ("rsplit", "split", "splitlines")
+    },
+    ("builtin:bytes", "decode"): ("builtin:str", None),
+    **{("builtin:bytes", method): ("builtin:bool", None) for method in _BOOL_RETURNING},
+    **{("builtin:bytes", method): ("builtin:int", None) for method in _INT_RETURNING},
 }
-EXTERNAL_METHOD_RETURN_OWNERS = frozenset(
-    owner for owner, _ in EXTERNAL_METHOD_RETURN_TYPES
+# Standard library functions and class methods whose documented return does not
+# depend on their arguments, by qualified name. A function whose result type
+# follows its input, such as re.sub, or that may return None, such as
+# os.environ.get, has no entry.
+_OPENSSL_HASHES = ("md5", "sha1", "sha224", "sha256", "sha384", "sha512")
+FUNCTION_RETURN_TYPES: dict[str, tuple[str, str | None]] = {
+    **{f"hashlib.{name}": ("extsym:_hashlib.HASH", None) for name in _OPENSSL_HASHES},
+    "json.dumps": ("builtin:str", None),
+    "tomllib.loads": ("builtin:dict", None),
+    "base64.b64decode": ("builtin:bytes", None),
+    "base64.b64encode": ("builtin:bytes", None),
+    "base64.urlsafe_b64decode": ("builtin:bytes", None),
+    "base64.urlsafe_b64encode": ("builtin:bytes", None),
+    "zlib.compress": ("builtin:bytes", None),
+    "zlib.decompress": ("builtin:bytes", None),
+    "subprocess.run": ("extsym:subprocess.CompletedProcess", None),
+    "subprocess.check_output": ("builtin:bytes", None),
+    **{
+        f"datetime.datetime.{name}": ("extsym:datetime.datetime", None)
+        for name in ("now", "utcnow", "fromisoformat", "fromtimestamp")
+    },
+}
+METHOD_RETURN_TYPES.update(
+    {
+        ("extsym:_hashlib.HASH", "hexdigest"): ("builtin:str", None),
+        ("extsym:_hashlib.HASH", "digest"): ("builtin:bytes", None),
+        ("extsym:datetime.datetime", "isoformat"): ("builtin:str", None),
+        ("extsym:datetime.datetime", "strftime"): ("builtin:str", None),
+    }
 )
+# The external types a project class may inherit these methods from.
+EXTERNAL_METHOD_RETURN_OWNERS = frozenset(
+    owner.removeprefix("extsym:")
+    for owner, _ in METHOD_RETURN_TYPES
+    if owner.startswith("extsym:")
+)
+# Lowercase standard library classes, whose call constructs an instance. A
+# capitalised external name and a builtins type are taken as classes already.
+LOWERCASE_STDLIB_CLASSES = frozenset(
+    {
+        "collections.defaultdict",
+        "collections.deque",
+        "datetime.date",
+        "datetime.datetime",
+        "datetime.time",
+        "datetime.timedelta",
+        "datetime.timezone",
+    }
+)
+
+
+def method_return_type(owner: str, method: str) -> dict[str, Any] | None:
+    """The documented return of ``method`` on a receiver of type id ``owner``,
+    as a type reference, or None."""
+
+    returned = METHOD_RETURN_TYPES.get((owner, method))
+    if returned is None:
+        return None
+    type_id, element = returned
+    ref: dict[str, Any] = {
+        "type_id": type_id,
+        "type_expression": type_id.split(":", 1)[1],
+    }
+    if element is not None:
+        ref["type_args"] = [
+            {"type_id": element, "type_expression": element.split(":", 1)[1]}
+        ]
+        ref["type_expression"] += f"[{element.split(':', 1)[1]}]"
+    return ref
+
+
+def function_return_type(qualname: str) -> dict[str, Any] | None:
+    """The documented return of the external function ``qualname``."""
+
+    returned = FUNCTION_RETURN_TYPES.get(qualname)
+    if returned is None:
+        return None
+    type_id, _ = returned
+    return {"type_id": type_id, "type_expression": type_id.split(":", 1)[1]}
+
+
+def type_id_of_qualname(qualname: str) -> str:
+    """The type id the analyzers give the external or builtins type ``qualname``."""
+
+    if qualname.startswith("builtins."):
+        return "builtin:" + qualname.removeprefix("builtins.")
+    return "extsym:" + qualname
+
+
 # pathlib documents ``path / segment`` as a path of the left operand's flavour,
 # and ``path.parent`` as its logical parent of the same flavour.
 PATH_TYPE_IDS = frozenset(
@@ -358,3 +547,41 @@ def _binary_kind(op: ast.operator, left: str, right: str) -> str:
         return "int"
     # No other combination yields a str, a path or an int.
     return "other"
+
+
+def mapping_value_type(
+    receiver: dict[str, Any] | None,
+    method: str,
+    default: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The type ``dict.get`` or ``dict.setdefault`` returns on ``receiver``.
+
+    The type of an explicit default wins; otherwise the dict's value type is
+    taken, as the type analyzer has always read a ``dict[K, V]`` lookup.
+    """
+
+    if (
+        not receiver
+        or receiver.get("type_id") != "builtin:dict"
+        or method not in {"get", "setdefault"}
+    ):
+        return None
+    if default is not None and isinstance(default.get("type_id"), str):
+        return default
+    type_args = receiver.get("type_args")
+    if isinstance(type_args, list) and len(type_args) >= 2:
+        value_type = type_args[1]
+        if isinstance(value_type, dict) and isinstance(value_type.get("type_id"), str):
+            return value_type
+    return None
+
+
+def mapping_default(node: ast.Call) -> ast.expr | None:
+    """The default argument of a ``get`` or ``setdefault`` call, if any."""
+
+    if len(node.args) >= 2:
+        return node.args[1]
+    for keyword in node.keywords:
+        if keyword.arg == "default":
+            return keyword.value
+    return None
