@@ -139,6 +139,14 @@ def rebound_pair(tmp_path: Path) -> None:
     repo.parent.mkdir()
 
 
+def mixed_barriers(tmp_path: Path, items: Optional[list[Path]]) -> None:
+    repo, other = pair(tmp_path)
+    repo, other = pair(tmp_path)
+    items = maybe_paths()
+    (repo / "a").is_symlink()
+    (repo / items[0]).chmod(0o700)
+
+
 def reassigned_join(items: Optional[list[Path]]) -> None:
     items = maybe_paths()
     (items[0] / "a").is_symlink()
@@ -265,6 +273,11 @@ def test_inline_path_receivers_resolve_by_type(tmp_path: Path) -> None:
         target == "extsym:pathlib.Path.is_file"
         for target, _ in resolutions.get("untyped_join", set())
     )
+    # Every operand behind a barrier must be available: repo is, items[0] is
+    # not, so only the join with a plain segment is linked.
+    mixed = resolutions.get("mixed_barriers", set())
+    assert ("extsym:pathlib.Path.is_symlink", "external_receiver_type") in mixed
+    assert not any(target == "extsym:pathlib.Path.chmod" for target, _ in mixed)
     # A parent or a join of an available value is available where the value
     # is, even after the name was bound again.
     assert {
