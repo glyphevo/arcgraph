@@ -88,6 +88,28 @@ def typed_shadow(os: Path) -> None:
     os.exists()
 
 
+def typed_chain(os: Path) -> None:
+    os.resolve().exists()
+
+
+def typed_project_chain(helper: Config) -> None:
+    helper.load().value()
+
+
+class Aliases:
+    def target(self) -> int:
+        return 1
+
+    def via_alias(self) -> None:
+        # helper is also a module function; the local is this method.
+        helper = self.target
+        helper()
+
+    @classmethod
+    def built_by_cls(cls) -> "Aliases":
+        return cls()
+
+
 def declared_global() -> None:
     global os
     os.getcwd()
@@ -156,6 +178,14 @@ def test_a_typed_local_resolves_by_its_own_type(resolutions):
     assert resolutions.get("typed_shadow") == {
         ("extsym:pathlib.Path.exists", "external_receiver_type")
     }
+    # So does the inner call of a chain through it.
+    assert resolutions.get("typed_chain") == {
+        ("extsym:pathlib.Path.resolve", "external_receiver_type"),
+        ("extsym:pathlib.Path.exists", "external_receiver_type"),
+    }
+    assert ("method:lab.Config.value", "receiver_type") in resolutions.get(
+        "typed_project_chain", set()
+    )
 
 
 @pytest.mark.parametrize(
@@ -171,6 +201,9 @@ def test_a_typed_local_resolves_by_its_own_type(resolutions):
         ("unshadowed", "method:lab.Config.load"),
         ("unshadowed", "fn:lab.helper"),
         ("unshadowed", "method:lab.Config.value"),
+        # A local's own definition, alias or class still resolves it.
+        ("via_alias", "method:lab.Aliases.target"),
+        ("built_by_cls", "class:lab.Aliases"),
         # A parameter that hides nothing keeps the boundary its name gives.
         ("unhidden_param", "extsym:dbapi.Connection.fetchone"),
     ],
@@ -192,3 +225,73 @@ def test_the_index_records_no_call_through_a_hiding_local(tmp_path: Path) -> Non
     # At module level the module's own bindings are the scope: before the
     # assignment, json is still the import.
     assert ("extsym:json.dumps", "imported_module_attribute") in found["mod:lab"]
+
+
+ELSEWHERE = {
+    "other.py": (
+        "class Made:\n    def value(self):\n        return 1\n\n\n"
+        "def helper() -> Made:\n    return Made()\n"
+    ),
+    "use.py": (
+        "class Config:\n    @classmethod\n    def load(cls) -> 'Config':\n"
+        "        return cls()\n\n    def value(self) -> int:\n        return 1\n\n\n"
+        "def param_called(helper):\n    made = helper()\n    made.value()\n\n\n"
+        "class Box:\n    def method_called(self, helper):\n        return helper()\n\n\n"
+        "def assigned_called(make):\n    helper = make\n    helper()\n\n\n"
+        "def param_constructed(Made):\n    Made().value()\n\n\n"
+        "def inline_hidden(Config):\n    Config.load().value()\n\n\n"
+        "def imported_called():\n    from pkg.other import helper\n\n"
+        "    helper().value()\n    Config.load().value()\n"
+    ),
+}
+
+
+@pytest.fixture(scope="module")
+def elsewhere(tmp_path_factory: pytest.TempPathFactory) -> dict[str, set[str]]:
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    root = tmp_path_factory.mktemp("elsewhere")
+    package = root / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    for name, text in ELSEWHERE.items():
+        (package / name).write_text(text, encoding="utf-8")
+    output = root / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+    ).build()
+    targets: dict[str, set[str]] = {}
+    for edge in GraphStoreReader.from_current(output).read_edges():
+        if edge.resolution.status == "resolved" and edge.kind != "similar_to":
+            targets.setdefault(edge.source.rsplit(".", 1)[-1], set()).add(edge.target)
+    return targets
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # A local value called is that value, not the one function or class of
+        # its name elsewhere in the project, and its result has no type.
+        "param_called",
+        "method_called",
+        "assigned_called",
+        "param_constructed",
+        # An inner call of a chain through a hiding local links nothing either.
+        "inline_hidden",
+    ],
+)
+def test_a_called_local_value_is_not_a_function_elsewhere(elsewhere, name):
+    assert elsewhere.get(name, set()) == set()
+
+
+def test_an_imported_function_still_resolves(elsewhere):
+    assert {
+        "fn:pkg.other.helper",
+        "method:pkg.other.Made.value",
+        "method:pkg.use.Config.load",
+        "method:pkg.use.Config.value",
+    } <= elsewhere["imported_called"]

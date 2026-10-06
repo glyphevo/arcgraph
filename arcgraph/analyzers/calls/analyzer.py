@@ -343,14 +343,14 @@ class CallAnalyzer:
             if found and (
                 any(b.get("pytest_parameter") for b in found[1])
                 or (
-                    source.id not in context.lexical.strict
-                    and context.lexical.shadowed(source, root)
+                    callsite.get("receiver")
+                    and self._hidden_by_local_value(source, root, context)
                 )
             ):
                 # Fixture inputs require binding evidence, even outside closures,
-                # and so does a local value that hides an import, a module
-                # definition or a builtin of its name. Bypass every import,
-                # class-name and unique-method fallback for this receiver.
+                # and so does a receiver that is a local value hiding an import,
+                # a module definition or a builtin of its name. Bypass every
+                # import, class-name and unique-method fallback for this receiver.
                 receiver, attribute = callsite.get("receiver"), callsite.get(
                     "attribute"
                 )
@@ -371,6 +371,10 @@ class CallAnalyzer:
             if resolved is not None:
                 return resolved
             if source.id in context.lexical.strict:
+                return None
+            if not callsite.get("receiver") and self._called_local_value(
+                source, str(callsite.get("name") or ""), context
+            ):
                 return None
 
         target = self._resolve_target(
@@ -810,6 +814,10 @@ class CallAnalyzer:
         local_alias = self._local_callable_alias_target(source, raw_name, context)
         if local_alias is not None:
             return local_alias
+        if self._called_local_value(source, raw_name, context):
+            # Past the local's own definition and alias, its name links nothing:
+            # not the module's, the builtin, nor a function of that name elsewhere.
+            return None
 
         same_module_target = self._resolve_same_module(
             source, raw_name, context.by_name
@@ -1165,12 +1173,55 @@ class CallAnalyzer:
             propagated["type_ref_id"] = receiver_type["type_ref_id"]
         return propagated
 
+    @staticmethod
+    def _hidden_by_local_value(
+        source: Node, root: str | None, context: _CallResolutionContext
+    ) -> bool:
+        """Whether, outside a strict scope, ``root`` is a local value that
+        hides an import, a definition or a builtin of its name."""
+
+        return (
+            root is not None
+            and source.id not in context.lexical.strict
+            and context.lexical.shadowed(source, root)
+        )
+
+    @staticmethod
+    def _called_local_value(
+        source: Node, name: str, context: _CallResolutionContext
+    ) -> bool:
+        """Whether a bare call of ``name`` outside a strict scope calls a local
+        value, which neither a module name, a builtin nor a function of that
+        name elsewhere is."""
+
+        return (
+            source.id not in context.lexical.strict
+            and name.isidentifier()
+            and context.lexical.local_value(source, name)
+        )
+
     def _resolve_call_node(
         self,
         source: Node,
         node: ast.Call,
         context: _CallResolutionContext,
     ) -> _ResolvedCallTarget | None:
+        root = context.lexical.root_name(self._unparse(node.func))
+        if isinstance(node.func, ast.Attribute) and self._hidden_by_local_value(
+            source, root, context
+        ):
+            # Only the local's own type resolves the call, as for a call at the
+            # top of an expression.
+            found = context.lexical.lookup(source, root) if root else None
+            if (
+                found is not None
+                and context.lexical.stable(*found)
+                and context.lexical.type_ref(source, str(root)) is not None
+            ):
+                return self._typed_receiver_target(
+                    source, self._unparse(node.func.value), node.func.attr, context
+                )
+            return None
         if isinstance(node.func, ast.Attribute):
             receiver_expression = self._unparse(node.func.value)
             # The same rules as a call at the top of an expression, so that

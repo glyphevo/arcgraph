@@ -1924,13 +1924,13 @@ class _TypeContext:
 
     def _binding_decides(self, scope_node: Node, name: str) -> bool:
         """Whether the binding the root of ``name`` has in scope, rather than a
-        module-wide alias, decides what it names: in a strict scope, and where
-        a local value hides an import, a definition or a builtin."""
+        module-wide alias or a unique name elsewhere, decides what it names: in
+        a strict scope, and where the root is a local value."""
 
         if scope_node.id in self.lexical.strict:
             return True
         root = self.lexical.root_name(name)
-        return root is not None and self.lexical.shadowed(scope_node, root)
+        return root is not None and self.lexical.local_value(scope_node, root)
 
     @staticmethod
     def _class_qualname_for_scope(node: Node) -> str | None:

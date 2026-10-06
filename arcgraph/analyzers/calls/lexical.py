@@ -229,18 +229,24 @@ class LexicalScopes:
         # An unknown local masks ancestors and same-name global/class heuristics.
         return self.type_ref(source, root) is None
 
-    def shadowed(self, source: Node, name: str) -> bool:
-        """Whether ``name`` is a local value of ``source`` that hides a module
-        binding or a builtin of that name. A parameter, an assignment, a del or
-        any other binding of a value makes the name local in the whole body,
-        even before that binding; a global declaration does not."""
+    def local_value(self, source: Node, name: str) -> bool:
+        """Whether ``name`` is a local value of ``source``. A parameter, an
+        assignment, a del or any other binding of a value makes the name local
+        in the whole body, even before that binding; a global declaration does
+        not, and neither does an import or a definition alone."""
 
         if source.kind == "module":
             return False
         own = self.bindings.get(source.id, {}).get(name, [])
         if not own or any(b.get("kind") in {"global", "nonlocal"} for b in own):
             return False
-        if all(b.get("kind") in _DEFINITION_KINDS for b in own):
+        return not all(b.get("kind") in _DEFINITION_KINDS for b in own)
+
+    def shadowed(self, source: Node, name: str) -> bool:
+        """Whether ``name`` is a local value of ``source`` that hides a module
+        binding or a builtin of that name."""
+
+        if not self.local_value(source, name):
             return False
         module = self.modules.get(source.path)
         if module is not None and name in self.bindings.get(module.id, {}):
