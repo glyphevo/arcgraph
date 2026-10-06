@@ -149,9 +149,36 @@ METHOD_RETURN_TYPES: dict[tuple[str, str], tuple[str, str | None]] = {
 # follows its input, such as re.sub, or that may return None, such as
 # os.environ.get, has no entry; subprocess.check_output, whose return its
 # keywords decide, is read from its call (see _ARGUMENT_DEPENDENT_RETURNS).
-_OPENSSL_HASHES = ("md5", "sha1", "sha224", "sha256", "sha384", "sha512")
+# The hash types are the runtime types of a CPython built with OpenSSL, as
+# 3.11 and 3.12 are on the supported platforms: hashlib takes md5 to sha3_512
+# from OpenSSL, the shake functions too, and blake2 from its own module.
+# test_documented_hash_types_are_the_runtime_types checks the running
+# interpreter.
+_OPENSSL_HASHES = (
+    "md5",
+    "sha1",
+    "sha224",
+    "sha256",
+    "sha384",
+    "sha512",
+    "sha3_224",
+    "sha3_256",
+    "sha3_384",
+    "sha3_512",
+)
+_HASH_TYPES = ("extsym:_hashlib.HASH", "extsym:_hashlib.HASHXOF") + tuple(
+    f"extsym:_blake2.{name}" for name in ("blake2b", "blake2s")
+)
 FUNCTION_RETURN_TYPES: dict[str, tuple[str, str | None]] = {
     **{f"hashlib.{name}": ("extsym:_hashlib.HASH", None) for name in _OPENSSL_HASHES},
+    **{
+        f"hashlib.{name}": ("extsym:_hashlib.HASHXOF", None)
+        for name in ("shake_128", "shake_256")
+    },
+    **{
+        f"hashlib.{name}": (f"extsym:_blake2.{name}", None)
+        for name in ("blake2b", "blake2s")
+    },
     "json.dumps": ("builtin:str", None),
     "tomllib.loads": ("builtin:dict", None),
     "base64.b64decode": ("builtin:bytes", None),
@@ -168,8 +195,8 @@ FUNCTION_RETURN_TYPES: dict[str, tuple[str, str | None]] = {
 }
 METHOD_RETURN_TYPES.update(
     {
-        ("extsym:_hashlib.HASH", "hexdigest"): ("builtin:str", None),
-        ("extsym:_hashlib.HASH", "digest"): ("builtin:bytes", None),
+        **{(owner, "hexdigest"): ("builtin:str", None) for owner in _HASH_TYPES},
+        **{(owner, "digest"): ("builtin:bytes", None) for owner in _HASH_TYPES},
         ("extsym:datetime.datetime", "isoformat"): ("builtin:str", None),
         ("extsym:datetime.datetime", "strftime"): ("builtin:str", None),
     }
@@ -181,12 +208,30 @@ METHOD_RETURN_TYPES.update(
 # test_external_methods_cover_every_public_method checks the running
 # interpreter against it.
 EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
-    "extsym:_hashlib.HASH": frozenset(
+    **{
+        owner: frozenset({"copy", "digest", "hexdigest", "update"})
+        for owner in _HASH_TYPES
+    },
+    "extsym:array.array": frozenset(
         {
-            "copy",
-            "digest",
-            "hexdigest",
-            "update",
+            "append",
+            "buffer_info",
+            "byteswap",
+            "count",
+            "extend",
+            "frombytes",
+            "fromfile",
+            "fromlist",
+            "fromunicode",
+            "index",
+            "insert",
+            "pop",
+            "remove",
+            "reverse",
+            "tobytes",
+            "tofile",
+            "tolist",
+            "tounicode",
         }
     ),
     "extsym:datetime.datetime": frozenset(
@@ -456,6 +501,7 @@ EXTERNAL_METHOD_RETURN_OWNERS = frozenset(
 # capitalised external name and a builtins type are taken as classes already.
 LOWERCASE_STDLIB_CLASSES = frozenset(
     {
+        "array.array",
         "collections.defaultdict",
         "collections.deque",
         "datetime.date",

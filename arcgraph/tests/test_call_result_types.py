@@ -10,6 +10,7 @@ builtins.dict.get.get.
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib
 import inspect
 import subprocess
@@ -27,7 +28,8 @@ from arcgraph.analyzers.external_types import (
 )
 from arcgraph.tests.test_path_receiver_types import _resolutions_by_function
 
-SOURCE = """import datetime
+SOURCE = """import array
+import datetime
 import hashlib
 import json
 import subprocess
@@ -307,6 +309,32 @@ def output_rebound(make: Any) -> None:
     check_output = make()
     out = check_output(["echo"])
     out.upper()
+
+
+def sha3_hash(data: bytes) -> None:
+    hashlib.sha3_256(data).hexdigest().upper()
+
+
+def shake_hash(data: bytes) -> None:
+    hashlib.shake_128(data).hexdigest(8).upper()
+
+
+def blake_hash(data: bytes) -> None:
+    hashlib.blake2b(data).digest().hex()
+    digest = hashlib.blake2s(data)
+    digest.hexdigest().casefold()
+
+
+def blake_lacks(data: bytes) -> None:
+    hashlib.blake2b(data).mkdir()
+
+
+def typed_array() -> None:
+    array.array("i").tobytes()
+
+
+def array_lacks() -> None:
+    array.array("i").mkdir()
 """
 
 
@@ -372,6 +400,15 @@ def test_a_guessed_callee_types_nothing(resolutions):
         ("output_assigned", "extsym:builtins.bytes.decode"),
         ("hashed_assigned", "extsym:_hashlib.HASH.hexdigest"),
         ("run_assigned", "extsym:subprocess.CompletedProcess.check_returncode"),
+        ("sha3_hash", "extsym:_hashlib.HASH.hexdigest"),
+        ("sha3_hash", "extsym:builtins.str.upper"),
+        ("shake_hash", "extsym:_hashlib.HASHXOF.hexdigest"),
+        ("shake_hash", "extsym:builtins.str.upper"),
+        ("blake_hash", "extsym:_blake2.blake2b.digest"),
+        ("blake_hash", "extsym:builtins.bytes.hex"),
+        ("blake_hash", "extsym:_blake2.blake2s.hexdigest"),
+        ("blake_hash", "extsym:builtins.str.casefold"),
+        ("typed_array", "extsym:array.array.tobytes"),
     ],
 )
 def test_documented_returns_type_the_next_call(resolutions, name, target):
@@ -641,3 +678,22 @@ def test_check_output_rule_matches_the_runtime(keywords):
         "type_id": "builtin:" + type(returned).__name__,
         "type_expression": type(returned).__name__,
     }
+
+
+def test_documented_hash_types_are_the_runtime_types():
+    # The analyzers name these types statically; a build whose hashlib takes a
+    # hash from elsewhere fails here rather than silently naming other types.
+    hashes = {
+        qualname: type_id
+        for qualname, (type_id, _) in FUNCTION_RETURN_TYPES.items()
+        if qualname.startswith("hashlib.")
+    }
+    assert len(hashes) == 14
+    for qualname, type_id in hashes.items():
+        runtime = type(getattr(hashlib, qualname.removeprefix("hashlib."))())
+        assert type_id == f"extsym:{runtime.__module__}.{runtime.__qualname__}"
+
+
+def test_hash_and_array_types_link_no_method_they_lack(resolutions):
+    for name in ("blake_lacks", "array_lacks"):
+        assert not any(t.endswith(".mkdir") for t in _targets(resolutions, name)), name
