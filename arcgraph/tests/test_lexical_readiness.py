@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import builtins
 import inspect
 
 import pytest
 
 from arcgraph.analyzers.calls import CallAnalyzer
+from arcgraph.analyzers.calls.constants import BUILTIN_CALLS
 from arcgraph.interfaces.cli_visual import add_visual_parser
 from arcgraph.tests.test_calls import _analyzed_nodes
 
@@ -106,6 +108,32 @@ def test_builtin_exceptions_resolve_and_local_shadow_stays_unknown(name):
     assert len(resolved) == 1
     assert resolved[0].source == PREFIX + "outer.inner"
     assert resolved[0].resolution.strategy == "builtin_function"
+
+
+@pytest.mark.parametrize("name", ["compile", "oct", "format", "divmod", "vars", "exit"])
+def test_builtin_functions_resolve_and_local_shadow_stays_unknown(name):
+    # Each was missing from a hand-kept subset of the builtins and so stayed a
+    # release-blocking unresolved call.
+    nodes = _analyzed_nodes(
+        f"def outer():\n    def inner():\n        {name}(1)\n    return inner\n"
+        f"def other({name}):\n    def inner():\n        {name}(1)\n    return inner\n"
+    )
+    result = CallAnalyzer(enable_v2=True).analyze(nodes)
+    resolved = [e for e in result.edges if e.target == "extsym:builtins." + name]
+    assert len(resolved) == 1
+    assert resolved[0].source == PREFIX + "outer.inner"
+    assert resolved[0].resolution.strategy == "builtin_function"
+
+
+def test_builtin_calls_cover_every_public_builtin():
+    missing = sorted(
+        name
+        for name in dir(builtins)
+        if not name.startswith("_")
+        and callable(getattr(builtins, name))
+        and name not in BUILTIN_CALLS
+    )
+    assert missing == []
 
 
 def test_visual_parser_runtime_and_explicit_argparse_factory_contract():
