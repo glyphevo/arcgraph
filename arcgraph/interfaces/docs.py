@@ -1172,6 +1172,14 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 ],
             },
             {
+                "title": "Pydantic Models Through Project Bases",
+                "items": [
+                    "A class is now a `pydantic_model` when it derives from `BaseModel` or `BaseSettings` through classes of the project, as in `class User(AppModel)` with `class AppModel(BaseModel)`, also when the base is imported through a package that re-exports it; settings wins over model. Earlier only a class whose own base was `BaseModel` or `BaseSettings` was one, so such models and their fields were indexed as plain classes and attributes without a warning.",
+                    "Expect more `pydantic_model` and `model_field` nodes, and higher `pydantic_models` and `model_fields` adapter metrics, on projects that use a shared base model.",
+                    "A class whose base is defined in another file is marked `inherited_type_input`, so an incremental reindex analyses it again when a Python file changes, and agrees with a full build when the base stops or starts being a model.",
+                ],
+            },
+            {
                 "title": "CI Gate Configuration And Scope Reporting",
                 "items": [
                     "`arcgraph ci` reads three new optional sections from the analyzed repository's `pyproject.toml`. `[[tool.arcgraph.ci.layers]]` entries, innermost first, each with a `name` and `paths` prefixes, replace the built-in model/repository/service/api layering for the `layer_violations` check. `[[tool.arcgraph.ci.layer_exemptions]]` entries name a `from` layer, a `to` layer, and the `reason` an inward import is accepted; an entry without a non-empty reason exempts nothing. `[tool.arcgraph.ci.semantic_resolution_baseline]` supplies `resolution_rate` for the `semantic_resolution_trend` check when `--semantic-baseline` is not passed.",

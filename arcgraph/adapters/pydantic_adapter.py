@@ -7,15 +7,12 @@ from dataclasses import dataclass
 
 from arcgraph.adapters.common import (
     AdapterAnalysis,
-    ImportAliases,
     SemanticAdapter,
     annotation_name,
     call_name,
-    import_aliases,
     keyword,
     literal_str,
     make_adapter_edge,
-    resolve_name,
 )
 from arcgraph.core.ids import (
     class_id,
@@ -53,24 +50,24 @@ class PydanticAdapter(SemanticAdapter):
         nodes: list[Node],
         module_names: set[str],
     ) -> AdapterAnalysis:
-        del nodes
+        del module_names
         analysis = AdapterAnalysis()
         model_count = 0
         settings_count = 0
         field_count = 0
         config_key_count = 0
 
+        kinds = self._model_kinds(files, nodes)
         for file_record in files:
             tree = parsed_files.get(file_record.path)
             if tree is None:
                 continue
-            imports = import_aliases(file_record, tree, module_names)
             classes = [item for item in tree.body if isinstance(item, ast.ClassDef)]
             for stmt in classes:
-                kind = self._pydantic_kind(stmt, file_record, imports)
+                qualname = f"{file_record.module}.{stmt.name}"
+                kind = kinds.get(qualname)
                 if kind is None:
                     continue
-                qualname = f"{file_record.module}.{stmt.name}"
                 class_node_id = class_id(qualname)
                 schema_node = Node(
                     id=pydantic_model_id(qualname),
@@ -154,30 +151,116 @@ class PydanticAdapter(SemanticAdapter):
         }
         return analysis
 
-    def _pydantic_kind(
-        self,
-        stmt: ast.ClassDef,
-        file_record: FileRecord,
-        imports: ImportAliases,
-    ) -> str | None:
-        resolved_bases = {
-            self._resolved_annotation(base, file_record, imports) for base in stmt.bases
+    def _model_kinds(
+        self, files: list[FileRecord], nodes: list[Node]
+    ) -> dict[str, str]:
+        """The kind of every module-level class that is a model or settings.
+
+        A class is one when a base is BaseModel or BaseSettings, or a project
+        class that is one, as mealie's schemas derive from its MealieModel(
+        BaseModel); settings wins over model. A base imported through a
+        package that re-exports it is followed to where it is defined.
+
+        Read from the graph's nodes rather than the files being analysed, so
+        an incremental reindex, which analyses only changed files, sees the
+        bases and re-exports of the others too. A class whose base is defined
+        in another file is marked inherited_type_input, so the reindexer
+        analyses it again whenever a Python file changes.
+        """
+
+        module_by_path: dict[str, str] = {}
+        aliases: dict[str, dict[str, str]] = {}
+        for node in nodes:
+            if node.kind != "module" or not node.qualname or not node.path:
+                continue
+            module_by_path[node.path] = node.qualname
+            names = aliases.setdefault(node.qualname, {})
+            for binding in node.properties.get("bindings") or []:
+                if (
+                    isinstance(binding, dict)
+                    and binding.get("kind") == "import_alias"
+                    and binding.get("scope_kind") == "module"
+                    and isinstance(binding.get("name"), str)
+                    and isinstance(binding.get("value"), str)
+                ):
+                    names.setdefault(binding["name"], binding["value"])
+
+        classes: dict[str, Node] = {}
+        bases: dict[str, list[str]] = {}
+        for node in nodes:
+            module = module_by_path.get(node.path or "")
+            if node.kind != "class" or not module or not node.qualname:
+                continue
+            if node.qualname != f"{module}.{node.name}":
+                continue
+            classes[node.qualname] = node
+            bases[node.qualname] = [
+                resolved
+                for base in node.properties.get("bases") or []
+                if isinstance(base, str)
+                and (resolved := self._resolved_base(base, module, aliases))
+            ]
+
+        def defined(name: str) -> str:
+            for _ in range(32):
+                if name in classes:
+                    return name
+                module, _, attribute = name.rpartition(".")
+                target = aliases.get(module, {}).get(attribute)
+                if target is None or target == name:
+                    return name
+                name = target
+            return name
+
+        kinds: dict[str, str | None] = {}
+
+        def kind_of(qualname: str) -> str | None:
+            if qualname in kinds:
+                return kinds[qualname]
+            kinds[qualname] = None  # a cycle of bases makes no model
+            found: set[str] = set()
+            for base in bases[qualname]:
+                origin = defined(base)
+                if {base, origin} & self.SETTINGS_BASES:
+                    found.add("settings")
+                elif {base, origin} & self.MODEL_BASES:
+                    found.add("model")
+                elif origin in classes:
+                    found.add(kind_of(origin) or "")
+            kind = (
+                "settings"
+                if "settings" in found
+                else "model" if "model" in found else None
+            )
+            kinds[qualname] = kind
+            return kind
+
+        analysed = {file.path for file in files}
+        for qualname, node in classes.items():
+            if node.path in analysed and any(
+                (origin := defined(base)) in classes
+                and classes[origin].path != node.path
+                for base in bases[qualname]
+            ):
+                node.properties["inherited_type_input"] = True
+        return {
+            qualname: kind
+            for qualname in sorted(classes)
+            if (kind := kind_of(qualname)) is not None
         }
-        if resolved_bases & self.SETTINGS_BASES:
-            return "settings"
-        if resolved_bases & self.MODEL_BASES:
-            return "model"
-        return None
 
     @staticmethod
-    def _resolved_annotation(
-        node: ast.AST, file_record: FileRecord, imports: ImportAliases
+    def _resolved_base(
+        base: str, module: str, aliases: dict[str, dict[str, str]]
     ) -> str | None:
-        name = annotation_name(node)
-        if not name:
-            return None
-        resolved = resolve_name(name, file_record, imports)
-        return resolved if "." in resolved else name.rsplit(".", 1)[-1]
+        name = base.split("[", 1)[0].strip()
+        if not name or not name.replace(".", "").replace("_", "").isalnum():
+            return None  # a call or other expression, as in declarative_base()
+        first, _, rest = name.partition(".")
+        target = aliases.get(module, {}).get(first)
+        if target is not None:
+            return f"{target}.{rest}" if rest else target
+        return name if rest else f"{module}.{name}"
 
     def _fields(self, stmt: ast.ClassDef) -> list[PydanticField]:
         fields: list[PydanticField] = []
