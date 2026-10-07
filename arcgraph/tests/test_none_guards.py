@@ -305,6 +305,71 @@ def try_else_rebound():
         shared.build()
 
 
+def loop_rebinds(items):
+    shared: Box | None = None
+    source = make_box()
+    if source is None:
+        return
+    for item in items:
+        shared = source
+        shared.build()
+        source = other()
+
+
+async def async_loop_rebinds(items):
+    shared: Box | None = None
+    source = make_box()
+    if source is None:
+        return
+    async for source in items:
+        shared = source
+        shared.build()
+
+
+def loop_target_rebinds(items):
+    shared: Box | None = None
+    source = make_box()
+    if source is None:
+        return
+    for source in items:
+        shared = source
+        shared.build()
+
+
+def except_star_rebinds():
+    shared: Box | None = None
+    source = make_box()
+    if source is None:
+        return
+    try:
+        pass
+    except* ValueError as source:
+        shared = source
+        shared.build()
+
+
+def case_star_rebinds(items):
+    shared: Box | None = None
+    source = make_box()
+    if source is None:
+        return
+    match items:
+        case [*source]:
+            shared = source
+            shared.build()
+
+
+def case_rest_rebinds(items):
+    shared: Box | None = None
+    source = make_box()
+    if source is None:
+        return
+    match items:
+        case {**source}:
+            shared = source
+            shared.build()
+
+
 def try_except_rebound():
     shared: Box | None = None
     source = make_box()
@@ -466,6 +531,14 @@ def test_a_value_proven_present_is_not_none(linked, name):
         "entered_with_as",
         "entered_case_capture",
         "entered_handler_name",
+        # A loop, or what it binds, rebinds the name; so does except*, a star
+        # capture or a mapping rest.
+        "loop_rebinds",
+        "async_loop_rebinds",
+        "loop_target_rebinds",
+        "except_star_rebinds",
+        "case_star_rebinds",
+        "case_rest_rebinds",
     ],
 )
 def test_a_value_not_proven_present_keeps_none(linked, name):

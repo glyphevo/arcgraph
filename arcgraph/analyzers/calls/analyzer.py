@@ -850,7 +850,7 @@ class CallAnalyzer:
             return None
 
         same_module_target = self._resolve_same_module(
-            source, raw_name, context.by_name
+            source, raw_name, context.by_name, context.callsite_position
         )
         if same_module_target:
             return self._resolved_name_target(same_module_target, "same_module_symbol")
@@ -880,7 +880,12 @@ class CallAnalyzer:
                 confidence="confirmed",
                 edge_kind="uses",
             )
-        candidates = context.by_name.get(raw_name, [])
+        # A bare name reaches no method, nor a class nested in another class.
+        candidates = [
+            candidate
+            for candidate in context.by_name.get(raw_name, [])
+            if self._is_module_level(candidate)
+        ]
         if len(candidates) == 1:
             return self._resolved_name_target(candidates[0], "unique_short_name")
         if builtin_target is not None:
@@ -3351,6 +3356,8 @@ class CallAnalyzer:
             candidate
             for candidate in by_name.get(short_name, [])
             if not (receiver_expression and candidate.id == source.id)
+            # A bare name reaches no method, nor a class nested in another.
+            and (receiver_expression or self._is_module_level(candidate))
         ]
         if len(candidates) == 1:
             return candidates[0]
@@ -3476,6 +3483,7 @@ class CallAnalyzer:
         source: Node,
         raw_name: str,
         by_name: dict[str, list[Node]],
+        position: tuple[str, int, int] | None = None,
     ) -> Node | None:
         if "." in raw_name:
             return None
@@ -3489,19 +3497,41 @@ class CallAnalyzer:
             for candidate in by_name.get(raw_name, [])
             if candidate.qualname and self._module_qualname(candidate) == module
         ]
-        if len(candidates) > 1 and source.kind != "class":
-            # A function's bare name sees the module's own definition, not a
-            # method or a nested function elsewhere in the module that shares
-            # the name. A class body also sees its own names, defined before
-            # or after the call.
-            candidates = [
-                candidate
-                for candidate in candidates
-                if candidate.qualname == f"{module}.{raw_name}"
+        if source.kind == "class":
+            if position is None or position[0] != source.id:
+                return candidates[0] if len(candidates) == 1 else None
+            # A class body runs in order: a name it has bound by the call is
+            # its own; one it has not is the module's, for a class at the top
+            # of the module.
+            held = [
+                binding
+                for binding in source.properties.get("bindings", [])
+                if isinstance(binding, dict)
+                and binding.get("name") == raw_name
+                and binding_in_effect(binding, position)
             ]
+            if held:
+                last = max(
+                    held,
+                    key=lambda b: (int(b.get("line") or 0), int(b.get("column") or 0)),
+                )
+                return next((c for c in candidates if c.id == last.get("target")), None)
+            if source.qualname != f"{module}.{source.name}":
+                # A nested class's body also sees the names around it, which
+                # this does not read. The index has no such class node yet.
+                return candidates[0] if len(candidates) == 1 else None
+        # A function, a method, the module or the body of a class at its top
+        # sees the module's own definition of a name, not a method or a class
+        # nested in another class that shares it.
+        candidates = [
+            candidate for candidate in candidates if self._is_module_level(candidate)
+        ]
         if len(candidates) == 1:
             return candidates[0]
         return None
+
+    def _is_module_level(self, node: Node) -> bool:
+        return node.qualname == f"{self._module_qualname(node)}.{node.name}"
 
     @staticmethod
     def _module_qualname(node: Node) -> str | None:

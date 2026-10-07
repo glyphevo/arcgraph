@@ -1,10 +1,11 @@
-"""A bare name in a function is the module's own definition of it.
+"""A bare name is the definition its scope sees, in Python's order.
 
 A function or method body sees its own locals, enclosing functions and the
-module, not a class body or a function nested elsewhere. Same-module
-candidates for a bare name counted every symbol of the module with that
-name, so helper() was left unresolved when a class of the module also had a
-helper method; the module's own definition now wins among them.
+module, never a class body or a function nested in another function: a name
+there is the module's own top-level definition, so helper() is not a
+helper method of a class in the module, however many share the name, and a
+method is never reached by a bare name. A class body runs in order: a name
+it has bound before the call is its own, one it has not is the module's.
 """
 
 from __future__ import annotations
@@ -47,12 +48,38 @@ class Local:
     value = helper(1)
 
 
+class Early:
+    value = helper(1)
+
+    def helper(x):
+        return x
+
+
+class Plain:
+    value = helper(1)
+
+
+class Assigned:
+    helper = staticmethod(len)
+    value = helper([])
+
+
+class Only:
+    @staticmethod
+    def only(x):
+        return x
+
+    def method(self):
+        return only(1)
+
+
 def use():
     return helper(1)
 
 
 def use_nested():
     return nested()
+
 """
 
 
@@ -72,19 +99,30 @@ def test_source_parses() -> None:
     [
         # Box.helper shares the name; the module's helper is what is called.
         ("use", "fn:lab.helper", "same_module_symbol"),
-        # A method body does not see its class body's names.
-        ("method", "fn:lab.helper", "same_module_symbol"),
         # Nor a function nested in another function, nor another method.
         ("use_nested", "fn:lab.nested", "same_module_symbol"),
         # Where a name is defined locally, that definition is it.
         ("outer", "fn:lab.outer.nested", "local_definition"),
+        # A class body that has defined helper by the call calls its own.
+        ("Local", "method:lab.Local.helper", "same_module_symbol"),
+        # One that defines it only after the call, or not at all, calls the
+        # module's.
+        ("Early", "fn:lab.helper", "same_module_symbol"),
+        ("Plain", "fn:lab.helper", "same_module_symbol"),
     ],
 )
 def test_a_bare_name_is_the_definition_it_sees(resolutions, name, target, strategy):
     assert resolutions.get(name, set()) == {(target, strategy)}
 
 
-def test_a_class_body_name_is_not_taken_for_the_module_s(resolutions):
-    # The class body sees its own helper, which the index does not tell from
-    # the module's here, so neither is linked.
-    assert "fn:lab.helper" not in {t for t, _ in resolutions.get("Local", set())}
+def test_a_method_body_does_not_see_its_class_body(resolutions):
+    # Box.method's helper(1) is the module's; Only.method's only(1) is a
+    # NameError at run time, not the method of that name.
+    targets = {t for t, _ in resolutions.get("method", set())}
+    assert targets == {"fn:lab.helper"}
+
+
+def test_a_class_body_name_bound_otherwise_is_not_the_module_s(resolutions):
+    # helper is bound to staticmethod(len) by the call, which the index does
+    # not follow; it is not the module's helper.
+    assert "fn:lab.helper" not in {t for t, _ in resolutions.get("Assigned", set())}
