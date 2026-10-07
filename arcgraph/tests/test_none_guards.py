@@ -370,6 +370,109 @@ def case_rest_rebinds(items):
             shared.build()
 
 
+def while_none_return():
+    shared: Box | None = None
+    source = make_box()
+    while source is None:
+        return
+    shared = source
+    shared.build()
+
+
+def while_polls():
+    shared: Box | None = None
+    source = make_box()
+    while not source:
+        source = make_box()
+    shared = source
+    shared.build()
+
+
+def while_inner_break(items):
+    shared: Box | None = None
+    source = make_box()
+    while source is None:
+        for item in items:
+            break
+        source = make_box()
+    shared = source
+    shared.build()
+
+
+def while_breaks(flag):
+    shared: Box | None = None
+    source = make_box()
+    while source is None:
+        if flag:
+            break
+        source = make_box()
+    shared = source
+    shared.build()
+
+
+def while_inner_else_breaks(items):
+    shared: Box | None = None
+    source = make_box()
+    while source is None:
+        for item in items:
+            pass
+        else:
+            break
+    shared = source
+    shared.build()
+
+
+def while_else_rebinds():
+    shared: Box | None = None
+    source = make_box()
+    while source is None:
+        source = make_box()
+    else:
+        source = other()
+    shared = source
+    shared.build()
+
+
+def match_none_or_return():
+    shared: Box | None = None
+    source = make_box()
+    match source:
+        case None | int():
+            return
+    shared = source
+    shared.build()
+
+
+def match_none_true_guard():
+    shared: Box | None = None
+    source = make_box()
+    match source:
+        case None if True:
+            return
+    shared = source
+    shared.build()
+
+
+def match_none_false_guard():
+    shared: Box | None = None
+    source = make_box()
+    match source:
+        case None if 0:
+            return
+    shared = source
+    shared.build()
+
+
+def match_or_without_none():
+    shared: Box | None = None
+    source = make_box()
+    match source:
+        case int() | str():
+            return
+    shared = source
+    shared.build()
+
+
 def try_except_rebound():
     shared: Box | None = None
     source = make_box()
@@ -491,6 +594,11 @@ def test_source_parses() -> None:
         "match_none_return",
         "try_else",
         "try_after_guard",
+        "while_none_return",
+        "while_polls",
+        "while_inner_break",
+        "match_none_or_return",
+        "match_none_true_guard",
     ],
 )
 def test_a_value_proven_present_is_not_none(linked, name):
@@ -539,6 +647,13 @@ def test_a_value_proven_present_is_not_none(linked, name):
         "except_star_rebinds",
         "case_star_rebinds",
         "case_rest_rebinds",
+        # A break ends the loop with the test still true; an else rebinds.
+        "while_breaks",
+        "while_inner_else_breaks",
+        "while_else_rebinds",
+        # The guard is false, or the pattern does not take None.
+        "match_none_false_guard",
+        "match_or_without_none",
     ],
 )
 def test_a_value_not_proven_present_keeps_none(linked, name):

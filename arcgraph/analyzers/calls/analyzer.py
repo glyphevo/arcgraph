@@ -72,6 +72,7 @@ from arcgraph.analyzers.external_types import (
     NEVER_TYPE_ID,
     PATH_TYPE_IDS,
     function_return_type,
+    literal_type_name,
     mapping_default,
     mapping_value_type,
     may_be_path_segment,
@@ -1112,14 +1113,13 @@ class CallAnalyzer:
 
     @staticmethod
     def _literal_receiver_type(node: ast.AST) -> str | None:
-        """The builtin type of a str or bytes literal, or an f-string, called
-        on directly, as the type analyzer gives one assigned to a name."""
+        """The builtin type of a literal, a display or an f-string called on
+        directly, as the type analyzer gives one assigned to a name."""
 
         if isinstance(node, ast.JoinedStr):
             return "str"
-        if isinstance(node, ast.Constant) and type(node.value) in {str, bytes}:
-            return type(node.value).__name__
-        return None
+        type_name = literal_type_name(node)
+        return None if type_name == "None" else type_name
 
     @classmethod
     def _path_value_type_ref(

@@ -12,6 +12,7 @@ from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
     PATH_TYPE_IDS,
     function_return_type,
+    literal_type_name,
     mapping_default,
     mapping_value_type,
     may_be_path_segment,
@@ -183,11 +184,50 @@ def _has_walrus(node: ast.AST) -> bool:
     return any(isinstance(child, ast.NamedExpr) for child in ast.walk(node))
 
 
+def _matches_none(pattern: ast.pattern) -> bool:
+    """Whether a case pattern surely takes None: None, or None | another."""
+
+    if isinstance(pattern, ast.MatchSingleton):
+        return pattern.value is None
+    if isinstance(pattern, ast.MatchOr):
+        return any(_matches_none(alternative) for alternative in pattern.patterns)
+    return False
+
+
+def _breaks_out(loop: ast.While | ast.For | ast.AsyncFor) -> bool:
+    """Whether a break in ``loop``'s body ends that loop, not an inner one."""
+
+    pending: list[ast.AST] = list(loop.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Break):
+            return True
+        if isinstance(
+            node,
+            (
+                ast.For,
+                ast.AsyncFor,
+                ast.While,
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.Lambda,
+            ),
+        ):
+            # A break in an inner loop's else still ends this loop.
+            if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+                pending.extend(node.orelse)
+            continue
+        pending.extend(ast.iter_child_nodes(node))
+    return False
+
+
 def _statement_excludes_none(stmt: ast.stmt, name: str) -> bool:
     """Whether the statement after ``stmt`` runs only with name not None, by
     ``stmt`` alone: if not name: return (or raise, continue, break) with no
-    else; assert name is not None; match name: with a first case None that
-    leaves and no case that binds name."""
+    else; while name is None: with no break out of it; assert name is not
+    None; match name: with a first case None (or None | another), with no
+    guard or a true constant one, that leaves, and no case that binds name."""
 
     if isinstance(stmt, ast.If):
         return (
@@ -195,6 +235,15 @@ def _statement_excludes_none(stmt: ast.stmt, name: str) -> bool:
             and _ends_in_exit(stmt.body)
             and not _has_walrus(stmt.test)
             and _true_when_absent(stmt.test, name)
+        )
+    if isinstance(stmt, ast.While):
+        # The loop ends normally only once its test is false, read on the
+        # name's value then, however its body rebinds it.
+        return (
+            not _has_walrus(stmt.test)
+            and _true_when_absent(stmt.test, name)
+            and not _breaks_out(stmt)
+            and not any(_binds_name(part, name) for part in stmt.orelse)
         )
     if isinstance(stmt, ast.Assert):
         # Taken as run, as type checkers take it; python -O drops it.
@@ -205,9 +254,12 @@ def _statement_excludes_none(stmt: ast.stmt, name: str) -> bool:
         return (
             isinstance(stmt.subject, ast.Name)
             and stmt.subject.id == name
-            and isinstance(first.pattern, ast.MatchSingleton)
-            and first.pattern.value is None
-            and first.guard is None
+            and _matches_none(first.pattern)
+            and (
+                first.guard is None
+                or isinstance(first.guard, ast.Constant)
+                and bool(first.guard.value)
+            )
             and _ends_in_exit(first.body)
             and not _binds_name(stmt, name)
         )
@@ -1625,31 +1677,7 @@ class _TypeContext:
         return propagated
 
     def _literal_value_type(self, node: ast.AST) -> _ResolvedType | None:
-        type_name: str | None = None
-        if isinstance(node, (ast.Dict, ast.DictComp)):
-            type_name = "dict"
-        elif isinstance(node, (ast.List, ast.ListComp)):
-            type_name = "list"
-        elif isinstance(node, (ast.Set, ast.SetComp)):
-            type_name = "set"
-        elif isinstance(node, ast.Tuple):
-            type_name = "tuple"
-        elif isinstance(node, ast.Constant):
-            value = node.value
-            if isinstance(value, bool):
-                type_name = "bool"
-            elif value is None:
-                type_name = "None"
-            elif isinstance(value, str):
-                type_name = "str"
-            elif isinstance(value, bytes):
-                type_name = "bytes"
-            elif isinstance(value, int):
-                type_name = "int"
-            elif isinstance(value, float):
-                type_name = "float"
-            elif isinstance(value, complex):
-                type_name = "complex"
+        type_name = literal_type_name(node)
         if type_name is None:
             return None
         return self._resolve_named_type(type_name, use_imports=False)

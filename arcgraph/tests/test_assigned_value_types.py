@@ -2,11 +2,10 @@
 
 The type analyzer records a type for an f-string, a slice, a boolean
 expression of operands of one type and a conditional of arms of one type; the
-call analyzer gives an f-string or a str or bytes literal called on directly
-the type it would have if assigned first. A
-call through a name whose binding there has no recorded type has no type,
-rather than that of another, typed binding of the name: x: Box; x = flag;
-x.build() is not Box.build.
+call analyzer gives an f-string, a literal or a display called on directly the
+type it would have if assigned first. A call through a name whose binding
+there has no recorded type has no type, rather than that of another, typed
+binding of the name: x: Box; x = flag; x.build() is not Box.build.
 """
 
 from __future__ import annotations
@@ -38,6 +37,19 @@ def str_literal_direct(items):
 
 def bytes_literal_direct():
     b"x".decode()
+
+
+def number_literal_direct():
+    (255).bit_length()
+    (1.5).is_integer()
+
+
+def display_direct(x, xs):
+    [].append(x)
+    {}.get(x)
+    {1}.add(x)
+    (1, 2).count(x)
+    [y for y in xs].sort()
 
 
 def text_slice(text: str):
@@ -131,6 +143,21 @@ def test_source_parses() -> None:
             "extsym:builtins.bytes.decode",
             "builtin_receiver_type",
         ),
+        (
+            "number_literal_direct",
+            "extsym:builtins.int.bit_length",
+            "builtin_receiver_type",
+        ),
+        (
+            "number_literal_direct",
+            "extsym:builtins.float.is_integer",
+            "builtin_receiver_type",
+        ),
+        ("display_direct", "extsym:builtins.list.append", "builtin_receiver_type"),
+        ("display_direct", "extsym:builtins.dict.get", "builtin_receiver_type"),
+        ("display_direct", "extsym:builtins.set.add", "builtin_receiver_type"),
+        ("display_direct", "extsym:builtins.tuple.count", "builtin_receiver_type"),
+        ("display_direct", "extsym:builtins.list.sort", "builtin_receiver_type"),
         ("text_slice", "extsym:builtins.str.casefold", "builtin_receiver_type"),
         # A slice of a list is a list, not an element.
         ("list_slice", "extsym:builtins.list.append", "builtin_receiver_type"),

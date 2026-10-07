@@ -1041,6 +1041,26 @@ _SLICED_TYPE_IDS = frozenset(
 )
 
 
+def literal_type_name(node: ast.AST) -> str | None:
+    """The builtin type a literal or a display evaluates to, by its form."""
+
+    if isinstance(node, (ast.Dict, ast.DictComp)):
+        return "dict"
+    if isinstance(node, (ast.List, ast.ListComp)):
+        return "list"
+    if isinstance(node, (ast.Set, ast.SetComp)):
+        return "set"
+    if isinstance(node, ast.Tuple):
+        return "tuple"
+    if isinstance(node, ast.Constant):
+        value = node.value
+        # bool before int: True is an int too.
+        for kind in (bool, type(None), str, bytes, int, float, complex):
+            if isinstance(value, kind):
+                return "None" if kind is type(None) else kind.__name__
+    return None
+
+
 def sliced_value_type(source: dict[str, Any] | None) -> dict[str, Any] | None:
     """The type of a slice of a value of type ``source``, or None.
 
