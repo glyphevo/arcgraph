@@ -1002,8 +1002,15 @@ class CallAnalyzer:
             full_name = self._unparse(node)
             root = context.lexical.root_name(full_name)
             scoped_root = context.comprehension_type_ref(source, root) if root else None
-            if scoped_root is None and full_name in scope_refs:
+            if (
+                scoped_root is None
+                and full_name in scope_refs
+                and not context.not_yet_bound(source, full_name)
+            ):
                 return context.type_ref_at(source, full_name)
+            # An attribute not yet bound in this function is not unbound, as a
+            # local would be: it holds what its object held on entry, read
+            # below from the object's class.
             if scoped_root is None and full_name in module_scope_refs:
                 return module_scope_refs[full_name]
             if (

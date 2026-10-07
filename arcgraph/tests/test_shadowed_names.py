@@ -507,6 +507,82 @@ def test_a_call_after_a_binding_is_read_by_it(order, name, target, strategy):
     assert (target, strategy) in order.get(name, set())
 
 
+ATTRIBUTES = """class Matcher:
+    def find(self, name):
+        return name
+
+
+class Other:
+    def find(self, name):
+        return name
+
+
+class Migrator:
+    def __init__(self):
+        self.matcher = Matcher()
+
+    def loop_rebind(self, rows):
+        for row in rows:
+            if self.matcher.find(row) is None:
+                self.matcher = Matcher()
+
+    def rebind_after(self, row):
+        self.matcher.find(row)
+        self.matcher = Matcher()
+
+    def not_rebound(self, row):
+        self.matcher.find(row)
+
+    def rebound_before(self, row):
+        self.matcher = Other()
+        self.matcher.find(row)
+
+
+def other_object(migrator: Migrator, row):
+    migrator.matcher.find(row)
+    migrator.matcher = Matcher()
+
+
+def local_before(row):
+    matcher.find(row)
+    matcher = Other()
+
+"""
+
+
+@pytest.fixture(scope="module")
+def attributes(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, set[tuple[str, str]]]:
+    return _resolutions_by_function(tmp_path_factory.mktemp("attributes"), ATTRIBUTES)
+
+
+@pytest.mark.parametrize(
+    "name", ["loop_rebind", "rebind_after", "not_rebound", "other_object"]
+)
+def test_an_attribute_called_before_its_rebinding_holds_its_value_on_entry(
+    attributes, name
+):
+    # Unlike a local, an attribute not yet bound in the function is not
+    # unbound: it holds what the object held on entry, here the Matcher that
+    # __init__ assigned.
+    assert ("method:lab.Matcher.find", "receiver_type") in attributes.get(
+        name, set()
+    ), sorted(attributes.get(name, set()))
+
+
+def test_an_attribute_rebound_before_the_call_holds_the_new_value(attributes):
+    found = attributes.get("rebound_before", set())
+    assert ("method:lab.Other.find", "receiver_type") in found, sorted(found)
+    assert "method:lab.Matcher.find" not in {target for target, _ in found}
+
+
+def test_a_local_called_before_its_binding_still_has_no_type(attributes):
+    assert "method:lab.Other.find" not in {
+        target for target, _ in attributes.get("local_before", set())
+    }
+
+
 SAME_LINE = """class Other:
     def send(self):
         return 1

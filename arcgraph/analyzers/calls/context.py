@@ -95,36 +95,56 @@ class _CallResolutionContext:
         # Each project class's method resolution order, once computed.
         self.method_resolution_orders: dict[str, list[Any] | None] = {}
 
-    def type_ref_at(self, source: Node, name: str) -> dict[str, Any] | None:
-        fallback = self.scope_type_refs.get(source.id, {}).get(name)
-        if not self.callsite_position or self.callsite_position[0] != source.id:
-            return fallback
+    def _typed_binding_refs(self, source: Node, name: str) -> list[dict[str, Any]]:
         recorded_refs: list[dict[str, Any]] = source.properties.get("type_refs", [])
-        refs: list[dict[str, Any]] = [
+        return [
             r
             for r in recorded_refs
             if r.get("name") == name
             and r.get("subject_kind") == "binding"
             and not r.get("comprehension_binding")
         ]
-        if not refs:
-            return fallback
-        line = self.callsite_position[1]
+
+    def _bindings_in_effect(self, source: Node, name: str) -> list[dict[str, Any]]:
         recorded_bindings: list[dict[str, Any]] = source.properties.get("bindings", [])
-        bindings: list[dict[str, Any]] = [
+        return [
             b
             for b in recorded_bindings
             if b.get("name") == name
             and b.get("kind") != "comprehension_target"
             and binding_in_effect(b, self.callsite_position)
         ]
+
+    def not_yet_bound(self, source: Node, name: str) -> bool:
+        """Whether no binding of name in source holds at the call yet.
+
+        True only where type_ref_at would read the name as unbound: some
+        binding of it has a recorded type, none holds before the call, and
+        none is on the call's own line in a statement of unrecorded end.
+        """
+        if not self.callsite_position or self.callsite_position[0] != source.id:
+            return False
+        if not self._typed_binding_refs(source, name):
+            return False
+        if self._bindings_in_effect(source, name):
+            return False
+        line = self.callsite_position[1]
+        recorded_bindings: list[dict[str, Any]] = source.properties.get("bindings", [])
+        return not any(
+            b.get("name") == name and b.get("line") == line and "statement_end" not in b
+            for b in recorded_bindings
+        )
+
+    def type_ref_at(self, source: Node, name: str) -> dict[str, Any] | None:
+        fallback = self.scope_type_refs.get(source.id, {}).get(name)
+        if not self.callsite_position or self.callsite_position[0] != source.id:
+            return fallback
+        refs = self._typed_binding_refs(source, name)
+        if not refs:
+            return fallback
+        bindings = self._bindings_in_effect(source, name)
         if not bindings:
-            if any(
-                b.get("name") == name
-                and b.get("line") == line
-                and "statement_end" not in b
-                for b in recorded_bindings
-            ):
+            if not self.not_yet_bound(source, name):
                 # Bound on the call's own line by a statement whose end is not
                 # recorded, so the line alone does not settle the order.
                 return fallback
