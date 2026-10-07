@@ -68,6 +68,7 @@ from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_targe
 from arcgraph.analyzers.stdlib_functions import CAPITALISED_STDLIB_FUNCTIONS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHODS_BY_TYPE,
+    GENERATOR_TYPE_ID,
     LOWERCASE_STDLIB_CLASSES,
     NEVER_TYPE_ID,
     PATH_TYPE_IDS,
@@ -1036,8 +1037,8 @@ class CallAnalyzer:
         literal = self._literal_receiver_type(node)
         if literal is not None:
             return {
-                "type_id": f"builtin:{literal}",
-                "type_expression": literal,
+                "type_id": literal,
+                "type_expression": literal.split(":", 1)[1],
                 "strategy": "literal",
             }
 
@@ -1131,13 +1132,16 @@ class CallAnalyzer:
 
     @staticmethod
     def _literal_receiver_type(node: ast.AST) -> str | None:
-        """The builtin type of a literal, a display or an f-string called on
-        directly, as the type analyzer gives one assigned to a name."""
+        """The type id of a literal, a display, a generator expression or an
+        f-string called on directly, as the type analyzer gives one assigned
+        to a name."""
 
         if isinstance(node, ast.JoinedStr):
-            return "str"
+            return "builtin:str"
+        if isinstance(node, ast.GeneratorExp):
+            return GENERATOR_TYPE_ID
         type_name = literal_type_name(node)
-        return None if type_name == "None" else type_name
+        return None if type_name in {None, "None"} else f"builtin:{type_name}"
 
     @classmethod
     def _path_value_type_ref(
@@ -3660,10 +3664,11 @@ class CallAnalyzer:
         agree, _NO_VALUE if nothing binds it; None if unknown, as where a
         function rebinds it through global or a star import may bind it.
 
-        A binding under if or try may not have run, so the one before it may
-        hold too, back to one at the module's top level. A star import binds
-        what its module exports; a binding only for type checkers binds
-        nothing at run time."""
+        A binding the binding pass marks may_not_run, under if, with, match,
+        a loop or a try's body, handlers or else, or in a loop's else that a
+        break may skip, may not have run, so the one before it may hold too,
+        back to one that runs. A star import binds what its module exports; a
+        binding only for type checkers binds nothing at run time."""
 
         if (module.path, name) in lexical.global_writes:
             return None
@@ -3689,8 +3694,7 @@ class CallAnalyzer:
             else:
                 value = self._binding_value(event, lexical)
             values.append(value)
-            # A statement at the module's top level starts in column 0.
-            if event.get("column") == 0:
+            if not event.get("may_not_run"):
                 break
         if not values:
             return _NO_VALUE

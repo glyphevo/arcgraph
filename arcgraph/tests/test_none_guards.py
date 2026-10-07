@@ -484,6 +484,47 @@ def match_or_without_none():
     shared.build()
 
 
+def while_walrus():
+    shared: Box | None = None
+    while (source := make_box()) is None:
+        pass
+    shared = source
+    shared.build()
+
+
+def if_walrus_exit():
+    shared: Box | None = None
+    if (source := make_box()) is None:
+        return
+    shared = source
+    shared.build()
+
+
+def if_walrus_present():
+    shared: Box | None = None
+    if (source := make_box()) is not None:
+        shared = source
+        shared.build()
+
+
+def walrus_after_test():
+    shared: Box | None = None
+    source = make_box()
+    # The test reads the old value; the walrus then binds one it does not.
+    if source is None or (source := make_box()) == 3:
+        return
+    shared = source
+    shared.build()
+
+
+def walrus_twice():
+    shared: Box | None = None
+    while (source := make_box()) is None or (source := other()):
+        pass
+    shared = source
+    shared.build()
+
+
 def try_except_rebound():
     shared: Box | None = None
     source = make_box()
@@ -611,6 +652,11 @@ def test_source_parses() -> None:
         "while_else_prints",
         "match_none_or_return",
         "match_none_true_guard",
+        # A walrus the test reads: the value it binds is the one tested.
+        "positive_walrus",
+        "while_walrus",
+        "if_walrus_exit",
+        "if_walrus_present",
     ],
 )
 def test_a_value_proven_present_is_not_none(linked, name):
@@ -627,9 +673,10 @@ def test_a_value_proven_present_is_not_none(linked, name):
         "assert_is_none",
         "body_of_absent",
         "else_of_present",
-        # Rebound after the test, or in it.
+        # Rebound after the test, or in it where the test does not read it.
         "positive_rebound",
-        "positive_walrus",
+        "walrus_after_test",
+        "walrus_twice",
         # The case does not leave, has a guard, or another case binds.
         "match_none_not_exiting",
         "match_guarded_none",

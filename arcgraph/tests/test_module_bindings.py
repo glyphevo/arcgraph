@@ -82,6 +82,21 @@ MODULES = {
     "star_underscore": "def _hidden():\n    return 7\n\n\nfrom pkg.hidden_provider import *\n"
     "\n\ndef use():\n    return _hidden()\n",
     "hidden_provider": "def _hidden():\n    return 8\n",
+    "empty_loop_else": HELPER + "for _ in []:\n    break\nelse:\n"
+    "    from os.path import join as helper\n" + USE,
+    "unbroken_loop_else": HELPER + "for item in ITEMS:\n    pass\nelse:\n"
+    "    from os.path import join as helper\n" + USE,
+    "broken_loop_else": HELPER + "for item in ITEMS:\n    break\nelse:\n"
+    "    from os.path import join as helper\n" + USE,
+    "finally_import": HELPER + "try:\n    pass\nfinally:\n"
+    "    from os.path import join as helper\n" + USE,
+    "semicolon_after": HELPER + "x = 1; helper = str\n" + USE,
+    "loop_target": HELPER + "for helper in ITEMS:\n    pass\n" + USE,
+    "import_under_if": HELPER
+    + "if FLAG:\n    from os.path import join as helper\n"
+    + USE,
+    "import_under_with": HELPER + "with CONTEXT:\n"
+    "    from os.path import join as helper\n" + USE,
     "star_cycle_a": "from pkg.star_cycle_b import *\n" + USE,
     "star_cycle_b": "from pkg.star_cycle_a import *\n",
     "star_unread_all": HELPER + "from pkg.computed_all import *\n" + USE,
@@ -154,6 +169,10 @@ def test_modules_parse() -> None:
         ("star_imports_import", "extsym:os.path.join"),
         # The star import after the module's own import rebinds join.
         ("star_overrides_import", "extsym:posixpath.join"),
+        # A loop's else with no break that can run, and a finally, run.
+        ("empty_loop_else", "extsym:os.path.join"),
+        ("unbroken_loop_else", "extsym:os.path.join"),
+        ("finally_import", "extsym:os.path.join"),
         # An import only for type checkers binds nothing at run time.
         ("type_checking_after", "fn:pkg.type_checking_after.helper"),
         # import os and import os.path both bind os to the package.
@@ -190,6 +209,14 @@ def test_a_name_resolves_to_what_holds_where_it_is_read(targets, module, target)
         "import_maybe_replaced",
         # tool is the module's str, not the one tool defined elsewhere.
         "assigned_elsewhere",
+        # A break may skip the else; a loop may not run; a statement after
+        # a semicolon is at the top level too.
+        "broken_loop_else",
+        # The import may not have run, so the def may hold.
+        "import_under_if",
+        "import_under_with",
+        "loop_target",
+        "semicolon_after",
         # Star imports that import back, or an __all__ not read as a list.
         "star_cycle_a",
         "star_unread_all",

@@ -207,7 +207,11 @@ METHOD_RETURN_TYPES.update(
 # is not linked to a PurePosixPath.mkdir that does not exist.
 # test_external_methods_cover_every_public_method checks the running
 # interpreter against it.
+# What a generator expression evaluates to.
+GENERATOR_TYPE_ID = "extsym:types.GeneratorType"
+
 EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
+    GENERATOR_TYPE_ID: frozenset({"close", "send", "throw", "__next__"}),
     **{
         owner: frozenset({"copy", "digest", "hexdigest", "update"})
         for owner in _HASH_TYPES

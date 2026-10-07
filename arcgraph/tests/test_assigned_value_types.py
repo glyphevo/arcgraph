@@ -44,6 +44,15 @@ def number_literal_direct():
     (1.5).is_integer()
 
 
+def generator_direct(xs):
+    (y for y in xs).send(None)
+
+
+def generator_assigned(xs):
+    made = (y for y in xs)
+    made.close()
+
+
 def display_direct(x, xs):
     [].append(x)
     {}.get(x)
@@ -158,6 +167,16 @@ def test_source_parses() -> None:
         ("display_direct", "extsym:builtins.set.add", "builtin_receiver_type"),
         ("display_direct", "extsym:builtins.tuple.count", "builtin_receiver_type"),
         ("display_direct", "extsym:builtins.list.sort", "builtin_receiver_type"),
+        (
+            "generator_direct",
+            "extsym:types.GeneratorType.send",
+            "external_receiver_type",
+        ),
+        (
+            "generator_assigned",
+            "extsym:types.GeneratorType.close",
+            "external_receiver_type",
+        ),
         ("text_slice", "extsym:builtins.str.casefold", "builtin_receiver_type"),
         # A slice of a list is a list, not an element.
         ("list_slice", "extsym:builtins.list.append", "builtin_receiver_type"),

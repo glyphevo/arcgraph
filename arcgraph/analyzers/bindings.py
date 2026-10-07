@@ -6,7 +6,11 @@ import ast
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from arcgraph.analyzers.python_scopes import local_definition_regions, nested_functions
+from arcgraph.analyzers.python_scopes import (
+    local_definition_regions,
+    nested_functions,
+    nodes_that_may_not_run,
+)
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.core.ids import binding_id, class_id, function_id, method_id, module_id
 from arcgraph.core.schemas import Evidence, FileRecord, Node
@@ -174,10 +178,12 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self.class_qualname = class_qualname
         self.static_only = False
         self.direct_statements: set[int] = set()
+        self.may_not_run: set[int] = set()
         self._imported_names: dict[str, dict[str, Any]] = {}
 
     def visit_module_body(self, body: list[ast.stmt]) -> None:
         self.direct_statements = {id(stmt) for stmt in body}
+        self.may_not_run = nodes_that_may_not_run(body)
         for stmt in body:
             self.visit(stmt)
 
@@ -680,6 +686,14 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             record["unpack_path"] = unpack_path
         if static_only or self.static_only:
             record["static_only"] = True
+        if self.scope_kind == "module" and (
+            id(node) in self.may_not_run
+            # A loop target is bound only if the loop runs once; a walrus only
+            # where the expression around it reaches it.
+            or kind == "for_target"
+            or isinstance(node, ast.NamedExpr)
+        ):
+            record["may_not_run"] = True
         self._set_optional(record, "imported_name", imported_name)
         self._set_optional(record, "owner", owner)
         self._set_optional(record, "context_manager_kind", context_manager_kind)

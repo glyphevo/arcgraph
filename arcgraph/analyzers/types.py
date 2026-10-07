@@ -10,6 +10,7 @@ from arcgraph.analyzers.calls.lexical import LexicalScopes
 from arcgraph.analyzers.exports import exported_class
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
+    GENERATOR_TYPE_ID,
     PATH_TYPE_IDS,
     function_return_type,
     literal_type_name,
@@ -20,6 +21,7 @@ from arcgraph.analyzers.external_types import (
     sliced_value_type,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
+from arcgraph.analyzers.python_scopes import breaks_out
 from arcgraph.analyzers.type_unions import (
     contains_union,
     single_value_type,
@@ -132,56 +134,95 @@ def _ends_in_exit(block: list[ast.stmt]) -> bool:
     return bool(block) and isinstance(block[-1], _EXITS)
 
 
-def _compares_with_none(test: ast.expr, name: str, ops: tuple[type, ...]) -> bool:
-    """Whether ``test`` is name <op> None or None <op> name, op among ``ops``."""
+def _is_name(node: ast.AST, name: str) -> bool:
+    """Whether ``node`` reads name, or binds and reads it as (name := ...)."""
+
+    if isinstance(node, ast.NamedExpr):
+        node = node.target
+    return isinstance(node, ast.Name) and node.id == name
+
+
+def _compared_with_none(
+    test: ast.expr, name: str, ops: tuple[type, ...]
+) -> ast.expr | None:
+    """The operand that reads name in ``test`` if it is name <op> None or
+    None <op> name, op among ``ops``."""
 
     if not (
         isinstance(test, ast.Compare)
         and len(test.ops) == 1
         and isinstance(test.ops[0], ops)
     ):
-        return False
+        return None
     sides = (test.left, test.comparators[0])
-    return any(
-        isinstance(side, ast.Name)
-        and side.id == name
-        and isinstance(other, ast.Constant)
-        and other.value is None
-        for side, other in (sides, sides[::-1])
+    return next(
+        (
+            side
+            for side, other in (sides, sides[::-1])
+            if _is_name(side, name)
+            and isinstance(other, ast.Constant)
+            and other.value is None
+        ),
+        None,
+    )
+
+
+def _absent_operands(test: ast.expr, name: str) -> list[ast.expr]:
+    """The operands reading name in the parts of ``test`` that hold whenever
+    name is None: not name, name is None, None is name, name == None or
+    None == name, alone or among or-ed tests."""
+
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
+        return [o for value in test.values for o in _absent_operands(value, name)]
+    if (
+        isinstance(test, ast.UnaryOp)
+        and isinstance(test.op, ast.Not)
+        and _is_name(test.operand, name)
+    ):
+        return [test.operand]
+    # name == None holds whenever name is None, as name is None does; another
+    # value it holds for only takes the same branch too.
+    side = _compared_with_none(test, name, (ast.Is, ast.Eq))
+    return [side] if side is not None else []
+
+
+def _present_operands(test: ast.expr, name: str) -> list[ast.expr]:
+    """The operands reading name in the parts of ``test`` that fail whenever
+    name is None: name, name is not None or name != None (None on either
+    side), alone or among and-ed tests."""
+
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        return [o for value in test.values for o in _present_operands(value, name)]
+    if _is_name(test, name):
+        return [test]
+    side = _compared_with_none(test, name, (ast.IsNot, ast.NotEq))
+    return [side] if side is not None else []
+
+
+def _proves(test: ast.expr, name: str, operands: list[ast.expr]) -> bool:
+    """Whether the parts that read name in ``operands`` decide the value name
+    keeps after ``test``. A walrus that binds name must be one of them, as in
+    (name := f()) is None, which tests the value it binds; anywhere else it
+    may rebind name after the test has read it."""
+
+    if not operands:
+        return False
+    rebinding = [
+        node
+        for node in ast.walk(test)
+        if isinstance(node, ast.NamedExpr) and _is_name(node.target, name)
+    ]
+    return not rebinding or (
+        len(rebinding) == 1 and any(o is rebinding[0] for o in operands)
     )
 
 
 def _true_when_absent(test: ast.expr, name: str) -> bool:
-    """Whether ``test`` holds whenever name is None: not name, name is None,
-    None is name, name == None or None == name, alone or among or-ed tests."""
-
-    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
-        return any(_true_when_absent(value, name) for value in test.values)
-    if (
-        isinstance(test, ast.UnaryOp)
-        and isinstance(test.op, ast.Not)
-        and isinstance(test.operand, ast.Name)
-        and test.operand.id == name
-    ):
-        return True
-    # name == None holds whenever name is None, as name is None does; another
-    # value it holds for only takes the same branch too.
-    return _compares_with_none(test, name, (ast.Is, ast.Eq))
+    return _proves(test, name, _absent_operands(test, name))
 
 
 def _true_only_when_present(test: ast.expr, name: str) -> bool:
-    """Whether ``test`` fails whenever name is None: name, name is not None or
-    name != None (None on either side), alone or among and-ed tests."""
-
-    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
-        return any(_true_only_when_present(value, name) for value in test.values)
-    if isinstance(test, ast.Name) and test.id == name:
-        return True
-    return _compares_with_none(test, name, (ast.IsNot, ast.NotEq))
-
-
-def _has_walrus(node: ast.AST) -> bool:
-    return any(isinstance(child, ast.NamedExpr) for child in ast.walk(node))
+    return _proves(test, name, _present_operands(test, name))
 
 
 def _matches_none(pattern: ast.pattern) -> bool:
@@ -191,34 +232,6 @@ def _matches_none(pattern: ast.pattern) -> bool:
         return pattern.value is None
     if isinstance(pattern, ast.MatchOr):
         return any(_matches_none(alternative) for alternative in pattern.patterns)
-    return False
-
-
-def _breaks_out(loop: ast.While | ast.For | ast.AsyncFor) -> bool:
-    """Whether a break in ``loop``'s body ends that loop, not an inner one."""
-
-    pending: list[ast.AST] = list(loop.body)
-    while pending:
-        node = pending.pop()
-        if isinstance(node, ast.Break):
-            return True
-        if isinstance(
-            node,
-            (
-                ast.For,
-                ast.AsyncFor,
-                ast.While,
-                ast.FunctionDef,
-                ast.AsyncFunctionDef,
-                ast.ClassDef,
-                ast.Lambda,
-            ),
-        ):
-            # A break in an inner loop's else still ends this loop.
-            if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
-                pending.extend(node.orelse)
-            continue
-        pending.extend(ast.iter_child_nodes(node))
     return False
 
 
@@ -233,21 +246,19 @@ def _statement_excludes_none(stmt: ast.stmt, name: str) -> bool:
         return (
             not stmt.orelse
             and _ends_in_exit(stmt.body)
-            and not _has_walrus(stmt.test)
             and _true_when_absent(stmt.test, name)
         )
     if isinstance(stmt, ast.While):
         # The loop ends normally only once its test is false, read on the
         # name's value then, however its body rebinds it.
         return (
-            not _has_walrus(stmt.test)
-            and _true_when_absent(stmt.test, name)
-            and not _breaks_out(stmt)
+            _true_when_absent(stmt.test, name)
+            and not breaks_out(stmt)
             and not any(_binds_name(part, name) for part in stmt.orelse)
         )
     if isinstance(stmt, ast.Assert):
         # Taken as run, as type checkers take it; python -O drops it.
-        return not _has_walrus(stmt.test) and _true_only_when_present(stmt.test, name)
+        return _true_only_when_present(stmt.test, name)
     if isinstance(stmt, ast.Match) and stmt.cases:
         # A case before it, such as case _:, could take None and go on.
         first = stmt.cases[0]
@@ -314,13 +325,15 @@ def _entered_settles(stmt: ast.stmt, block: list[ast.stmt], name: str) -> bool |
     only with name not None, False if name may have been bound on the way in,
     None if neither."""
 
-    if _header_binds(stmt, name):
-        return False
     if isinstance(stmt, ast.If):
+        # A walrus in the test that these accept binds the value they test.
         if block is stmt.body and _true_only_when_present(stmt.test, name):
             return True
         if block is stmt.orelse and _true_when_absent(stmt.test, name):
             return True
+    if _header_binds(stmt, name):
+        return False
+    if isinstance(stmt, ast.If):
         return None
     if isinstance(stmt, ast.Try):
         if block is stmt.orelse:
@@ -1677,6 +1690,13 @@ class _TypeContext:
         return propagated
 
     def _literal_value_type(self, node: ast.AST) -> _ResolvedType | None:
+        if isinstance(node, ast.GeneratorExp):
+            return _ResolvedType(
+                expression=GENERATOR_TYPE_ID.removeprefix("extsym:"),
+                type_id=GENERATOR_TYPE_ID,
+                symbol_id=GENERATOR_TYPE_ID,
+                status="resolved",
+            )
         type_name = literal_type_name(node)
         if type_name is None:
             return None
