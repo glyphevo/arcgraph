@@ -44,6 +44,36 @@ def number_literal_direct():
     (1.5).is_integer()
 
 
+def made(xs):
+    for x in xs:
+        yield x
+
+
+async def made_async(xs):
+    for x in xs:
+        yield x
+
+
+def made_inside():
+    def inner():
+        yield 1
+
+    return 1
+
+
+def generator_function_direct(xs):
+    made(xs).send(None)
+
+
+def generator_function_assigned(xs):
+    started = made(xs)
+    started.close()
+
+
+async def async_generator_function(xs):
+    await made_async(xs).aclose()
+
+
 def generator_direct(xs):
     (y for y in xs).send(None)
 
@@ -167,6 +197,22 @@ def test_source_parses() -> None:
         ("display_direct", "extsym:builtins.set.add", "builtin_receiver_type"),
         ("display_direct", "extsym:builtins.tuple.count", "builtin_receiver_type"),
         ("display_direct", "extsym:builtins.list.sort", "builtin_receiver_type"),
+        # Calling a generator function makes a generator.
+        (
+            "generator_function_direct",
+            "extsym:types.GeneratorType.send",
+            "external_receiver_type",
+        ),
+        (
+            "generator_function_assigned",
+            "extsym:types.GeneratorType.close",
+            "external_receiver_type",
+        ),
+        (
+            "async_generator_function",
+            "extsym:types.AsyncGeneratorType.aclose",
+            "external_receiver_type",
+        ),
         (
             "generator_direct",
             "extsym:types.GeneratorType.send",
@@ -399,3 +445,12 @@ def test_a_value_assigned_after_a_none_exit_is_not_none(guards, name):
 )
 def test_a_value_not_proven_present_keeps_none(guards, name):
     assert "method:lab.Box.build" not in {t for t, _ in guards.get(name, set())}
+
+
+def test_a_yield_in_a_nested_function_makes_no_generator(tmp_path):
+    from arcgraph.tests.test_path_receiver_types import _index
+
+    nodes, _ = _index(tmp_path, SOURCE)
+    flagged = {node.name for node in nodes if node.properties.get("generator")}
+    assert {"made", "made_async", "inner"} <= flagged
+    assert "made_inside" not in flagged

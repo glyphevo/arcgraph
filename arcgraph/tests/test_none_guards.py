@@ -525,6 +525,74 @@ def walrus_twice():
     shared.build()
 
 
+def and_true_walrus():
+    shared: Box | None = None
+    source = make_box()
+    while source is None and (flag := True):
+        source = make_box()
+    shared = source
+    shared.build()
+
+
+def and_true_constant():
+    shared: Box | None = None
+    source = make_box()
+    while source is None and True:
+        source = make_box()
+    shared = source
+    shared.build()
+
+
+def and_flag(flag):
+    shared: Box | None = None
+    source = make_box()
+    while source is None and flag:
+        source = make_box()
+    shared = source
+    shared.build()
+
+
+def two_walrus_last_tested():
+    shared: Box | None = None
+    while (source := make_box()) is None or (source := other()) is None:
+        pass
+    shared = source
+    shared.build()
+
+
+def two_walrus_last_untested():
+    shared: Box | None = None
+    while (source := make_box()) is None or (source := other()):
+        pass
+    shared = source
+    shared.build()
+
+
+def present_or_false():
+    shared: Box | None = None
+    source = make_box()
+    if source is not None or False:
+        shared = source
+        shared.build()
+
+
+def present_or_flag(flag):
+    shared: Box | None = None
+    source = make_box()
+    if source is not None or flag:
+        shared = source
+        shared.build()
+
+
+def and_walrus_each_tested():
+    shared: Box | None = None
+    source = make_box()
+    if source is None and (source := other()) is None:
+        return
+    shared = source
+    shared.build()
+
+
 def try_except_rebound():
     shared: Box | None = None
     source = make_box()
@@ -657,6 +725,14 @@ def test_source_parses() -> None:
         "while_walrus",
         "if_walrus_exit",
         "if_walrus_present",
+        # An and whose other operands are true constants holds whenever the
+        # value is None; an or of a presence test and false constants fails.
+        "and_true_walrus",
+        "and_true_constant",
+        "present_or_false",
+        # The last walrus binds the value tested, or each is tested.
+        "two_walrus_last_tested",
+        "and_walrus_each_tested",
     ],
 )
 def test_a_value_proven_present_is_not_none(linked, name):
@@ -677,6 +753,10 @@ def test_a_value_proven_present_is_not_none(linked, name):
         "positive_rebound",
         "walrus_after_test",
         "walrus_twice",
+        "two_walrus_last_untested",
+        # The other operand may end the chain with the value still None.
+        "and_flag",
+        "present_or_flag",
         # The case does not leave, has a guard, or another case binds.
         "match_none_not_exiting",
         "match_guarded_none",

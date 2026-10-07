@@ -57,6 +57,33 @@ def local_definition_regions(
     return regions
 
 
+def yields(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Whether a function is a generator: its own body, not a nested scope,
+    has yield or yield from."""
+
+    pending: list[ast.AST] = list(function.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.Yield, ast.YieldFrom)):
+            return True
+        if isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.Lambda,
+                ast.GeneratorExp,
+                ast.ListComp,
+                ast.SetComp,
+                ast.DictComp,
+            ),
+        ):
+            continue
+        pending.extend(ast.iter_child_nodes(node))
+    return False
+
+
 def breaks_out(loop: ast.While | ast.For | ast.AsyncFor) -> bool:
     """Whether a break in ``loop``'s body ends that loop, not an inner one."""
 

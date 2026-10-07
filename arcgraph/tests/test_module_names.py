@@ -214,3 +214,42 @@ def test_the_legacy_resolver_matches_no_name_a_star_import_leaves_out(tmp_path):
         for edge in GraphStoreReader.from_current(output).read_edges()
         if edge.source == "fn:pkg.user.use" and edge.resolution.status == "resolved"
     ]
+
+
+def test_the_legacy_resolver_follows_a_star_import_past_a_rival_name(tmp_path):
+    # Two modules define tool; the star import says which one is called,
+    # directly or through a module that imports it.
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = tmp_path / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    files = {
+        "__init__": "",
+        "provider": "def tool(x):\n    return x\n",
+        "rival": "def tool(x):\n    return 2\n",
+        "relay": "from pkg.provider import tool\n",
+        "user": "from pkg.provider import *\n\n\ndef use():\n    return tool(1)\n",
+        "relayed": "from pkg.relay import *\n\n\ndef use():\n    return tool(1)\n",
+    }
+    for name, text in files.items():
+        (package / f"{name}.py").write_text(text, encoding="utf-8")
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+        enable_v2_call_resolution=False,
+    ).build()
+    linked = {
+        (edge.source, edge.target)
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.resolution.status == "resolved"
+        and edge.source.endswith(".use")
+        and edge.target.endswith(".tool")
+    }
+    assert linked == {
+        ("fn:pkg.user.use", "fn:pkg.provider.tool"),
+        ("fn:pkg.relayed.use", "fn:pkg.provider.tool"),
+    }

@@ -3420,6 +3420,10 @@ class CallAnalyzer:
 
         if "." in raw_name:
             return None
+        if context is not None and not receiver_expression:
+            brought = self._star_brought_node(source, raw_name, context)
+            if brought is not None:
+                return brought
         if (
             context is not None
             and not receiver_expression
@@ -3847,6 +3851,27 @@ class CallAnalyzer:
         module = lexical.modules.get(source.path)
         own = lexical.bindings.get(module.id, {}) if module is not None else {}
         return any(not star.get("static_only") for star in own.get("*", []))
+
+    def _star_brought_node(
+        self, source: Node, name: str, context: _CallResolutionContext
+    ) -> Node | None:
+        """The project symbol a star import alone binds ``name`` to where
+        ``source`` reads it: a def of another module, or a symbol that module
+        imports. The legacy resolver otherwise matches it only by name, which
+        fails where the project has another symbol of that name."""
+
+        lexical = context.lexical
+        module = lexical.modules.get(source.path)
+        if module is None or lexical.bindings.get(module.id, {}).get(name):
+            return None
+        held = self._module_name_at(source, name, lexical, context.callsite_position)
+        if held is None or not held[1]:
+            return None
+        if held[0] == "def":
+            return context.by_id.get(held[1])
+        if held[0] == "import":
+            return context.by_qualname.get(held[1])
+        return None
 
     def _imported_elsewhere(
         self, value: tuple[str, str | None], source: Node, lexical: LexicalScopes

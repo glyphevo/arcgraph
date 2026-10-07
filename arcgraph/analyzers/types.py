@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from arcgraph.analyzers.calls.lexical import LexicalScopes
 from arcgraph.analyzers.exports import exported_class
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
+    ASYNC_GENERATOR_TYPE_ID,
     GENERATOR_TYPE_ID,
     PATH_TYPE_IDS,
     function_return_type,
@@ -167,62 +168,111 @@ def _compared_with_none(
     )
 
 
-def _absent_operands(test: ast.expr, name: str) -> list[ast.expr]:
-    """The operands reading name in the parts of ``test`` that hold whenever
-    name is None: not name, name is None, None is name, name == None or
-    None == name, alone or among or-ed tests."""
+def _parts(test: ast.expr, op: type) -> list[ast.expr]:
+    """The operands of ``test`` as a chain of ``op``, or ``test`` alone."""
 
-    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
-        return [o for value in test.values for o in _absent_operands(value, name)]
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, op):
+        return list(test.values)
+    return [test]
+
+
+def _absent_operand(part: ast.expr, name: str) -> ast.expr | None:
+    """The operand reading name if ``part`` holds whenever name is None: not
+    name, or name is None or == None, None on either side."""
+
     if (
-        isinstance(test, ast.UnaryOp)
-        and isinstance(test.op, ast.Not)
-        and _is_name(test.operand, name)
+        isinstance(part, ast.UnaryOp)
+        and isinstance(part.op, ast.Not)
+        and _is_name(part.operand, name)
     ):
-        return [test.operand]
+        return part.operand
     # name == None holds whenever name is None, as name is None does; another
     # value it holds for only takes the same branch too.
-    side = _compared_with_none(test, name, (ast.Is, ast.Eq))
-    return [side] if side is not None else []
+    return _compared_with_none(part, name, (ast.Is, ast.Eq))
 
 
-def _present_operands(test: ast.expr, name: str) -> list[ast.expr]:
-    """The operands reading name in the parts of ``test`` that fail whenever
-    name is None: name, name is not None or name != None (None on either
-    side), alone or among and-ed tests."""
+def _present_operand(part: ast.expr, name: str) -> ast.expr | None:
+    """The operand reading name if ``part`` fails whenever name is None:
+    name, or name is not None or != None, None on either side."""
 
-    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
-        return [o for value in test.values for o in _present_operands(value, name)]
-    if _is_name(test, name):
-        return [test]
-    side = _compared_with_none(test, name, (ast.IsNot, ast.NotEq))
-    return [side] if side is not None else []
+    if _is_name(part, name):
+        return part
+    return _compared_with_none(part, name, (ast.IsNot, ast.NotEq))
 
 
-def _proves(test: ast.expr, name: str, operands: list[ast.expr]) -> bool:
-    """Whether the parts that read name in ``operands`` decide the value name
-    keeps after ``test``. A walrus that binds name must be one of them, as in
-    (name := f()) is None, which tests the value it binds; anywhere else it
-    may rebind name after the test has read it."""
+def _constant_truth(part: ast.expr) -> bool | None:
+    """The truth of a constant, or of a walrus that binds one."""
 
-    if not operands:
-        return False
-    rebinding = [
+    if isinstance(part, ast.NamedExpr):
+        part = part.value
+    if isinstance(part, ast.Constant):
+        return bool(part.value)
+    return None
+
+
+def _walruses(test: ast.expr, name: str) -> list[ast.NamedExpr]:
+    """The walruses in ``test`` that bind name, in the order they run."""
+
+    found = [
         node
         for node in ast.walk(test)
         if isinstance(node, ast.NamedExpr) and _is_name(node.target, name)
     ]
-    return not rebinding or (
-        len(rebinding) == 1 and any(o is rebinding[0] for o in operands)
+    return sorted(found, key=lambda node: (node.lineno, node.col_offset))
+
+
+def _decides(
+    test: ast.expr,
+    name: str,
+    op: type,
+    read: Callable[[ast.expr, str], ast.expr | None],
+    neutral: bool,
+) -> bool:
+    """Whether ``test`` decides that name is not None where the chain of
+    ``op`` ends one way: the branch an or of absence tests fails on, or one
+    an and of presence tests passes, or the other.
+
+    Where some operand of the chain reads name that way, every operand runs
+    on that branch, so the value name keeps is the last a walrus in the test
+    binds, which must be one the chain reads. Otherwise every operand must
+    read name that way or be a constant of the truth ``neutral`` that cannot
+    end the chain; the branch is then taken at the operand that ends it,
+    which reads the value name has there, so every walrus that binds name
+    must be one the chain reads."""
+
+    walruses = _walruses(test, name)
+    parts = _parts(test, op)
+    operands = [o for part in parts if (o := read(part, name)) is not None]
+    if operands:
+        return not walruses or any(o is walruses[-1] for o in operands)
+    other = ast.And if op is ast.Or else ast.Or
+    parts = _parts(test, other)
+    operands = []
+    for part in parts:
+        operand = read(part, name)
+        if operand is not None:
+            operands.append(operand)
+        elif _constant_truth(part) is not neutral or _walruses(part, name):
+            return False
+    return bool(operands) and all(
+        any(o is walrus for o in operands) for walrus in walruses
     )
 
 
 def _true_when_absent(test: ast.expr, name: str) -> bool:
-    return _proves(test, name, _absent_operands(test, name))
+    """Whether ``test`` holds whenever name is None, so that where it fails
+    name is not None: an or with one operand that tests name is None, or an
+    and of such tests and true constants."""
+
+    return _decides(test, name, ast.Or, _absent_operand, True)
 
 
 def _true_only_when_present(test: ast.expr, name: str) -> bool:
-    return _proves(test, name, _present_operands(test, name))
+    """Whether ``test`` fails whenever name is None, so that where it holds
+    name is not None: an and with one operand that tests name is present, or
+    an or of such tests and false constants."""
+
+    return _decides(test, name, ast.And, _present_operand, False)
 
 
 def _matches_none(pattern: ast.pattern) -> bool:
@@ -352,6 +402,23 @@ def _entered_settles(stmt: ast.stmt, block: list[ast.stmt], name: str) -> bool |
     return None
 
 
+def _generator_return_type(node: Node) -> "_ResolvedType | None":
+    """What calling a generator function returns, where its annotation does
+    not say: a generator, or an async generator for an async def."""
+
+    if not node.properties.get("generator"):
+        return None
+    type_id = (
+        ASYNC_GENERATOR_TYPE_ID if node.properties.get("async") else GENERATOR_TYPE_ID
+    )
+    return _ResolvedType(
+        expression=type_id.removeprefix("extsym:"),
+        type_id=type_id,
+        symbol_id=type_id,
+        status="resolved",
+    )
+
+
 @dataclass(frozen=True)
 class _ResolvedType:
     expression: str
@@ -451,6 +518,25 @@ class TypeRefAnalyzer:
         analysis: TypeRefAnalysis,
     ) -> None:
         returns = node.properties.get("returns")
+        generated = _generator_return_type(node)
+        if generated is not None and not (isinstance(returns, str) and returns):
+            analysis.type_refs_by_scope.setdefault(node.id, []).append(
+                self._type_ref_record(
+                    context,
+                    scope_id=node.id,
+                    scope_kind=node.kind,
+                    name="return",
+                    subject_kind="return",
+                    strategy="generator_function",
+                    confidence="confirmed",
+                    source_expression=generated.expression,
+                    resolved=generated,
+                    line=node.start_line,
+                    end_line=node.end_line,
+                    column=None,
+                )
+            )
+            return
         if not isinstance(returns, str) or not returns:
             return
         resolved = context.resolve_annotation(returns, use_imports=True)
@@ -1717,12 +1803,16 @@ class _TypeContext:
             if node.kind not in {"function", "method"} or not node.qualname:
                 continue
             returns = node.properties.get("returns")
-            if not isinstance(returns, str) or not returns:
+            generated = _generator_return_type(node)
+            if generated is not None and not (isinstance(returns, str) and returns):
+                resolved = generated
+            elif not isinstance(returns, str) or not returns:
                 continue
-            resolved = self.resolve_annotation(
-                returns,
-                use_imports=node.path == self.file_record.path,
-            )
+            else:
+                resolved = self.resolve_annotation(
+                    returns,
+                    use_imports=node.path == self.file_record.path,
+                )
             if (
                 not resolved.type_id
                 and union_alternatives(

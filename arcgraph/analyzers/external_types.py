@@ -207,11 +207,14 @@ METHOD_RETURN_TYPES.update(
 # is not linked to a PurePosixPath.mkdir that does not exist.
 # test_external_methods_cover_every_public_method checks the running
 # interpreter against it.
-# What a generator expression evaluates to.
+# What a generator expression, or a call of a generator function, evaluates
+# to; an async generator function's call is an async generator.
 GENERATOR_TYPE_ID = "extsym:types.GeneratorType"
+ASYNC_GENERATOR_TYPE_ID = "extsym:types.AsyncGeneratorType"
 
 EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
     GENERATOR_TYPE_ID: frozenset({"close", "send", "throw", "__next__"}),
+    ASYNC_GENERATOR_TYPE_ID: frozenset({"aclose", "asend", "athrow", "__anext__"}),
     **{
         owner: frozenset({"copy", "digest", "hexdigest", "update"})
         for owner in _HASH_TYPES

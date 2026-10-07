@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from arcgraph.analyzers.python_scopes import nested_functions
+from arcgraph.analyzers.python_scopes import nested_functions, yields
 from arcgraph.core.expression_kinds import call_expression_kind
 from arcgraph.core.ids import class_id, function_id, method_id, module_id
 from arcgraph.core.schemas import Edge, Evidence, FileRecord, Node
@@ -230,7 +230,7 @@ class SymbolAnalyzer:
     def _function_properties(
         self, stmt: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> dict[str, object]:
-        return {
+        properties: dict[str, object] = {
             "async": isinstance(stmt, ast.AsyncFunctionDef),
             "decorators": self._decorators(stmt.decorator_list),
             "params": self._params(stmt.args),
@@ -238,6 +238,10 @@ class SymbolAnalyzer:
             "returns": self._unparse(stmt.returns) if stmt.returns else None,
             "callsites": list(self._callsites(stmt)),
         }
+        if yields(stmt):
+            # Calling it makes a generator, whatever its body returns.
+            properties["generator"] = True
+        return properties
 
     def _callsites(
         self, stmt: ast.FunctionDef | ast.AsyncFunctionDef
