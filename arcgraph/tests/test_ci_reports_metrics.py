@@ -1000,7 +1000,7 @@ def test_cli_docs_reference_topics() -> None:
     assert "arcgraph status" in quickstart_docs
     assert "arcgraph.pipeline.indexer.ArcGraphIndexer" in quickstart_docs
     assert "output/arcgraph" in quickstart_docs
-    assert "Python 3.11 or 3.12" in troubleshooting_docs
+    assert "Python is outside 3.11 to 3.14" in troubleshooting_docs
     assert "npm package publishing" in troubleshooting_docs
     assert "arcgraph context TARGET..." in cli_reference
     assert "arcgraph explain TARGET..." in cli_reference

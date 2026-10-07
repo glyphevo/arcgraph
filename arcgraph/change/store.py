@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Any, TypeVar
 
@@ -72,14 +73,29 @@ def atomic_write_json(path: Path, payload: dict[str, Any], *, root: Path) -> Non
             pass
 
 
+def _is_record_file(path: Path) -> bool:
+    """Whether path is a regular file and not a link; raises when unknown.
+
+    An absent path, or one under a file, is not a record. Any other error,
+    such as a parent directory that denies search permission, is raised:
+    pathlib's is_file() and is_symlink() raise it up to Python 3.13 but
+    answer False from 3.14 on, so they are not asked first.  Store paths
+    reject symlinks when they are named, so a link here is one created since.
+    """
+
+    try:
+        mode = os.lstat(path).st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        # Windows can report a file being replaced as missing; opening it
+        # settles that, as is_regular_file does.
+        return is_regular_file(path) and not path.is_symlink()
+    return stat.S_ISREG(mode)
+
+
 def read_json_object(path: Path, *, root: Path) -> dict[str, Any]:
     contained = ensure_contained_path(root, path)
     try:
-        # pathlib answers "missing" for absent paths but raises other errors,
-        # such as a parent directory that denies search permission.  Store
-        # paths reject symlinks when they are named, so is_symlink() only
-        # catches one created since.
-        present = not contained.is_symlink() and is_regular_file(contained)
+        present = _is_record_file(contained)
     except OSError as exc:
         raise ChangeStoreCorrupt(
             f"cannot inspect JSON state record {contained.name}"

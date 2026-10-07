@@ -1857,7 +1857,7 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
 
     py_ver = platform.python_version()
     py_tuple = tuple(int(x) for x in py_ver.split(".")[:2])
-    if (3, 11) <= py_tuple < (3, 13):
+    if (3, 11) <= py_tuple < (3, 15):
         checks.append(
             {
                 "name": "python_version",
@@ -1870,8 +1870,8 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
             {
                 "name": "python_version",
                 "status": "fail",
-                "message": f"Python {py_ver} (requires >=3.11,<3.13).",
-                "fix": "Recreate the tool environment with Python 3.11 or 3.12.",
+                "message": f"Python {py_ver} (requires >=3.11,<3.15).",
+                "fix": "Recreate the tool environment with Python 3.11 to 3.14.",
             }
         )
 

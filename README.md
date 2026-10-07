@@ -52,8 +52,9 @@ or, with uv:
 uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
-Python 3.11 or 3.12 is required; pip refuses other versions. Pin the exact
-version you tested, for example `arcgraph[mcp]==0.1.0`. An unpinned install
+0.1.0 on PyPI requires Python 3.11 or 3.12; pip refuses other versions. The
+source on `main` is tested on 3.11–3.14 and will require 3.11–3.14 from the
+next release. Pin the exact version you tested, for example `arcgraph[mcp]==0.1.0`. An unpinned install
 picks 0.1.0; pip installs one of the earlier 0.1.0rc7–0.1.0rc10 pre-releases
 only when you name its version or pass `--pre`. The `mcp` extra is only needed
 to run the MCP server. Installs of 0.1.0 from PyPI were tested: pip with the
@@ -73,13 +74,14 @@ plus local stdio MCP. TypeScript/JavaScript analysis is
 outside that trial's acceptance scope.
 
 ArcGraph is beta software. GitHub Actions runs the
-`CI` workflow (Ubuntu, Windows, and macOS; Python 3.11 and 3.12). A passing run
+`CI` workflow (Ubuntu, Windows, and macOS; Python 3.11 to 3.14). A passing run
 is evidence only for the commit it ran on, so check the run for the exact
 commit you are using.
 
 Requirements:
 
-- Python 3.11 or 3.12.
+- Python 3.11 or 3.12 for 0.1.0 from PyPI; 3.11 to 3.14 for the source on
+  `main`.
 - Node.js and a resolvable TypeScript compiler API when analyzing
   TypeScript/JavaScript projects. The Python wheel includes ArcGraph's `.mjs`
   extractor but does not include `node_modules/typescript`; provide the runtime
@@ -196,7 +198,7 @@ If `arcgraph` is not on `PATH`, use the source checkout wrapper:
 python scripts/arcgraph.py <command>
 ```
 
-On a clean Windows machine, install Python 3.11 or 3.12 and Node.js/npm first. Optional
+On a clean Windows machine, install Python 3.11 to 3.14 and Node.js/npm first. Optional
 precision tools can be installed with:
 
 ```powershell
@@ -323,8 +325,8 @@ Common first-run issues:
 
 - `arcgraph` command not found: activate the virtual environment or use
   `python scripts/arcgraph.py <command>` from the checkout.
-- Wrong Python version: install Python 3.11 or 3.12 and recreate the virtual
-  environment.
+- Wrong Python version: install Python 3.11 to 3.14 (3.11 or 3.12 for 0.1.0
+  from PyPI) and recreate the virtual environment.
 - Missing Node/npm or TypeScript compiler API: install TypeScript in the
   analyzed project (for example with its locked npm install) when TS/JS
   analysis is required. Builds still succeed and persist

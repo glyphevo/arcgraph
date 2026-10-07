@@ -200,7 +200,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Local Install And Upgrade",
                     "items": [
                         "ArcGraph is on PyPI and can also be installed from a source checkout; 0.1.0 is a beta release. Git tags (`v` followed by the version) and GitHub releases carry the same two files as the matching version on PyPI. npm and Docker/GHCR package paths are not published.",
-                        "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`). Create and activate a virtual environment before installing when you want an isolated local tool.",
+                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`); 0.1.0 on PyPI requires 3.11 or 3.12. Create and activate a virtual environment before installing when you want an isolated local tool.",
                         "From a source checkout, run `python -m pip install --upgrade -e .` in the ArcGraph project directory to install or refresh the `arcgraph` CLI.",
                         'For development and local validation, run `python -m pip install -e ".[dev]"`; use the analyzed project\'s locked npm install when TypeScript/JavaScript analysis is required.',
                         "Node.js and a resolvable TypeScript compiler API are runtime dependencies for TypeScript/JavaScript analysis, not merely test dependencies. The Python wheel includes the `.mjs` extractor but not `node_modules/typescript`.",
@@ -841,7 +841,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Install From A Checkout",
                     "items": [
-                        "ArcGraph requires Python 3.11 or 3.12 (`requires-python >=3.11,<3.13`) and is currently installed from a source checkout.",
+                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`; 0.1.0 on PyPI requires 3.11 or 3.12) and is currently installed from a source checkout.",
                         "Create and activate a virtual environment, then run `python -m pip install --upgrade pip`.",
                         "Run `python -m pip install -e .` for the normal CLI install.",
                         'Run `python -m pip install -e ".[dev]"` when you need development dependencies or local validation.',
@@ -882,7 +882,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Common First-Run Issues",
                     "items": [
                         "If `arcgraph` is not found, activate the virtual environment or use `python scripts/arcgraph.py <command>` from the checkout.",
-                        "If Python is outside 3.11 or 3.12, install Python 3.11 or 3.12 and recreate the virtual environment.",
+                        "If Python is outside 3.11 to 3.14 (3.11 or 3.12 for 0.1.0 from PyPI), install a supported Python and recreate the virtual environment.",
                         "If Node.js or the TypeScript compiler API is missing, provide the analyzed project's locked runtime when TypeScript/JavaScript analysis is required. Otherwise confirm `typescript_frontend_unavailable` in the build summary and diagnostics and continue only under an explicitly Python-only scope.",
                         "If `pyproject.toml` or source roots are missing, run `arcgraph init --dry-run`, then `arcgraph init` only after reviewing the proposed config.",
                         "If the index is missing or stale, run `arcgraph doctor`, then use `arcgraph build` for a missing or incompatible index or `arcgraph sync --if-stale` for a stale one.",
@@ -1080,7 +1080,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "items": [
                         "If `arcgraph` is not found, activate the virtual environment that installed ArcGraph or run `python scripts/arcgraph.py <command>` from the source checkout.",
                         "If `python -m pip show arcgraph` points to an old wheel or another checkout, uninstall it and reinstall from the intended checkout with `python -m pip install -e .`.",
-                        "If Python is outside 3.11 or 3.12, install Python 3.11 or 3.12, recreate the virtual environment, and reinstall ArcGraph.",
+                        "If Python is outside 3.11 to 3.14 (3.11 or 3.12 for 0.1.0 from PyPI), install a supported Python, recreate the virtual environment, and reinstall ArcGraph.",
                         "TypeScript/JavaScript analysis requires Node.js and a resolvable TypeScript compiler API at runtime. The Python wheel includes the `.mjs` extractor but not `node_modules/typescript`; use the analyzed project's locked npm install when TS/JS is required.",
                         "Without that runtime, a build should succeed while recording `typescript_frontend_unavailable` in its `summary.json` and `diagnostics.jsonl`. This is acceptable only for the Python-only external-trial scope.",
                         "npm package publishing remains unapproved; installing a project-local compiler runtime does not turn npm into an ArcGraph distribution channel.",
@@ -1158,6 +1158,16 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "`requires-python` is now `>=3.11,<3.13`. It was `>=3.11`, which pip accepted on 3.13 and later on the strength of a declaration no CI lane exercised; the test and package matrices run 3.11 and 3.12 only. Installing on 3.13 or later now fails at resolution time with a clear message instead of succeeding into untested behavior.",
                     "The `Programming Language :: Python` classifiers already named 3.11 and 3.12 only, so this removes a disagreement between two declarations in the same file rather than dropping a version that was ever claimed consistently.",
                     "No supported interpreter loses support and no runtime behavior changes. A 3.13+ user who was relying on the wider bound should either stay on an installed copy or ask for the matrix to be widened; the declaration and the matrix are now checked against each other, so widening one without the other fails the suite.",
+                ],
+            },
+            {
+                "title": "Supported Python Versions Widened",
+                "items": [
+                    "`requires-python` is now `>=3.11,<3.15`. The test matrix runs 3.11, 3.12, 3.13 and 3.14 on Ubuntu, Windows and macOS, and the package matrix adds 3.14 on Ubuntu. 0.1.0 on PyPI keeps `>=3.11,<3.13`.",
+                    "ArcGraph parses source with the interpreter that runs it, so syntax new in 3.14, such as `except A, B:` without parentheses, is read only when ArcGraph runs on 3.14; on an older interpreter such a file is reported as a parse error.",
+                    "The lists of builtin and standard library names cover 3.11 to 3.14. A few capitalised standard library names are a class on some of these versions and a function on others, such as `threading.Lock`, a class from 3.13; they keep the reading they had on 3.11 and 3.12.",
+                    "Python similarity profiles no longer depend on the interpreter that ran the build. Their structure hash came from `ast.dump`, which writes empty fields up to 3.12 but not from 3.13, and 3.12 added fields that 3.11 lacks, so the same code had different hashes on 3.11 and 3.12 too. The profile algorithm is now `python_ast_token_ngrams_v2`; an index built earlier holds v1 profiles, so its next incremental reindex asks for one full build.",
+                    "From 3.14, pathlib's `is_file()` and `is_symlink()` answer False for every error instead of raising. The change-safety store now inspects a state record with `lstat`, so a record it cannot inspect, for example under a directory that denies search, is still reported as corrupt rather than missing.",
                 ],
             },
             {

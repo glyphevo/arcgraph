@@ -167,20 +167,19 @@ def test_store_fails_closed_on_a_corrupt_record_header(tmp_path: Path) -> None:
         store.read_revision("plan", 1)
 
 
-@pytest.mark.parametrize("check", ["is_symlink", "is_file"])
 def test_read_fails_closed_when_the_record_cannot_be_inspected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, check: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = tmp_path / "plans" / "plan" / "current.json"
     atomic_write_json(target, {"revision": 1}, root=tmp_path)
-    original = getattr(Path, check)
+    original = os.lstat
 
-    def denied(self: Path, *args: object, **kwargs: object) -> bool:
-        if self.name == "current.json":
-            raise PermissionError(13, "Permission denied", str(self))
-        return original(self, *args, **kwargs)
+    def denied(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        if os.fspath(path).endswith("current.json"):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, check, denied)
+    monkeypatch.setattr(os, "lstat", denied)
 
     with pytest.raises(ChangeStoreCorrupt, match="cannot inspect") as caught:
         read_json_object(target, root=tmp_path)

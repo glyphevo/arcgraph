@@ -84,6 +84,8 @@ jobs:
         python:
           - '3.11'
           - '3.12'
+          - '3.13'
+          - '3.14'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -128,6 +130,10 @@ jobs:
             mcp_spec: mcp>=2.0.0,<3.0.0
           - os: macos-latest
             python: '3.12'
+            mcp_line: latest-2x
+            mcp_spec: mcp>=2.0.0,<3.0.0
+          - os: ubuntu-latest
+            python: '3.14'
             mcp_line: latest-2x
             mcp_spec: mcp>=2.0.0,<3.0.0
     steps:

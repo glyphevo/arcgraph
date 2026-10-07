@@ -228,7 +228,7 @@ python scripts/arcgraph_clean_checkout_smoke.py
 
 Run it on a supported interpreter. The script builds its virtual environment
 from the interpreter that invoked it and then installs the package into it, so
-on an interpreter outside `requires-python` (`>=3.11,<3.13`) pip refuses the
+on an interpreter outside `requires-python` (`>=3.11,<3.15`) pip refuses the
 install and the smoke fails on its own environment rather than on the code it
 is meant to exercise. The same applies to
 `scripts/arcgraph_package_readiness_smoke.py` and

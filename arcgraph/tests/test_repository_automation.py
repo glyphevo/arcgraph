@@ -142,6 +142,12 @@ def test_package_matrix_covers_mcp_lower_and_latest_lines() -> None:
             "mcp_line": "latest-2x",
             "mcp_spec": "mcp>=2.0.0,<3.0.0",
         },
+        {
+            "os": "ubuntu-latest",
+            "python": "3.14",
+            "mcp_line": "latest-2x",
+            "mcp_spec": "mcp>=2.0.0,<3.0.0",
+        },
     ]
     package_job = workflow["jobs"]["package-matrix"]
     run_step = next(

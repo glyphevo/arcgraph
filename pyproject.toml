@@ -7,7 +7,7 @@ name = "arcgraph"
 version = "0.1.0"
 description = "Local-first code semantic graph engine for AI agents and code intelligence."
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.15"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "ArcGraph Maintainers" },
@@ -20,6 +20,8 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
@@ -101,7 +103,7 @@ python_files = ["test_*.py"]
 
 [tool.black]
 line-length = 88
-target-version = ["py311", "py312"]
+target-version = ["py311", "py312", "py313", "py314"]
 
 [tool.ruff]
 line-length = 88

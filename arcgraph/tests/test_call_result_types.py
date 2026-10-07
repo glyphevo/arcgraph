@@ -668,6 +668,62 @@ def test_no_callee_types_a_value_it_does_not_return(resolutions):
     assert not any(t.endswith(".mkdir") for t in _targets(resolutions, "int_mkdir"))
 
 
+# Capitalised standard library names whose kind differs between the supported
+# versions: a function ("function"), a class ("class"), a value that cannot be
+# called ("value"), or not there ("absent"), on 3.11, 3.12, 3.13 and 3.14. They
+# keep the reading they had on 3.11 and 3.12, listed or not, so the checks
+# below pass over them; test_version_dependent_stdlib_names checks each kind on
+# the running interpreter instead.
+VERSION_DEPENDENT_STDLIB_NAMES = {
+    "importlib.metadata._meta.Union": ("function", "function", "function", "class"),
+    "importlib.resources.Anchor": ("absent", "function", "function", "value"),
+    "importlib.resources.Package": ("function", "function", "function", "value"),
+    "importlib.resources._common.Anchor": ("absent", "function", "function", "value"),
+    "importlib.resources._common.Package": (
+        "function",
+        "function",
+        "function",
+        "value",
+    ),
+    "importlib.resources._common.Union": ("function", "function", "function", "class"),
+    "importlib.resources.abc.StrPath": ("function", "function", "function", "value"),
+    "importlib.resources.abc.Union": ("function", "function", "function", "class"),
+    "multiprocessing.dummy.Lock": ("function", "function", "class", "class"),
+    "threading.Lock": ("function", "function", "class", "class"),
+    "typing.Annotated": ("class", "class", "function", "function"),
+    "typing.Union": ("function", "function", "function", "class"),
+}
+SUPPORTED_MINOR_VERSIONS = ((3, 11), (3, 12), (3, 13), (3, 14))
+
+
+def _stdlib_kind(qualname: str) -> str:
+    module_name, _, name = qualname.rpartition(".")
+    value = getattr(importlib.import_module(module_name), name, None)
+    if value is None:
+        return "absent"
+    if inspect.isclass(value):
+        return "class"
+    return "function" if callable(value) else "value"
+
+
+def test_version_dependent_stdlib_names():
+    version = sys.version_info[:2]
+    if version not in SUPPORTED_MINOR_VERSIONS:
+        pytest.skip(f"no kinds recorded for Python {version[0]}.{version[1]}")
+    index = SUPPORTED_MINOR_VERSIONS.index(version)
+    actual = {
+        qualname: _stdlib_kind(qualname) for qualname in VERSION_DEPENDENT_STDLIB_NAMES
+    }
+    expected = {
+        qualname: kinds[index]
+        for qualname, kinds in VERSION_DEPENDENT_STDLIB_NAMES.items()
+    }
+    assert actual == expected
+    for qualname, kinds in VERSION_DEPENDENT_STDLIB_NAMES.items():
+        # Only a name whose kind does differ needs the exemption.
+        assert len(set(kinds) - {"absent"}) > 1, qualname
+
+
 def test_capitalised_stdlib_functions():
     # Every name listed is a function on the interpreter that has it. Where the
     # list was generated, macOS, every capitalised function of a listed module
@@ -684,6 +740,8 @@ def test_capitalised_stdlib_functions():
         except ImportError:
             continue
         for name in names:
+            if f"{module_name}.{name}" in VERSION_DEPENDENT_STDLIB_NAMES:
+                continue
             value = getattr(module, name, None)
             if value is not None:
                 assert callable(value) and not inspect.isclass(value), (
@@ -700,6 +758,7 @@ def test_capitalised_stdlib_functions():
             and not inspect.isclass(getattr(module, name))
             and getattr(getattr(module, name), "__module__", None) is not None
             and name not in names
+            and f"{module_name}.{name}" not in VERSION_DEPENDENT_STDLIB_NAMES
         )
         assert missing == [], module_name
 

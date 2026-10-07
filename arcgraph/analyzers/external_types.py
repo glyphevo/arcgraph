@@ -202,7 +202,8 @@ METHOD_RETURN_TYPES.update(
     }
 )
 # Every public method of these external types on the supported Python versions
-# (3.11 and 3.12; a method on either counts). A call on a receiver of one of
+# (3.11 through 3.14, such as Path.full_match from 3.13 and Path.copy from 3.14;
+# a method on any counts). A call on a receiver of one of
 # these types names a method of the type or nothing, so pure.parent.mkdir()
 # is not linked to a PurePosixPath.mkdir that does not exist.
 # test_external_methods_cover_every_public_method checks the running
@@ -224,6 +225,7 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "append",
             "buffer_info",
             "byteswap",
+            "clear",
             "count",
             "extend",
             "frombytes",
@@ -279,9 +281,13 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "as_posix",
             "as_uri",
             "chmod",
+            "copy",
+            "copy_into",
             "cwd",
             "exists",
             "expanduser",
+            "from_uri",
+            "full_match",
             "glob",
             "group",
             "hardlink_to",
@@ -305,6 +311,8 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "lstat",
             "match",
             "mkdir",
+            "move",
+            "move_into",
             "open",
             "owner",
             "read_bytes",
@@ -336,9 +344,13 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "as_posix",
             "as_uri",
             "chmod",
+            "copy",
+            "copy_into",
             "cwd",
             "exists",
             "expanduser",
+            "from_uri",
+            "full_match",
             "glob",
             "group",
             "hardlink_to",
@@ -362,6 +374,8 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "lstat",
             "match",
             "mkdir",
+            "move",
+            "move_into",
             "open",
             "owner",
             "read_bytes",
@@ -391,6 +405,7 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
         {
             "as_posix",
             "as_uri",
+            "full_match",
             "is_absolute",
             "is_relative_to",
             "is_reserved",
@@ -407,6 +422,7 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
         {
             "as_posix",
             "as_uri",
+            "full_match",
             "is_absolute",
             "is_relative_to",
             "is_reserved",
@@ -423,6 +439,7 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
         {
             "as_posix",
             "as_uri",
+            "full_match",
             "is_absolute",
             "is_relative_to",
             "is_reserved",
@@ -441,9 +458,13 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "as_posix",
             "as_uri",
             "chmod",
+            "copy",
+            "copy_into",
             "cwd",
             "exists",
             "expanduser",
+            "from_uri",
+            "full_match",
             "glob",
             "group",
             "hardlink_to",
@@ -467,6 +488,8 @@ EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
             "lstat",
             "match",
             "mkdir",
+            "move",
+            "move_into",
             "open",
             "owner",
             "read_bytes",

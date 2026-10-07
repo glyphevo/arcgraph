@@ -5,10 +5,13 @@ instance of it. These standard library callables are functions instead, such as
 tempfile.NamedTemporaryFile, which returns a file object, and
 xml.etree.ElementTree.SubElement, which returns an Element, so a call of one
 gives a value of no known type. Generated from every public module of the
-standard library on 3.11 and 3.12, the supported versions, a name on either
+standard library on 3.11 through 3.14, the supported versions, a name on any
 counting; test_capitalised_stdlib_functions checks the names listed here
 against the running interpreter, and on macOS, where it was generated, the
-completeness of each listed module. A third-party function capitalised like a
+completeness of each listed module. A few names are a class on some of these
+versions and a function on others, as threading.Lock is a class from 3.13 on;
+they keep the reading they had on 3.11 and 3.12, and the test records the kind
+of each on every supported version. A third-party function capitalised like a
 class is still taken for one.
 """
 
@@ -68,9 +71,12 @@ CAPITALISED_STDLIB_FUNCTIONS = frozenset(
         "imaplib.Internaldate2tuple",
         "imaplib.ParseFlags",
         "imaplib.Time2Internaldate",
+        "importlib.metadata.Iterable",
         "importlib.metadata.List",
         "importlib.metadata.Mapping",
+        "importlib.metadata.Match",
         "importlib.metadata.Optional",
+        "importlib.metadata.Set",
         "importlib.metadata.Union",
         "importlib.metadata._meta.Dict",
         "importlib.metadata._meta.Iterator",
@@ -208,6 +214,7 @@ CAPITALISED_STDLIB_FUNCTIONS = frozenset(
         "tokenize.ISEOF",
         "tokenize.ISNONTERMINAL",
         "tokenize.ISTERMINAL",
+        "tomllib._parser.Final",
         "tomllib._parser.Key",
         "tomllib._parser.NamedTuple",
         "tomllib._parser.ParseFloat",
@@ -259,6 +266,7 @@ CAPITALISED_STDLIB_FUNCTIONS = frozenset(
         "typing.Optional",
         "typing.OrderedDict",
         "typing.Pattern",
+        "typing.ReadOnly",
         "typing.Required",
         "typing.Reversible",
         "typing.Self",
@@ -269,6 +277,7 @@ CAPITALISED_STDLIB_FUNCTIONS = frozenset(
         "typing.Type",
         "typing.TypeAlias",
         "typing.TypeGuard",
+        "typing.TypeIs",
         "typing.TypedDict",
         "typing.Union",
         "typing.Unpack",

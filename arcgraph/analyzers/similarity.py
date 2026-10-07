@@ -14,7 +14,9 @@ from arcgraph.core.ids import function_id, method_id
 from arcgraph.core.schemas import BuildWarning, Edge, Evidence, Node
 from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
 
-PROFILE_ALGORITHM = "python_ast_token_ngrams_v1"
+# v2: the dump leaves out empty fields on every Python version, so a profile
+# no longer depends on the interpreter that ran the build (see _structure_dump).
+PROFILE_ALGORITHM = "python_ast_token_ngrams_v2"
 
 
 @dataclass(slots=True)
@@ -243,7 +245,7 @@ class SimilarityAnalyzer:
 
         normalized = _NormalizedAst().visit(copy.deepcopy(function_ast))
         ast.fix_missing_locations(normalized)
-        normalized_dump = ast.dump(normalized, include_attributes=False)
+        normalized_dump = _structure_dump(normalized)
         structure_hash = hashlib.sha256(normalized_dump.encode("utf-8")).hexdigest()[
             :16
         ]
@@ -415,6 +417,28 @@ class _NormalizedAst(ast.NodeTransformer):
     def visit_Constant(self, node: ast.Constant) -> ast.AST:
         node.value = f"_{type(node.value).__name__}"
         return node
+
+
+def _structure_dump(node: Any) -> str:
+    """ast.dump of node without positions, leaving out None and empty lists.
+
+    ast.dump left them in up to Python 3.12 and leaves them out from 3.13 on,
+    and 3.12 added fields such as type_params, so its output, and every hash
+    of it, depended on the interpreter that ran the build. This is the 3.13
+    form on every version.
+    """
+
+    if isinstance(node, ast.AST):
+        fields = []
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if value is None or (isinstance(value, list) and not value):
+                continue
+            fields.append(f"{name}={_structure_dump(value)}")
+        return f"{type(node).__name__}({', '.join(fields)})"
+    if isinstance(node, list):
+        return f"[{', '.join(_structure_dump(item) for item in node)}]"
+    return repr(node)
 
 
 def _jaccard(left: set[str], right: set[str]) -> float:

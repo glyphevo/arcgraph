@@ -45,8 +45,9 @@ DYNAMIC_CALLS = {
     "getattr",
     "import_module",
 }
-# Every public callable of the builtins module on the supported Python versions
-# (3.11 and 3.12 have the same names), including the exit, quit, help,
+# Every public callable of the builtins module on the supported Python versions,
+# 3.11 through 3.14 (PythonFinalizationError is new in 3.13; a name on any
+# counts), including the exit, quit, help,
 # copyright, credits and license helpers that site installs, plus __import__.
 # test_builtin_calls_cover_every_public_builtin checks the running interpreter
 # against this list, so a hand-kept subset cannot fall behind again.
@@ -96,6 +97,7 @@ BUILTIN_CALLS = {
     "PendingDeprecationWarning",
     "PermissionError",
     "ProcessLookupError",
+    "PythonFinalizationError",
     "RecursionError",
     "ReferenceError",
     "ResourceWarning",
@@ -380,7 +382,8 @@ BUILTIN_TYPE_ATTRIBUTE_METHODS = {
     "dict": {"fromkeys"},
 }
 # Every public method of these builtin types on the supported Python versions,
-# 3.11 and 3.12 (int.is_integer is new in 3.12; a method on either counts). A
+# 3.11 through 3.14 (int.is_integer is new in 3.12, bytearray.resize and
+# float.from_number in 3.14; a method on any counts). A
 # method outside the list is not linked, and no guess from its name stands in,
 # so no target names a method the type lacks.
 # test_builtin_methods_cover_every_public_method checks the running interpreter
@@ -430,6 +433,7 @@ BUILTIN_METHODS_BY_TYPE = {
         "removeprefix",
         "removesuffix",
         "replace",
+        "resize",
         "reverse",
         "rfind",
         "rindex",
@@ -493,6 +497,7 @@ BUILTIN_METHODS_BY_TYPE = {
     },
     "complex": {
         "conjugate",
+        "from_number",
     },
     "dict": {
         "clear",
@@ -510,6 +515,7 @@ BUILTIN_METHODS_BY_TYPE = {
     "float": {
         "as_integer_ratio",
         "conjugate",
+        "from_number",
         "fromhex",
         "hex",
         "is_integer",

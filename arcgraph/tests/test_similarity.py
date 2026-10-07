@@ -81,3 +81,52 @@ def test_python_similarity_does_not_restore_an_incompatible_profile() -> None:
     # stripped: the reindexer passes the live unchanged nodes it republishes,
     # so popping here would delete the owning frontend's persisted profile.
     assert node.properties["similarity"]["algorithm"] == "python_ast_token_ngrams_v0"
+
+
+SHAPES = """async def shaped(a, /, b: int = 1, *rest, c, **more) -> int:
+    class Inner[T]:
+        pass
+
+    try:
+        return [x async for x in a if x]
+    except (ValueError, KeyError) as error:
+        raise RuntimeError from error
+    finally:
+        del b
+"""
+
+
+def _normalized_function(source: str) -> ast.AST:
+    import copy
+
+    from arcgraph.analyzers.similarity import _NormalizedAst
+
+    function = ast.parse(source).body[0]
+    normalized = _NormalizedAst().visit(copy.deepcopy(function))
+    ast.fix_missing_locations(normalized)
+    return normalized
+
+
+def test_the_structure_dump_is_the_same_on_every_python_version() -> None:
+    from arcgraph.analyzers.similarity import _structure_dump
+
+    # ast.dump kept None and empty lists up to 3.12 and leaves them out from
+    # 3.13 on, and 3.12 added type_params; the profile's dump must not follow.
+    dumped = _structure_dump(_normalized_function("def f(a):\n    return a\n"))
+    assert dumped == (
+        "FunctionDef(name='_function', args=arguments(args=[arg(arg='_arg')]), "
+        "body=[Return(value=Name(id='_name', ctx=Load()))])"
+    )
+
+
+def test_the_structure_dump_is_the_dump_of_python_3_13() -> None:
+    import sys
+
+    import pytest
+
+    from arcgraph.analyzers.similarity import _structure_dump
+
+    if sys.version_info < (3, 13):
+        pytest.skip("ast.dump leaves empty fields out from Python 3.13 on")
+    normalized = _normalized_function(SHAPES)
+    assert _structure_dump(normalized) == ast.dump(normalized, include_attributes=False)
