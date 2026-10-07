@@ -185,3 +185,32 @@ def test_the_legacy_resolver_still_matches_a_star_imported_name(tmp_path):
         for edge in GraphStoreReader.from_current(output).read_edges()
         if edge.source == "fn:pkg.user.use" and edge.resolution.status == "resolved"
     } == {"fn:pkg.provider.tool"}
+
+
+def test_the_legacy_resolver_matches_no_name_a_star_import_leaves_out(tmp_path):
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = tmp_path / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "provider.py").write_text(
+        "def tool(x):\n    return x\n\n\n__all__ = []\n", encoding="utf-8"
+    )
+    (package / "user.py").write_text(
+        "from pkg.provider import *\n\n\ndef use():\n    return tool(1)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+        enable_v2_call_resolution=False,
+    ).build()
+    assert not [
+        edge
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.source == "fn:pkg.user.use" and edge.resolution.status == "resolved"
+    ]

@@ -97,6 +97,40 @@ MODULES = {
     + USE,
     "import_under_with": HELPER + "with CONTEXT:\n"
     "    from os.path import join as helper\n" + USE,
+    "if_false_only": "if False:\n    from pkg.other_helper import helper\n" + USE,
+    "if_flag_only": "if FLAG:\n    from pkg.other_helper import helper\n" + USE,
+    "loop_body_only": "for item in ITEMS:\n    from pkg.other_helper import helper\n"
+    + USE,
+    "if_else_same": "if FLAG:\n    from pkg.other_helper import helper\n"
+    "else:\n    from pkg.other_helper import helper\n" + USE,
+    "try_except_same": "try:\n    from pkg.other_helper import helper\n"
+    "except ImportError:\n    from pkg.other_helper import helper\n" + USE,
+    "code_in_block": "if FLAG:\n    from pkg.other_helper import helper\n"
+    "    value = helper(1)\n",
+    "code_in_sibling": "if FLAG:\n    from pkg.other_helper import helper\n"
+    "else:\n    value = helper(1)\n",
+    "code_before_import": "if FLAG:\n    from pkg.other_helper import helper\n"
+    "else:\n    value = helper(1)\n    from pkg.other_helper import helper\n",
+    "star_excluded": "from pkg.excluder import *\n\n\ndef use():\n    return lonely(1)\n",
+    "excluder": "def lonely(x):\n    return x\n\n\n__all__ = ['kept']\nkept = 1\n",
+    "star_empty_all": "from pkg.empty_all import *\n\n\ndef use():\n    return alone(1)\n",
+    "empty_all": "def alone(x):\n    return x\n\n\n__all__ = []\n",
+    "star_appended": "from pkg.appended import *\n\n\ndef use():\n    return added(1)\n",
+    "appended": "def added(x):\n    return x\n\n\n__all__ = []\n__all__.append('added')\n",
+    "star_all_twice": "from pkg.all_twice import *\n\n\ndef use():\n    return twice(1)\n",
+    "all_twice": "def twice(x):\n    return x\n\n\n__all__ = ['twice']\n__all__ = ['kept']\n"
+    "kept = 1\n",
+    "module_code_after_rebind": "from os.path import join\n\njoin = str\nvalue = join('a')\n",
+    "try_except_pass": "try:\n    from pkg.other_helper import helper\n"
+    "except ImportError:\n    pass\n" + USE,
+    "match_partial": "match FLAG:\n    case 1:\n        from pkg.other_helper import helper\n"
+    "    case 2:\n        from pkg.other_helper import helper\n" + USE,
+    "match_complete": "match FLAG:\n    case 1:\n        from pkg.other_helper import helper\n"
+    "    case _:\n        from pkg.other_helper import helper\n" + USE,
+    "star_empty_all_over_own": "def alone(x):\n    return x\n\n\nfrom pkg.empty_all import *\n"
+    "\n\ndef use():\n    return alone(1)\n",
+    "star_appended_over_own": "def added(x):\n    return x\n\n\nfrom pkg.appended import *\n"
+    "\n\ndef use():\n    return added(1)\n",
     "star_cycle_a": "from pkg.star_cycle_b import *\n" + USE,
     "star_cycle_b": "from pkg.star_cycle_a import *\n",
     "star_unread_all": HELPER + "from pkg.computed_all import *\n" + USE,
@@ -169,6 +203,14 @@ def test_modules_parse() -> None:
         ("star_imports_import", "extsym:os.path.join"),
         # The star import after the module's own import rebinds join.
         ("star_overrides_import", "extsym:posixpath.join"),
+        # Some binding surely runs: one in each branch, or one in the block
+        # the module's own code reads it in.
+        ("if_else_same", "fn:pkg.other_helper.helper"),
+        ("try_except_same", "fn:pkg.other_helper.helper"),
+        ("code_in_block", "fn:pkg.other_helper.helper"),
+        ("match_complete", "fn:pkg.other_helper.helper"),
+        # An empty __all__ exports nothing, so the module's own alone holds.
+        ("star_empty_all_over_own", "fn:pkg.star_empty_all_over_own.alone"),
         # A loop's else with no break that can run, and a finally, run.
         ("empty_loop_else", "extsym:os.path.join"),
         ("unbroken_loop_else", "extsym:os.path.join"),
@@ -217,6 +259,27 @@ def test_a_name_resolves_to_what_holds_where_it_is_read(targets, module, target)
         "import_under_with",
         "loop_target",
         "semicolon_after",
+        # No binding surely runs: the name may be unbound, a NameError.
+        "if_false_only",
+        "if_flag_only",
+        "loop_body_only",
+        # A handler that binds nothing, or a match with no case for the rest.
+        "try_except_pass",
+        "match_partial",
+        # appended may export added, so the module's own may not hold.
+        "star_appended_over_own",
+        # Read in the other branch, or in the branch before its import.
+        "code_in_sibling",
+        "code_before_import",
+        # The module's own code reads join after it is rebound.
+        "module_code_after_rebind",
+        # The star import does not bring the name, so it is no symbol of
+        # that name elsewhere: __all__ leaves it out, even empty; or __all__
+        # is changed or bound twice, and whether it does is not known.
+        "star_excluded",
+        "star_empty_all",
+        "star_appended",
+        "star_all_twice",
         # Star imports that import back, or an __all__ not read as a list.
         "star_cycle_a",
         "star_unread_all",

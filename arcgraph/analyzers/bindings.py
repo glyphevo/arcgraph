@@ -9,7 +9,8 @@ from typing import Any, Iterable
 from arcgraph.analyzers.python_scopes import (
     local_definition_regions,
     nested_functions,
-    nodes_that_may_not_run,
+    ModuleFlow,
+    module_flow,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.core.ids import binding_id, class_id, function_id, method_id, module_id
@@ -178,12 +179,12 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self.class_qualname = class_qualname
         self.static_only = False
         self.direct_statements: set[int] = set()
-        self.may_not_run: set[int] = set()
+        self.flow = ModuleFlow()
         self._imported_names: dict[str, dict[str, Any]] = {}
 
     def visit_module_body(self, body: list[ast.stmt]) -> None:
         self.direct_statements = {id(stmt) for stmt in body}
-        self.may_not_run = nodes_that_may_not_run(body)
+        self.flow = module_flow(body)
         for stmt in body:
             self.visit(stmt)
 
@@ -686,14 +687,8 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             record["unpack_path"] = unpack_path
         if static_only or self.static_only:
             record["static_only"] = True
-        if self.scope_kind == "module" and (
-            id(node) in self.may_not_run
-            # A loop target is bound only if the loop runs once; a walrus only
-            # where the expression around it reaches it.
-            or kind == "for_target"
-            or isinstance(node, ast.NamedExpr)
-        ):
-            record["may_not_run"] = True
+        if self.scope_kind == "module":
+            self._record_module_flow(record, node, kind, name)
         self._set_optional(record, "imported_name", imported_name)
         self._set_optional(record, "owner", owner)
         self._set_optional(record, "context_manager_kind", context_manager_kind)
@@ -705,6 +700,32 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             self._add_shadowing_diagnostic(analysis, record, self._imported_names[name])
 
         analysis.bindings_by_scope.setdefault(self.scope_id, []).append(record)
+
+    def _record_module_flow(
+        self, record: dict[str, Any], node: ast.AST, kind: str, name: str
+    ) -> None:
+        """Mark a module binding that may not have run by the module's end,
+        with the block where it surely has, and the statement around it, if
+        any, that surely binds the name by its end."""
+
+        if kind == "for_target":
+            # Bound in the loop's body, and only if it runs once.
+            block = self.flow.loop_bodies.get(id(node))
+        elif isinstance(node, ast.NamedExpr):
+            # Bound only where the expression around it reaches it.
+            block = None
+        else:
+            block = self.flow.blocks.get(id(node))
+            if block is None:
+                return
+        record["may_not_run"] = True
+        if block is not None:
+            record["block"] = block
+        position = (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
+        for span, names in self.flow.settling:
+            if name in names and (span[0], span[1]) <= position <= (span[2], span[3]):
+                record["settles_with"] = span
+                break
 
     def _add_shadowing_diagnostic(
         self,

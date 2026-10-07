@@ -918,13 +918,17 @@ class CallAnalyzer:
                 edge_kind="uses",
             )
         # A bare name reaches no method, nor a class nested in another class,
-        # nor a definition of its own module that the rules above refused.
-        candidates = [
-            candidate
-            for candidate in context.by_name.get(raw_name, [])
-            if self._is_module_level(candidate)
-            and self._module_qualname(candidate) != self._module_qualname(source)
-        ]
+        # nor a definition of its own module that the rules above refused,
+        # nor one the module's star imports are known not to bring.
+        if self._star_imports_exclude(source, raw_name, held, context.lexical):
+            candidates = []
+        else:
+            candidates = [
+                candidate
+                for candidate in context.by_name.get(raw_name, [])
+                if self._is_module_level(candidate)
+                and self._module_qualname(candidate) != self._module_qualname(source)
+            ]
         if len(candidates) == 1:
             return self._resolved_name_target(candidates[0], "unique_short_name")
         if builtin_target is not None:
@@ -2983,7 +2987,12 @@ class CallAnalyzer:
             return None
         if (
             source.id not in context.lexical.strict
-            and parts[0] not in context.import_aliases_by_scope.get(source.id, {})
+            # A function's or class's own import is not the module's; the
+            # module's own imports are.
+            and (
+                source.kind == "module"
+                or parts[0] not in context.import_aliases_by_scope.get(source.id, {})
+            )
             and not self._module_import_holds(source, parts[0], resolved_base, context)
         ):
             # Where it is read, the module's name may hold another binding:
@@ -3414,7 +3423,17 @@ class CallAnalyzer:
         if (
             context is not None
             and not receiver_expression
-            and self._module_binds(source, raw_name, context, imports_allowed=True)
+            and (
+                self._module_binds(source, raw_name, context, imports_allowed=True)
+                or self._star_imports_exclude(
+                    source,
+                    raw_name,
+                    self._module_name_at(
+                        source, raw_name, context.lexical, context.callsite_position
+                    ),
+                    context.lexical,
+                )
+            )
         ):
             return None
 
@@ -3667,8 +3686,11 @@ class CallAnalyzer:
         A binding the binding pass marks may_not_run, under if, with, match,
         a loop or a try's body, handlers or else, or in a loop's else that a
         break may skip, may not have run, so the one before it may hold too,
-        back to one that runs. A star import binds what its module exports; a
-        binding only for type checkers binds nothing at run time."""
+        back to one that runs: one not so marked, one in whose block the call
+        is, or past the statement it is in, where that statement surely binds
+        the name, as if and else both binding it. With none, the name may be
+        unbound. A star import binds what its module exports; a binding only
+        for type checkers binds nothing at run time."""
 
         if (module.path, name) in lexical.global_writes:
             return None
@@ -3680,9 +3702,27 @@ class CallAnalyzer:
             and not binding.get("static_only")
             and (limit is None or binding_in_effect(binding, limit))
         ]
-        events.sort(key=lambda b: (int(b.get("line") or 0), int(b.get("column") or 0)))
+
+        def at(binding: dict[str, Any]) -> tuple[int, int]:
+            return int(binding.get("line") or 0), int(binding.get("column") or 0)
+
+        def within(point: tuple[int, int], span: Any) -> bool:
+            return (
+                isinstance(span, list)
+                and len(span) == 4
+                and (span[0], span[1]) <= point <= (span[2], span[3])
+            )
+
+        events.sort(key=at)
+        point = (limit[1], limit[2]) if limit is not None else None
         values: list[tuple[str, str | None]] = []
+        settled = False
+        settling: list[int] | None = None
         for event in reversed(events):
+            if settling is not None and at(event) < (settling[0], settling[1]):
+                # Every binding in the statement that surely binds the name.
+                settled = True
+                break
             if event.get("kind") == "star_import":
                 value = self._star_import_value(
                     event, name, lexical, seen | {module.id}
@@ -3694,10 +3734,25 @@ class CallAnalyzer:
             else:
                 value = self._binding_value(event, lexical)
             values.append(value)
-            if not event.get("may_not_run"):
+            if not event.get("may_not_run") or (
+                point is not None and within(point, event.get("block"))
+            ):
+                settled = True
                 break
+            span = event.get("settles_with")
+            # Code inside that statement reads it before it has ended.
+            if (
+                settling is None
+                and isinstance(span, list)
+                and len(span) == 4
+                and (point is None or point > (span[2], span[3]))
+            ):
+                settling = span
         if not values:
             return _NO_VALUE
+        if not settled and settling is None:
+            # No binding surely ran: the name may be unbound there.
+            values.append(_NO_VALUE)
         return values[0] if all(v == values[0] for v in values) else _OTHER_VALUE
 
     @staticmethod
@@ -3736,22 +3791,62 @@ class CallAnalyzer:
         if module is None or module.kind != "module" or module.id in seen:
             return None
         own = lexical.bindings.get(module.id, {})
-        declared = own.get("__all__")
-        if declared:
-            exported = {
-                binding.get("name")
-                for bindings in own.values()
-                for binding in bindings
-                if binding.get("kind") == "re_export"
-            }
-            # An __all__ bound more than once, or not read as a list of names.
-            if len(declared) != 1 or not exported:
-                return None
+        if own.get("__all__"):
+            exported = self._declared_exports(module, own["__all__"])
+            if exported is None:
+                # Whether the name is exported is not known: the module's
+                # value if it is, nothing if it is not.
+                value = self._module_name_value(module, name, lexical, None, seen)
+                if value is None or value == _NO_VALUE:
+                    return value
+                return _OTHER_VALUE
             if name not in exported:
                 return _NO_VALUE
         elif name.startswith("_"):
             return _NO_VALUE
         return self._module_name_value(module, name, lexical, None, seen)
+
+    @staticmethod
+    def _declared_exports(
+        module: Node, declared: list[dict[str, Any]]
+    ) -> set[str] | None:
+        """The names a module's __all__ lists, empty or not; None where it is
+        bound more than once or under a block that may not run, is not a
+        literal list or tuple of strings, or is changed by a call such as
+        __all__.append()."""
+
+        if len(declared) != 1 or declared[0].get("may_not_run"):
+            return None
+        if any(
+            isinstance(callsite, dict) and callsite.get("receiver") == "__all__"
+            for callsite in module.properties.get("callsites", [])
+        ):
+            return None
+        try:
+            listed = ast.literal_eval(str(declared[0].get("value")))
+        except (SyntaxError, ValueError):
+            return None
+        if not isinstance(listed, (list, tuple)) or not all(
+            isinstance(item, str) for item in listed
+        ):
+            return None
+        return set(listed)
+
+    def _star_imports_exclude(
+        self,
+        source: Node,
+        name: str,
+        held: tuple[str, str | None] | None,
+        lexical: LexicalScopes,
+    ) -> bool:
+        """Whether the module star-imports and none of its star imports, all
+        read, binds ``name``, so the name is not a symbol elsewhere."""
+
+        if held != _NO_VALUE:
+            return False
+        module = lexical.modules.get(source.path)
+        own = lexical.bindings.get(module.id, {}) if module is not None else {}
+        return any(not star.get("static_only") for star in own.get("*", []))
 
     def _imported_elsewhere(
         self, value: tuple[str, str | None], source: Node, lexical: LexicalScopes
