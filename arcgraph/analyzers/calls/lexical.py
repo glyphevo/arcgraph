@@ -24,6 +24,27 @@ _DEFINITION_KINDS = frozenset(
 )
 
 
+def import_binding_target(binding: dict[str, Any]) -> str | None:
+    """What an import binding binds its name to. import a.b binds a to the
+    package a, as import a does, not to a.b."""
+
+    target = (
+        binding.get("target_qualname")
+        or binding.get("value")
+        or binding.get("target_module")
+    )
+    if not isinstance(target, str) or not target:
+        return None
+    name = binding.get("name")
+    if (
+        binding.get("imported_name") == target
+        and "." in target
+        and target.split(".")[0] == name
+    ):
+        return name
+    return target
+
+
 def _decorator_names(source: Node) -> set[str]:
     return {
         str(decorator).split("(", 1)[0].rsplit(".", 1)[-1]
@@ -62,6 +83,14 @@ class LexicalScopes:
                 if isinstance(binding, dict) and isinstance(binding.get("name"), str):
                     grouped[binding["name"]].append(binding)
             self.bindings[node.id] = dict(grouped)
+        # Module names a function rebinds through a global declaration.
+        self.global_writes: set[tuple[str | None, str]] = {
+            (node.path, name)
+            for node in nodes
+            for name, bindings in self.bindings[node.id].items()
+            if any(b.get("kind") == "global" for b in bindings)
+            and any(b.get("kind") != "global" for b in bindings)
+        }
         # Even a write in a sibling callback can change a captured cell. Do not
         # choose a type based on definition order or assume callback execution order.
         for node in nodes:
@@ -185,8 +214,8 @@ class LexicalScopes:
         for name in names:
             binding = self.binding(source, name)
             if binding and binding.get("kind") == "import_alias":
-                target = binding.get("target_qualname") or binding.get("value")
-                if isinstance(target, str):
+                target = import_binding_target(binding)
+                if target is not None:
                     result[name] = target
         return result
 

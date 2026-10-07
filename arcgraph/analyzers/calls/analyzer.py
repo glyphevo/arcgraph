@@ -64,6 +64,7 @@ from arcgraph.analyzers.calls.context import (
     _ResolvedCallTarget,
     binding_in_effect,
 )
+from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.stdlib_functions import CAPITALISED_STDLIB_FUNCTIONS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHODS_BY_TYPE,
@@ -102,6 +103,12 @@ _NAME_GUESS_STRATEGIES = frozenset(
         "unique_short_name_fallback",
     }
 )
+
+
+_IMPORT_BINDING_KINDS = frozenset({"import_alias", "type_checking_import_alias"})
+# Module bindings that bind no value: a name listed in __all__, a global
+# declaration.
+_DECLARATION_KINDS = frozenset({"re_export", "global", "nonlocal"})
 
 
 class CallAnalyzer:
@@ -409,6 +416,7 @@ class CallAnalyzer:
             context.by_name,
             context.by_qualname,
             after_v2=self.enable_v2,
+            context=context,
         )
         if target is None:
             return None
@@ -850,7 +858,11 @@ class CallAnalyzer:
             return None
 
         same_module_target = self._resolve_same_module(
-            source, raw_name, context.by_name, context.callsite_position
+            source,
+            raw_name,
+            context.by_name,
+            context.callsite_position,
+            context.lexical,
         )
         if same_module_target:
             return self._resolved_name_target(same_module_target, "same_module_symbol")
@@ -864,6 +876,11 @@ class CallAnalyzer:
             return imported_target
 
         if "." in raw_name:
+            return None
+        if self._module_binds(source, raw_name, context):
+            # The module binds the name where it is read, to something other
+            # than its one definition: an assignment, another def, a binding
+            # under if or try. It is not the builtin, nor a symbol elsewhere.
             return None
 
         builtin_target = self._builtin_function_target(raw_name)
@@ -880,11 +897,13 @@ class CallAnalyzer:
                 confidence="confirmed",
                 edge_kind="uses",
             )
-        # A bare name reaches no method, nor a class nested in another class.
+        # A bare name reaches no method, nor a class nested in another class,
+        # nor a definition of its own module that the rules above refused.
         candidates = [
             candidate
             for candidate in context.by_name.get(raw_name, [])
             if self._is_module_level(candidate)
+            and self._module_qualname(candidate) != self._module_qualname(source)
         ]
         if len(candidates) == 1:
             return self._resolved_name_target(candidates[0], "unique_short_name")
@@ -2940,6 +2959,14 @@ class CallAnalyzer:
         resolved_base = aliases.get(parts[0])
         if not resolved_base:
             return None
+        if (
+            source.id not in context.lexical.strict
+            and parts[0] not in context.import_aliases_by_scope.get(source.id, {})
+            and not self._module_import_holds(source, parts[0], context)
+        ):
+            # Where it is read, the module's name may hold another binding:
+            # an assignment after the import, or a def in its except.
+            return None
         qualname = ".".join([resolved_base, *parts[1:]])
         internal_target = context.by_qualname.get(qualname)
         if internal_target is not None:
@@ -3308,6 +3335,7 @@ class CallAnalyzer:
         by_qualname: dict[str, Node],
         *,
         after_v2: bool = False,
+        context: _CallResolutionContext | None = None,
     ) -> Node | None:
         raw_name = callsite.get("name")
         if not isinstance(raw_name, str) or not raw_name:
@@ -3342,7 +3370,13 @@ class CallAnalyzer:
             # module or in the project. Legacy mode keeps its name matching.
             return None
 
-        same_module_target = self._resolve_same_module(source, raw_name, by_name)
+        same_module_target = self._resolve_same_module(
+            source,
+            raw_name,
+            by_name,
+            context.callsite_position if context else None,
+            context.lexical if context else None,
+        )
         if same_module_target and not (
             receiver_expression and same_module_target.id == source.id
         ):
@@ -3350,14 +3384,25 @@ class CallAnalyzer:
 
         if "." in raw_name:
             return None
+        if (
+            context is not None
+            and not receiver_expression
+            and self._module_binds(source, raw_name, context, imports_allowed=True)
+        ):
+            return None
 
         short_name = raw_name.rsplit(".", 1)[-1]
         candidates = [
             candidate
             for candidate in by_name.get(short_name, [])
             if not (receiver_expression and candidate.id == source.id)
-            # A bare name reaches no method, nor a class nested in another.
-            and (receiver_expression or self._is_module_level(candidate))
+            # A bare name reaches no method, nor a class nested in another,
+            # nor a definition of its own module that was refused above.
+            and (
+                receiver_expression
+                or self._is_module_level(candidate)
+                and self._module_qualname(candidate) != self._module_qualname(source)
+            )
         ]
         if len(candidates) == 1:
             return candidates[0]
@@ -3484,6 +3529,7 @@ class CallAnalyzer:
         raw_name: str,
         by_name: dict[str, list[Node]],
         position: tuple[str, int, int] | None = None,
+        lexical: LexicalScopes | None = None,
     ) -> Node | None:
         if "." in raw_name:
             return None
@@ -3526,12 +3572,161 @@ class CallAnalyzer:
         candidates = [
             candidate for candidate in candidates if self._is_module_level(candidate)
         ]
-        if len(candidates) == 1:
-            return candidates[0]
-        return None
+        if len(candidates) != 1:
+            return None
+        if lexical is not None and not self._module_definition_holds(
+            source, raw_name, candidates[0], lexical, position
+        ):
+            return None
+        return candidates[0]
 
     def _is_module_level(self, node: Node) -> bool:
         return node.qualname == f"{self._module_qualname(node)}.{node.name}"
+
+    def _module_definition_holds(
+        self,
+        source: Node,
+        name: str,
+        definition: Node,
+        lexical: LexicalScopes,
+        position: tuple[str, int, int] | None,
+    ) -> bool:
+        """Whether ``name`` holds the module's ``definition`` where ``source``
+        reads it: every module binding of it that may hold there is that very
+        definition, not an assignment, an import or another def of the name."""
+
+        possible = self._module_bindings_at(source, name, lexical, position)
+        return bool(possible) and all(
+            binding.get("kind") in {"function_definition", "class_definition"}
+            and binding.get("target") == definition.id
+            # A second def of the name has no node of its own and takes the
+            # first one's id; its line is outside the first one's span.
+            and (definition.start_line or 0)
+            <= int(binding.get("line") or 0)
+            <= (definition.end_line or definition.start_line or 0)
+            for binding in possible or []
+        )
+
+    def _module_bindings_at(
+        self,
+        source: Node,
+        name: str,
+        lexical: LexicalScopes,
+        position: tuple[str, int, int] | None,
+    ) -> list[dict[str, Any]] | None:
+        """The module-level bindings of ``name`` that may hold where
+        ``source`` reads it, latest first; None if a star import or a global
+        write in a function may bind it as well.
+
+        A function or method runs after the module has, so it reads the last
+        binding; the module's own code and a class body run in order, so they
+        read the last one made before the call. A binding nested in a block,
+        under if or try, may not have run, so the one before it may hold too.
+        """
+
+        module = lexical.modules.get(source.path)
+        if module is None:
+            return None
+        if (source.path, name) in lexical.global_writes:
+            return None
+        own = lexical.bindings.get(module.id, {})
+
+        def at(binding: dict[str, Any]) -> tuple[int, int]:
+            return int(binding.get("line") or 0), int(binding.get("column") or 0)
+
+        bindings = sorted(
+            (b for b in own.get(name, []) if b.get("kind") not in _DECLARATION_KINDS),
+            key=at,
+        )
+        stars = own.get("*", [])
+        if (
+            source.kind in {"module", "class"}
+            and position is not None
+            and position[0] == source.id
+        ):
+            bindings = [b for b in bindings if binding_in_effect(b, position)]
+            stars = [s for s in stars if binding_in_effect(s, position)]
+        possible: list[dict[str, Any]] = []
+        settled = (0, 0)
+        for binding in reversed(bindings):
+            possible.append(binding)
+            # A statement at the module's top level starts in column 0.
+            if binding.get("column") == 0:
+                settled = at(binding)
+                break
+        for star in stars:
+            if at(star) > settled and not self._star_import_lacks(star, name, lexical):
+                return None
+        return possible
+
+    @staticmethod
+    def _star_import_lacks(
+        star: dict[str, Any], name: str, lexical: LexicalScopes
+    ) -> bool:
+        """Whether a star import surely does not bind ``name``: its module is
+        indexed, binds nothing of that name and imports no star itself."""
+
+        # An indexed module is named by its node id, another by its name.
+        target = star.get("target_module")
+        module = lexical.nodes.get(str(target))
+        if module is None or module.kind != "module":
+            return False
+        own = lexical.bindings.get(module.id, {})
+        return name not in own and "*" not in own
+
+    def _module_import_holds(
+        self, source: Node, name: str, context: _CallResolutionContext
+    ) -> bool:
+        """Whether every module binding of ``name`` that may hold where
+        ``source`` reads it imports one and the same thing."""
+
+        possible = self._module_bindings_at(
+            source, name, context.lexical, context.callsite_position
+        )
+        if not possible or any(
+            binding.get("kind") not in _IMPORT_BINDING_KINDS for binding in possible
+        ):
+            return False
+
+        return len({import_binding_target(binding) for binding in possible}) == 1
+
+    def _module_binds(
+        self,
+        source: Node,
+        name: str,
+        context: _CallResolutionContext,
+        *,
+        imports_allowed: bool = False,
+    ) -> bool:
+        """Whether a module binding of ``name`` may hold where ``source``
+        reads it, so that the name is neither a builtin nor a symbol of that
+        name elsewhere. With ``imports_allowed``, as for the legacy resolver,
+        which matches an imported name to a symbol by name, only a binding
+        other than an import counts."""
+
+        def counts(binding: dict[str, Any]) -> bool:
+            return not (
+                imports_allowed and binding.get("kind") in _IMPORT_BINDING_KINDS
+            )
+
+        lexical = context.lexical
+        possible = self._module_bindings_at(
+            source, name, lexical, context.callsite_position
+        )
+        if possible is not None:
+            return any(counts(binding) for binding in possible)
+        # A star import or a global write may bind it too: still the module's
+        # if the module binds it, otherwise as unknown as any name beside a
+        # star import.
+        if (source.path, name) in lexical.global_writes:
+            return True
+        module = lexical.modules.get(source.path)
+        own = lexical.bindings.get(module.id, {}) if module is not None else {}
+        return any(
+            counts(binding)
+            for binding in own.get(name, [])
+            if binding.get("kind") not in _DECLARATION_KINDS
+        )
 
     @staticmethod
     def _module_qualname(node: Node) -> str | None:

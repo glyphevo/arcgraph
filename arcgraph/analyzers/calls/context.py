@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from arcgraph.analyzers.calls.lexical import LexicalScopes
+from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.calls.constants import TARGET_KINDS
 from arcgraph.core.schemas import Confidence, Edge, Node
 from arcgraph.analyzers.type_unions import union_alternatives, unknown_union_result
@@ -333,12 +333,8 @@ class _CallResolutionContext:
             name = binding.get("name")
             if not isinstance(name, str) or not name or name == "*":
                 continue
-            target = (
-                binding.get("target_qualname")
-                or binding.get("value")
-                or binding.get("target_module")
-            )
-            if isinstance(target, str) and target:
+            target = import_binding_target(binding)
+            if target is not None:
                 aliases[name] = target
         return aliases
 
