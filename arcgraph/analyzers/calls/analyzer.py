@@ -3489,6 +3489,16 @@ class CallAnalyzer:
             for candidate in by_name.get(raw_name, [])
             if candidate.qualname and self._module_qualname(candidate) == module
         ]
+        if len(candidates) > 1 and source.kind != "class":
+            # A function's bare name sees the module's own definition, not a
+            # method or a nested function elsewhere in the module that shares
+            # the name. A class body also sees its own names, defined before
+            # or after the call.
+            candidates = [
+                candidate
+                for candidate in candidates
+                if candidate.qualname == f"{module}.{raw_name}"
+            ]
         if len(candidates) == 1:
             return candidates[0]
         return None
