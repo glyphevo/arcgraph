@@ -22,7 +22,7 @@ from arcgraph.adapters.common import (
     symbol_id_for_def,
 )
 from arcgraph.core.ids import function_id, route_id
-from arcgraph.core.schemas import Edge, Evidence, FileRecord, Node
+from arcgraph.core.schemas import BuildWarning, Edge, Evidence, FileRecord, Node
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,11 @@ class FastAPIAdapter(SemanticAdapter):
                 continue
             imports = import_aliases(file_record, tree, module_names)
             route_targets = self._route_targets(tree, imports)
+            skipped = self._unindexed_route_decorators(tree, route_targets)
+            if skipped:
+                analysis.warnings.append(
+                    self._unindexed_routes_warning(file_record, skipped)
+                )
 
             for stmt in tree.body:
                 if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -172,6 +177,52 @@ class FastAPIAdapter(SemanticAdapter):
                         kind=kind,
                     )
         return targets
+
+    def _unindexed_route_decorators(
+        self, tree: ast.Module, route_targets: dict[str, RouteTarget]
+    ) -> list[tuple[str, int]]:
+        """Route decorators of this file's routers that no route is made of.
+
+        Only a module-level function becomes a route, so a decorator such as
+        @router.get on a method of a class-based controller, or on a nested
+        function, is passed over; it is listed here so the build can say so.
+        A router reached another way, such as self.router, is not seen.
+        """
+
+        found: list[tuple[str, int]] = []
+
+        def visit(body: list[ast.stmt], prefix: str, top: bool) -> None:
+            for stmt in body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    name = f"{prefix}{stmt.name}"
+                    if not top:
+                        found.extend(
+                            (name, getattr(decorator, "lineno", stmt.lineno))
+                            for decorator in stmt.decorator_list
+                            if self._route_call(decorator, route_targets)
+                        )
+                    visit(stmt.body, f"{name}.", False)
+                elif isinstance(stmt, ast.ClassDef):
+                    visit(stmt.body, f"{prefix}{stmt.name}.", False)
+
+        visit(tree.body, "", True)
+        return found
+
+    @staticmethod
+    def _unindexed_routes_warning(
+        file_record: FileRecord, skipped: list[tuple[str, int]]
+    ) -> BuildWarning:
+        examples = ", ".join(f"{name} (line {line})" for name, line in skipped[:3])
+        more = f" and {len(skipped) - 3} more" if len(skipped) > 3 else ""
+        return BuildWarning(
+            kind="adapter_fastapi_routes_not_indexed",
+            message=(
+                f"{len(skipped)} FastAPI route decorator(s) on methods or nested "
+                f"functions are not indexed as routes: {examples}{more}. ArcGraph "
+                "indexes FastAPI routes on module-level functions only."
+            ),
+            path=file_record.path,
+        )
 
     def _route_call(
         self, decorator: ast.expr, route_targets: dict[str, RouteTarget]

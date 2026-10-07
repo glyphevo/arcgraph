@@ -1172,6 +1172,13 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 ],
             },
             {
+                "title": "Unindexed FastAPI Routes Are Reported",
+                "items": [
+                    "FastAPI routes are indexed on module-level functions only. A route decorator of a module-level `APIRouter` or `FastAPI` object on a method, such as one of a class-based controller, or on a nested function, now gives one `adapter_fastapi_routes_not_indexed` warning per file, with the count and up to three examples, and the `framework_adapters` capability reads `partial`. Earlier such routes were left out without a word.",
+                    "A router reached another way, such as `self.router`, is not seen, and the decorated methods are still not routes.",
+                ],
+            },
+            {
                 "title": "Pydantic Models Through Project Bases",
                 "items": [
                     "A class is now a `pydantic_model` when it derives from `BaseModel` or `BaseSettings` through classes of the project, as in `class User(AppModel)` with `class AppModel(BaseModel)`, also when the base is imported through a package that re-exports it; settings wins over model. Earlier only a class whose own base was `BaseModel` or `BaseSettings` was one, so such models and their fields were indexed as plain classes and attributes without a warning.",
