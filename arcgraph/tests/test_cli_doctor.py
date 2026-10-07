@@ -204,3 +204,62 @@ def test_language_probe_prunes_ignored_directories(tmp_path: Path) -> None:
         for path in walked
         for part in path.relative_to(tmp_path).parts
     )
+
+
+def test_doctor_supported_python_is_the_declared_one() -> None:
+    from arcgraph.interfaces.cli_support import SUPPORTED_PYTHON
+
+    config = tomllib.loads(
+        (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    low, high = SUPPORTED_PYTHON
+    assert config["project"]["requires-python"] == (
+        f">={low[0]}.{low[1]},<{high[0]}.{high[1]}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("requires", "running", "status", "fix"),
+    [
+        # mealie declares >=3.14,<3.15; on 3.12 nine of its files did not parse.
+        (">=3.14,<3.15", "3.12.13", "warn", "with Python 3.14 or later"),
+        (">=3.14,<3.15", "3.14.6", "pass", None),
+        ("~=3.13", "3.12.13", "warn", "with Python 3.13 or later"),
+        ("==3.13.*", "3.13.1", "pass", None),
+        (">3.12", "3.12.13", "pass", None),
+        (">=3.9", "3.11.15", "pass", None),
+        (">=3.16", "3.14.6", "warn", "supports Python up to 3.14"),
+    ],
+)
+def test_doctor_compares_the_project_python_with_its_own(
+    tmp_path: Path, capsys, monkeypatch, requires, running, status, fix
+) -> None:
+    _sample_project(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "sample"\nrequires-python = "{requires}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("platform.python_version", lambda: running)
+    assert main(["--repo-root", str(tmp_path), "doctor"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    check = next(c for c in payload["checks"] if c["name"] == "project_python")
+    assert check["status"] == status
+    assert requires in check["message"]
+    if fix is None:
+        assert "fix" not in check
+    else:
+        assert fix in check["fix"]
+
+
+def test_doctor_has_no_project_python_check_without_a_declaration(
+    tmp_path: Path, capsys
+) -> None:
+    _sample_project(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "sample"\n', encoding="utf-8"
+    )
+    assert main(["--repo-root", str(tmp_path), "doctor"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "project_python" not in {c["name"] for c in payload["checks"]}

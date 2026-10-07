@@ -133,6 +133,7 @@ from arcgraph.interfaces.cli_visual import (  # noqa: F401
 from arcgraph.interfaces.cli_support import (  # noqa: F401
     output_location,
     print_json,
+    python_checks,
     query_engine,
     write_json_output,
     _print_cli_error_payload,
@@ -1853,27 +1854,7 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
             }
         )
 
-    import platform
-
-    py_ver = platform.python_version()
-    py_tuple = tuple(int(x) for x in py_ver.split(".")[:2])
-    if (3, 11) <= py_tuple < (3, 15):
-        checks.append(
-            {
-                "name": "python_version",
-                "status": "pass",
-                "message": f"Python {py_ver}.",
-            }
-        )
-    else:
-        checks.append(
-            {
-                "name": "python_version",
-                "status": "fail",
-                "message": f"Python {py_ver} (requires >=3.11,<3.15).",
-                "fix": "Recreate the tool environment with Python 3.11 to 3.14.",
-            }
-        )
+    checks.extend(python_checks(repo_root))
 
     if "node" in project_languages:
         node_command = shutil.which("node")

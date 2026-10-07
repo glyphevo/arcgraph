@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
+import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,101 @@ from arcgraph import SCHEMA_VERSION
 from arcgraph.change.errors import ChangeSafetyError
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
 from arcgraph.core.utils import replace_text_file
+
+# requires-python of ArcGraph itself, as pyproject.toml declares it;
+# test_cli_doctor checks the two agree.
+SUPPORTED_PYTHON = ((3, 11), (3, 15))
+_LOWER_BOUND = re.compile(r"^\s*(?:>=|>|~=|==)\s*(\d+)\.(\d+)")
+
+
+def project_minimum_python(repo_root: Path) -> tuple[str, tuple[int, int]] | None:
+    """The project's requires-python and the lowest minor version it admits.
+
+    Only a lower bound counts: >=3.14, >3.14, ~=3.14 and ==3.14.* all admit
+    no version below 3.14. None when the project declares no such bound.
+    """
+
+    try:
+        data = tomllib.loads((repo_root / "pyproject.toml").read_text("utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    project = data.get("project")
+    requires = project.get("requires-python") if isinstance(project, dict) else None
+    if not isinstance(requires, str):
+        return None
+    bounds = [
+        (int(match.group(1)), int(match.group(2)))
+        for clause in requires.split(",")
+        if (match := _LOWER_BOUND.match(clause))
+    ]
+    return (requires.strip(), max(bounds)) if bounds else None
+
+
+def python_checks(repo_root: Path) -> list[dict[str, Any]]:
+    """doctor's checks of the Python that runs ArcGraph."""
+
+    version = platform.python_version()
+    running = tuple(int(part) for part in version.split(".")[:2])
+    low, high = SUPPORTED_PYTHON
+    supported = f">={low[0]}.{low[1]},<{high[0]}.{high[1]}"
+    newest = f"{high[0]}.{high[1] - 1}"
+    if low <= running < high:
+        checks = [
+            {
+                "name": "python_version",
+                "status": "pass",
+                "message": f"Python {version}.",
+            }
+        ]
+    else:
+        checks = [
+            {
+                "name": "python_version",
+                "status": "fail",
+                "message": f"Python {version} (requires {supported}).",
+                "fix": (
+                    "Recreate the tool environment with Python "
+                    f"{low[0]}.{low[1]} to {newest}."
+                ),
+            }
+        ]
+    project = project_minimum_python(repo_root)
+    if project is None:
+        return checks
+    requires, minimum = project
+    wanted = f"{minimum[0]}.{minimum[1]}"
+    if running >= minimum:
+        checks.append(
+            {
+                "name": "project_python",
+                "status": "pass",
+                "message": (
+                    f"The project requires Python {requires}; ArcGraph runs on "
+                    f"{version}, whose parser reads that syntax."
+                ),
+            }
+        )
+        return checks
+    check = {
+        "name": "project_python",
+        "status": "warn",
+        "message": (
+            f"The project requires Python {requires}; ArcGraph runs on {version}, "
+            "whose parser cannot read syntax added after it, so files that use "
+            "it are reported as parse errors and left out of the graph."
+        ),
+    }
+    if minimum < high:
+        check["fix"] = (
+            f"Run ArcGraph in a tool environment with Python {wanted} or later."
+        )
+    else:
+        check["fix"] = (
+            f"ArcGraph supports Python up to {newest}; files that use syntax "
+            f"added in {wanted} cannot be parsed."
+        )
+    checks.append(check)
+    return checks
 
 
 def query_engine(args: argparse.Namespace) -> QueryEngine:

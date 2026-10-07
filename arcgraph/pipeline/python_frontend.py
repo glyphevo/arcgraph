@@ -9,6 +9,7 @@ keeping the indexer as a pure orchestration layer.
 from __future__ import annotations
 
 import ast
+import sys
 import time
 import warnings as warnings_module
 from pathlib import Path
@@ -104,10 +105,19 @@ class PythonGraphAnalyzer:
                     )
                     parsed_files[file_record.path]._arcgraph_module = file_record.module
             except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+                message = str(exc)
+                if isinstance(exc, SyntaxError):
+                    # The parser is that of the Python running ArcGraph, so
+                    # syntax added later reads as an error here.
+                    message += (
+                        f" (parsed with Python {sys.version_info[0]}."
+                        f"{sys.version_info[1]}; syntax added in a later Python "
+                        "needs ArcGraph to run on that version)"
+                    )
                 warnings.append(
                     BuildWarning(
                         kind="parse_error",
-                        message=str(exc),
+                        message=message,
                         path=file_record.path,
                     )
                 )
