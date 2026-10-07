@@ -62,6 +62,30 @@ MODULES = {
     "tool_provider": "def tool(x):\n    return x\n",
     "called_before": "value = early(1)\n\n\ndef early(x):\n    return x\n",
     "provider": "def other(x):\n    return x\n",
+    "star_only": "from pkg.other_helper import *\n" + USE,
+    "star_nested_lacking": HELPER + "from pkg.middle import *\n" + USE,
+    "middle": "from pkg.provider import *\n",
+    "star_private": HELPER + "from pkg.private_helper import *\n" + USE,
+    "private_helper": "def _helper():\n    return 4\n\n\nhelper = _helper\n"
+    "__all__ = ['_helper']\n",
+    "star_not_listed": HELPER + "from pkg.listed_helper import *\n" + USE,
+    "listed_helper": "def helper(x):\n    return 5\n\n\n__all__ = ['other_name']\n"
+    "other_name = 1\n",
+    "star_imports_import": "from pkg.reexporter import *\n"
+    "\n\ndef use():\n    return join('a')\n",
+    "reexporter": "from os.path import join\n",
+    "star_overrides_import": "from os.path import join\nfrom pkg.posix_exporter import *\n"
+    "\n\ndef use():\n    return join('a')\n",
+    "posix_exporter": "from posixpath import join\n",
+    "type_checking_after": HELPER + "from typing import TYPE_CHECKING\n"
+    "if TYPE_CHECKING:\n    from os.path import join as helper\n" + USE,
+    "star_underscore": "def _hidden():\n    return 7\n\n\nfrom pkg.hidden_provider import *\n"
+    "\n\ndef use():\n    return _hidden()\n",
+    "hidden_provider": "def _hidden():\n    return 8\n",
+    "star_cycle_a": "from pkg.star_cycle_b import *\n" + USE,
+    "star_cycle_b": "from pkg.star_cycle_a import *\n",
+    "star_unread_all": HELPER + "from pkg.computed_all import *\n" + USE,
+    "computed_all": "def helper(x):\n    return 6\n\n\n__all__ = sorted(['helper'])\n",
     "other_helper": "def helper(x):\n    return x\n",
 }
 
@@ -118,6 +142,20 @@ def test_modules_parse() -> None:
         ("class_between", "fn:pkg.class_between.helper"),
         ("builtin", "extsym:builtins.len"),
         ("builtin_before", "extsym:builtins.len"),
+        # A star import binds what its indexed module exports: its helper,
+        # or, past a module that exports none, the module's own.
+        ("star_after_defining", "fn:pkg.other_helper.helper"),
+        ("star_only", "fn:pkg.other_helper.helper"),
+        ("star_nested_lacking", "fn:pkg.star_nested_lacking.helper"),
+        ("star_private", "fn:pkg.star_private.helper"),
+        ("star_not_listed", "fn:pkg.star_not_listed.helper"),
+        # Without __all__ a star import skips a name starting with _.
+        ("star_underscore", "fn:pkg.star_underscore._hidden"),
+        ("star_imports_import", "extsym:os.path.join"),
+        # The star import after the module's own import rebinds join.
+        ("star_overrides_import", "extsym:posixpath.join"),
+        # An import only for type checkers binds nothing at run time.
+        ("type_checking_after", "fn:pkg.type_checking_after.helper"),
         # import os and import os.path both bind os to the package.
         ("imported", "extsym:os.path.join"),
         # It binds os, so os.path.join is not os.path.path.join.
@@ -137,7 +175,6 @@ def test_a_name_resolves_to_what_holds_where_it_is_read(targets, module, target)
         "redefined_under_if",
         "deleted",
         "star_after",
-        "star_after_defining",
         # A NameError at run time, whether the name is defined elsewhere
         # too or only here.
         "module_before",
@@ -153,6 +190,9 @@ def test_a_name_resolves_to_what_holds_where_it_is_read(targets, module, target)
         "import_maybe_replaced",
         # tool is the module's str, not the one tool defined elsewhere.
         "assigned_elsewhere",
+        # Star imports that import back, or an __all__ not read as a list.
+        "star_cycle_a",
+        "star_unread_all",
     ],
 )
 def test_a_name_that_may_hold_something_else_links_nothing(targets, module):

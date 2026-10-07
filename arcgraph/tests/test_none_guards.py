@@ -422,6 +422,17 @@ def while_inner_else_breaks(items):
     shared.build()
 
 
+def while_else_prints():
+    shared: Box | None = None
+    source = make_box()
+    while source is None:
+        source = make_box()
+    else:
+        print("found")
+    shared = source
+    shared.build()
+
+
 def while_else_rebinds():
     shared: Box | None = None
     source = make_box()
@@ -597,6 +608,7 @@ def test_source_parses() -> None:
         "while_none_return",
         "while_polls",
         "while_inner_break",
+        "while_else_prints",
         "match_none_or_return",
         "match_none_true_guard",
     ],

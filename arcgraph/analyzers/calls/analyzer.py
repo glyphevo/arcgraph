@@ -110,6 +110,9 @@ _IMPORT_BINDING_KINDS = frozenset({"import_alias", "type_checking_import_alias"}
 # Module bindings that bind no value: a name listed in __all__, a global
 # declaration.
 _DECLARATION_KINDS = frozenset({"re_export", "global", "nonlocal"})
+# What a module name holds, beside ("def", node id) and ("import", qualname).
+_NO_VALUE: tuple[str, str | None] = ("unbound", None)
+_OTHER_VALUE: tuple[str, str | None] = ("other", None)
 
 
 class CallAnalyzer:
@@ -878,6 +881,21 @@ class CallAnalyzer:
 
         if "." in raw_name:
             return None
+        held = self._module_name_at(
+            source, raw_name, context.lexical, context.callsite_position
+        )
+        if held is not None and held[0] == "def" and held[1] in context.by_id:
+            # A def that a star import brought from another module.
+            return _ResolvedCallTarget(
+                target=context.by_id[held[1]],
+                strategy="import_alias",
+                candidate_count=1,
+                confidence="confirmed",
+            )
+        if held is not None and held[0] == "import" and held[1]:
+            # An import that a star import brought, or one the aliases above
+            # did not read.
+            return self._imported_qualname_target(held[1], context, "import_alias")
         if self._module_binds(source, raw_name, context):
             # The module binds the name where it is read, to something other
             # than its one definition: an assignment, another def, a binding
@@ -2962,12 +2980,17 @@ class CallAnalyzer:
         if (
             source.id not in context.lexical.strict
             and parts[0] not in context.import_aliases_by_scope.get(source.id, {})
-            and not self._module_import_holds(source, parts[0], context)
+            and not self._module_import_holds(source, parts[0], resolved_base, context)
         ):
             # Where it is read, the module's name may hold another binding:
             # an assignment after the import, or a def in its except.
             return None
         qualname = ".".join([resolved_base, *parts[1:]])
+        return self._imported_qualname_target(qualname, context, strategy)
+
+    def _imported_qualname_target(
+        self, qualname: str, context: _CallResolutionContext, strategy: str
+    ) -> _ResolvedCallTarget:
         internal_target = context.by_qualname.get(qualname)
         if internal_target is not None:
             return _ResolvedCallTarget(
@@ -3592,103 +3615,165 @@ class CallAnalyzer:
         position: tuple[str, int, int] | None,
     ) -> bool:
         """Whether ``name`` holds the module's ``definition`` where ``source``
-        reads it: every module binding of it that may hold there is that very
-        definition, not an assignment, an import or another def of the name."""
+        reads it."""
 
-        possible = self._module_bindings_at(source, name, lexical, position)
-        return bool(possible) and all(
-            binding.get("kind") in {"function_definition", "class_definition"}
-            and binding.get("target") == definition.id
-            # A second def of the name has no node of its own and takes the
-            # first one's id; its line is outside the first one's span.
-            and (definition.start_line or 0)
-            <= int(binding.get("line") or 0)
-            <= (definition.end_line or definition.start_line or 0)
-            for binding in possible or []
-        )
+        held = self._module_name_at(source, name, lexical, position)
+        return held == ("def", definition.id)
 
-    def _module_bindings_at(
+    def _module_name_at(
         self,
         source: Node,
         name: str,
         lexical: LexicalScopes,
         position: tuple[str, int, int] | None,
-    ) -> list[dict[str, Any]] | None:
-        """The module-level bindings of ``name`` that may hold where
-        ``source`` reads it, latest first; None if a star import or a global
-        write in a function may bind it as well.
+    ) -> tuple[str, str | None] | None:
+        """What the module's ``name`` holds where ``source`` reads it.
 
-        A function or method runs after the module has, so it reads the last
-        binding; the module's own code and a class body run in order, so they
-        read the last one made before the call. A binding nested in a block,
-        under if or try, may not have run, so the one before it may hold too.
-        """
+        A function or method runs after the module has, so it reads what the
+        module binds the name to last; the module's own code and a class body
+        run in order, so they read what it is bound to by the call. See
+        _module_name_value for the values."""
 
         module = lexical.modules.get(source.path)
         if module is None:
             return None
-        if (source.path, name) in lexical.global_writes:
-            return None
-        own = lexical.bindings.get(module.id, {})
-
-        def at(binding: dict[str, Any]) -> tuple[int, int]:
-            return int(binding.get("line") or 0), int(binding.get("column") or 0)
-
-        bindings = sorted(
-            (b for b in own.get(name, []) if b.get("kind") not in _DECLARATION_KINDS),
-            key=at,
-        )
-        stars = own.get("*", [])
-        if (
-            source.kind in {"module", "class"}
+        limit = (
+            position
+            if source.kind in {"module", "class"}
             and position is not None
             and position[0] == source.id
-        ):
-            bindings = [b for b in bindings if binding_in_effect(b, position)]
-            stars = [s for s in stars if binding_in_effect(s, position)]
-        possible: list[dict[str, Any]] = []
-        settled = (0, 0)
-        for binding in reversed(bindings):
-            possible.append(binding)
+            else None
+        )
+        return self._module_name_value(module, name, lexical, limit, frozenset())
+
+    def _module_name_value(
+        self,
+        module: Node,
+        name: str,
+        lexical: LexicalScopes,
+        limit: tuple[str, int, int] | None,
+        seen: frozenset[str],
+    ) -> tuple[str, str | None] | None:
+        """What ``module`` binds ``name`` to, by its end or by ``limit``:
+        ("def", node id) for a def or class with a node, ("import", what it
+        imports), _OTHER_VALUE for anything else or for bindings that do not
+        agree, _NO_VALUE if nothing binds it; None if unknown, as where a
+        function rebinds it through global or a star import may bind it.
+
+        A binding under if or try may not have run, so the one before it may
+        hold too, back to one at the module's top level. A star import binds
+        what its module exports; a binding only for type checkers binds
+        nothing at run time."""
+
+        if (module.path, name) in lexical.global_writes:
+            return None
+        own = lexical.bindings.get(module.id, {})
+        events = [
+            binding
+            for binding in [*own.get(name, []), *own.get("*", [])]
+            if binding.get("kind") not in _DECLARATION_KINDS
+            and not binding.get("static_only")
+            and (limit is None or binding_in_effect(binding, limit))
+        ]
+        events.sort(key=lambda b: (int(b.get("line") or 0), int(b.get("column") or 0)))
+        values: list[tuple[str, str | None]] = []
+        for event in reversed(events):
+            if event.get("kind") == "star_import":
+                value = self._star_import_value(
+                    event, name, lexical, seen | {module.id}
+                )
+                if value is None:
+                    return None
+                if value == _NO_VALUE:
+                    continue
+            else:
+                value = self._binding_value(event, lexical)
+            values.append(value)
             # A statement at the module's top level starts in column 0.
-            if binding.get("column") == 0:
-                settled = at(binding)
+            if event.get("column") == 0:
                 break
-        for star in stars:
-            if at(star) > settled and not self._star_import_lacks(star, name, lexical):
-                return None
-        return possible
+        if not values:
+            return _NO_VALUE
+        return values[0] if all(v == values[0] for v in values) else _OTHER_VALUE
 
     @staticmethod
-    def _star_import_lacks(
-        star: dict[str, Any], name: str, lexical: LexicalScopes
-    ) -> bool:
-        """Whether a star import surely does not bind ``name``: its module is
-        indexed, binds nothing of that name and imports no star itself."""
+    def _binding_value(
+        binding: dict[str, Any], lexical: LexicalScopes
+    ) -> tuple[str, str | None]:
+        kind = binding.get("kind")
+        if kind in {"function_definition", "class_definition"}:
+            node = lexical.nodes.get(str(binding.get("target")))
+            line = int(binding.get("line") or 0)
+            # A second def of the name has no node of its own and takes the
+            # first one's id; its line is outside the first one's span.
+            if node is not None and (node.start_line or 0) <= line <= (
+                node.end_line or node.start_line or 0
+            ):
+                return ("def", node.id)
+            return _OTHER_VALUE
+        if kind in _IMPORT_BINDING_KINDS:
+            target = import_binding_target(binding)
+            return ("import", target) if target else _OTHER_VALUE
+        return _OTHER_VALUE
+
+    def _star_import_value(
+        self,
+        star: dict[str, Any],
+        name: str,
+        lexical: LexicalScopes,
+        seen: frozenset[str],
+    ) -> tuple[str, str | None] | None:
+        """What ``from module import *`` binds ``name`` to: what the module
+        binds it to by its end, if the module exports it; _NO_VALUE if it
+        does not; None if the module is not indexed or imports back here."""
 
         # An indexed module is named by its node id, another by its name.
-        target = star.get("target_module")
-        module = lexical.nodes.get(str(target))
-        if module is None or module.kind != "module":
-            return False
+        module = lexical.nodes.get(str(star.get("target_module")))
+        if module is None or module.kind != "module" or module.id in seen:
+            return None
         own = lexical.bindings.get(module.id, {})
-        return name not in own and "*" not in own
+        declared = own.get("__all__")
+        if declared:
+            exported = {
+                binding.get("name")
+                for bindings in own.values()
+                for binding in bindings
+                if binding.get("kind") == "re_export"
+            }
+            # An __all__ bound more than once, or not read as a list of names.
+            if len(declared) != 1 or not exported:
+                return None
+            if name not in exported:
+                return _NO_VALUE
+        elif name.startswith("_"):
+            return _NO_VALUE
+        return self._module_name_value(module, name, lexical, None, seen)
+
+    def _imported_elsewhere(
+        self, value: tuple[str, str | None], source: Node, lexical: LexicalScopes
+    ) -> bool:
+        """Whether a module value is an import: its own import, or a def that
+        a star import brought from another module."""
+
+        if value[0] == "import":
+            return True
+        node = lexical.nodes.get(str(value[1])) if value[0] == "def" else None
+        return node is not None and node.path != source.path
 
     def _module_import_holds(
-        self, source: Node, name: str, context: _CallResolutionContext
+        self,
+        source: Node,
+        name: str,
+        imported: str,
+        context: _CallResolutionContext,
     ) -> bool:
-        """Whether every module binding of ``name`` that may hold where
-        ``source`` reads it imports one and the same thing."""
+        """Whether the module's ``name`` holds the import of ``imported``
+        where ``source`` reads it, and nothing else may."""
 
-        possible = self._module_bindings_at(
+        held = self._module_name_at(
             source, name, context.lexical, context.callsite_position
         )
-        if not possible or any(
-            binding.get("kind") not in _IMPORT_BINDING_KINDS for binding in possible
-        ):
-            return False
-
-        return len({import_binding_target(binding) for binding in possible}) == 1
+        return held == ("import", imported)
 
     def _module_binds(
         self,
@@ -3704,17 +3789,14 @@ class CallAnalyzer:
         which matches an imported name to a symbol by name, only a binding
         other than an import counts."""
 
-        def counts(binding: dict[str, Any]) -> bool:
-            return not (
-                imports_allowed and binding.get("kind") in _IMPORT_BINDING_KINDS
-            )
-
         lexical = context.lexical
-        possible = self._module_bindings_at(
-            source, name, lexical, context.callsite_position
-        )
-        if possible is not None:
-            return any(counts(binding) for binding in possible)
+        held = self._module_name_at(source, name, lexical, context.callsite_position)
+        if held is not None:
+            if held == _NO_VALUE:
+                return False
+            return not (
+                imports_allowed and self._imported_elsewhere(held, source, lexical)
+            )
         # A star import or a global write may bind it too: still the module's
         # if the module binds it, otherwise as unknown as any name beside a
         # star import.
@@ -3723,9 +3805,10 @@ class CallAnalyzer:
         module = lexical.modules.get(source.path)
         own = lexical.bindings.get(module.id, {}) if module is not None else {}
         return any(
-            counts(binding)
+            not (imports_allowed and binding.get("kind") in _IMPORT_BINDING_KINDS)
             for binding in own.get(name, [])
             if binding.get("kind") not in _DECLARATION_KINDS
+            and not binding.get("static_only")
         )
 
     @staticmethod

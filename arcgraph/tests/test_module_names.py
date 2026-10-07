@@ -126,3 +126,62 @@ def test_a_class_body_name_bound_otherwise_is_not_the_module_s(resolutions):
     # helper is bound to staticmethod(len) by the call, which the index does
     # not follow; it is not the module's helper.
     assert "fn:lab.helper" not in {t for t, _ in resolutions.get("Assigned", set())}
+
+
+def test_the_legacy_resolver_links_no_method_by_a_bare_name(tmp_path):
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = tmp_path / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "only.py").write_text(
+        "class Only:\n    @staticmethod\n    def only(x):\n        return x\n\n"
+        "    def method(self):\n        return only(1)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+        enable_v2_call_resolution=False,
+    ).build()
+    assert not [
+        edge
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.source == "method:pkg.only.Only.method"
+        and edge.resolution.status == "resolved"
+    ]
+
+
+def test_the_legacy_resolver_still_matches_a_star_imported_name(tmp_path):
+    # It matches an imported name to the one symbol of that name; a def that
+    # a star import brings counts as imported, as the import itself does.
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.scanner import SourceRoot
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
+    package = tmp_path / "repo" / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "provider.py").write_text(
+        "def tool(x):\n    return x\n", encoding="utf-8"
+    )
+    (package / "user.py").write_text(
+        "from pkg.provider import *\n\n\ndef use():\n    return tool(1)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=package.parents[1],
+        output_dir=output,
+        source_roots=[SourceRoot("src")],
+        enable_v2_call_resolution=False,
+    ).build()
+    assert {
+        edge.target
+        for edge in GraphStoreReader.from_current(output).read_edges()
+        if edge.source == "fn:pkg.user.use" and edge.resolution.status == "resolved"
+    } == {"fn:pkg.provider.tool"}
