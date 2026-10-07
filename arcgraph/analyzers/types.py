@@ -99,8 +99,21 @@ def _binds_name(stmt: ast.AST, name: str) -> bool:
         if isinstance(node, ast.Name) and node.id == name:
             if isinstance(node.ctx, (ast.Store, ast.Del)):
                 return True
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        elif isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.ExceptHandler,
+                ast.MatchAs,
+                ast.MatchStar,
+            ),
+        ):
             if node.name == name:
+                return True
+        elif isinstance(node, ast.MatchMapping):
+            if node.rest == name:
                 return True
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             if any(
@@ -111,49 +124,167 @@ def _binds_name(stmt: ast.AST, name: str) -> bool:
     return False
 
 
-def _exits_unless_present(stmt: ast.stmt, name: str) -> bool:
-    """Whether ``stmt`` is if not name: return (or raise, continue, break),
-    with name is None, None is name, name == None or None == name in place of
-    not name, alone or among or-ed tests."""
+_EXITS = (ast.Return, ast.Raise, ast.Continue, ast.Break)
 
-    if not isinstance(stmt, ast.If) or stmt.orelse or not stmt.body:
+
+def _ends_in_exit(block: list[ast.stmt]) -> bool:
+    return bool(block) and isinstance(block[-1], _EXITS)
+
+
+def _compares_with_none(test: ast.expr, name: str, ops: tuple[type, ...]) -> bool:
+    """Whether ``test`` is name <op> None or None <op> name, op among ``ops``."""
+
+    if not (
+        isinstance(test, ast.Compare)
+        and len(test.ops) == 1
+        and isinstance(test.ops[0], ops)
+    ):
         return False
-    if not isinstance(stmt.body[-1], (ast.Return, ast.Raise, ast.Continue, ast.Break)):
-        return False
-    tests = (
-        stmt.test.values
-        if isinstance(stmt.test, ast.BoolOp) and isinstance(stmt.test.op, ast.Or)
-        else [stmt.test]
+    sides = (test.left, test.comparators[0])
+    return any(
+        isinstance(side, ast.Name)
+        and side.id == name
+        and isinstance(other, ast.Constant)
+        and other.value is None
+        for side, other in (sides, sides[::-1])
     )
 
-    def absent(test: ast.expr) -> bool:
-        if (
-            isinstance(test, ast.UnaryOp)
-            and isinstance(test.op, ast.Not)
-            and isinstance(test.operand, ast.Name)
-            and test.operand.id == name
-        ):
-            return True
-        if not (
-            isinstance(test, ast.Compare)
-            and len(test.ops) == 1
-            # name == None holds whenever name is None, as name is None does;
-            # another value it holds for only leaves too.
-            and isinstance(test.ops[0], (ast.Is, ast.Eq))
-        ):
-            return False
-        sides = (test.left, test.comparators[0])
-        return any(
-            isinstance(side, ast.Name)
-            and side.id == name
-            and isinstance(other, ast.Constant)
-            and other.value is None
-            for side, other in (sides, sides[::-1])
-        )
 
-    if any(isinstance(node, ast.NamedExpr) for node in ast.walk(stmt.test)):
+def _true_when_absent(test: ast.expr, name: str) -> bool:
+    """Whether ``test`` holds whenever name is None: not name, name is None,
+    None is name, name == None or None == name, alone or among or-ed tests."""
+
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
+        return any(_true_when_absent(value, name) for value in test.values)
+    if (
+        isinstance(test, ast.UnaryOp)
+        and isinstance(test.op, ast.Not)
+        and isinstance(test.operand, ast.Name)
+        and test.operand.id == name
+    ):
+        return True
+    # name == None holds whenever name is None, as name is None does; another
+    # value it holds for only takes the same branch too.
+    return _compares_with_none(test, name, (ast.Is, ast.Eq))
+
+
+def _true_only_when_present(test: ast.expr, name: str) -> bool:
+    """Whether ``test`` fails whenever name is None: name, name is not None or
+    name != None (None on either side), alone or among and-ed tests."""
+
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        return any(_true_only_when_present(value, name) for value in test.values)
+    if isinstance(test, ast.Name) and test.id == name:
+        return True
+    return _compares_with_none(test, name, (ast.IsNot, ast.NotEq))
+
+
+def _has_walrus(node: ast.AST) -> bool:
+    return any(isinstance(child, ast.NamedExpr) for child in ast.walk(node))
+
+
+def _statement_excludes_none(stmt: ast.stmt, name: str) -> bool:
+    """Whether the statement after ``stmt`` runs only with name not None, by
+    ``stmt`` alone: if not name: return (or raise, continue, break) with no
+    else; assert name is not None; match name: with a first case None that
+    leaves and no case that binds name."""
+
+    if isinstance(stmt, ast.If):
+        return (
+            not stmt.orelse
+            and _ends_in_exit(stmt.body)
+            and not _has_walrus(stmt.test)
+            and _true_when_absent(stmt.test, name)
+        )
+    if isinstance(stmt, ast.Assert):
+        # Taken as run, as type checkers take it; python -O drops it.
+        return not _has_walrus(stmt.test) and _true_only_when_present(stmt.test, name)
+    if isinstance(stmt, ast.Match) and stmt.cases:
+        # A case before it, such as case _:, could take None and go on.
+        first = stmt.cases[0]
+        return (
+            isinstance(stmt.subject, ast.Name)
+            and stmt.subject.id == name
+            and isinstance(first.pattern, ast.MatchSingleton)
+            and first.pattern.value is None
+            and first.guard is None
+            and _ends_in_exit(first.body)
+            and not _binds_name(stmt, name)
+        )
+    return False
+
+
+def _settled_before(statements: list[ast.stmt], name: str) -> bool | None:
+    """Reading ``statements`` back from the last: True at one after which
+    name is not None, False at one that may bind it, None if neither."""
+
+    for stmt in reversed(statements):
+        if _statement_excludes_none(stmt, name):
+            return True
+        if (
+            isinstance(stmt, ast.Try)
+            and stmt.handlers
+            and all(_ends_in_exit(handler.body) for handler in stmt.handlers)
+            and not any(_binds_name(part, name) for part in stmt.finalbody)
+        ):
+            # Past a try whose handlers all leave, its body and else ran to
+            # their end.
+            settled = _settled_before([*stmt.body, *stmt.orelse], name)
+            if settled is not None:
+                return settled
+        if _binds_name(stmt, name):
+            return False
+    return None
+
+
+def _header_binds(stmt: ast.stmt, name: str) -> bool:
+    """Whether what runs before a block of ``stmt``, other than its blocks,
+    may bind name: a test, a with item, a case pattern or guard."""
+
+    parts: list[ast.AST] = []
+    if isinstance(stmt, (ast.If, ast.While)):
+        parts = [stmt.test]
+    elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+        parts = list(stmt.items)
+    elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+        parts = [stmt.target, stmt.iter]
+    elif isinstance(stmt, ast.Match):
+        parts = [stmt.subject]
+        for case in stmt.cases:
+            parts.append(case.pattern)
+            if case.guard is not None:
+                parts.append(case.guard)
+    return any(_binds_name(part, name) for part in parts)
+
+
+def _entered_settles(stmt: ast.stmt, block: list[ast.stmt], name: str) -> bool | None:
+    """What entering ``block`` of ``stmt`` says of name: True if it is entered
+    only with name not None, False if name may have been bound on the way in,
+    None if neither."""
+
+    if _header_binds(stmt, name):
         return False
-    return any(absent(test) for test in tests)
+    if isinstance(stmt, ast.If):
+        if block is stmt.body and _true_only_when_present(stmt.test, name):
+            return True
+        if block is stmt.orelse and _true_when_absent(stmt.test, name):
+            return True
+        return None
+    if isinstance(stmt, ast.Try):
+        if block is stmt.orelse:
+            # The body ran to its end.
+            return _settled_before(stmt.body, name)
+        # A handler or finally may run after any part of the body, and
+        # finally after a handler or else too.
+        ran: list[ast.AST] = list(stmt.body)
+        handler = next((h for h in stmt.handlers if h.body is block), None)
+        if handler is not None:
+            ran.append(handler)
+        elif block is stmt.finalbody:
+            ran.extend([*stmt.handlers, *stmt.orelse])
+        if any(_binds_name(part, name) for part in ran):
+            return False
+    return None
 
 
 @dataclass(frozen=True)
@@ -1049,8 +1180,11 @@ class _TypeContext:
     ) -> bool:
         """Whether, where a statement at ``line`` and ``column`` runs, ``name``
         is known not to be None: an earlier statement of an enclosing block
-        leaves the function or loop when it is, as in if not name: return,
-        and nothing binds it in between, nor anywhere in a loop around it."""
+        leaves the function or loop when it is, as in if not name: return, or
+        asserts it is not; or the statement is in a branch taken only when it
+        is not, as if name is not None:, or in the else of a try whose body
+        did one of these; and nothing binds it in between, nor anywhere in a
+        loop around it."""
 
         function = next(
             (
@@ -1063,7 +1197,7 @@ class _TypeContext:
         )
         if function is None:
             return False
-        levels: list[tuple[list[ast.stmt], int, ast.stmt]] = []
+        levels: list[tuple[list[ast.stmt], int, ast.stmt, list[ast.stmt] | None]] = []
         statements: list[ast.stmt] = function.body
         while True:
             index = next(
@@ -1079,8 +1213,8 @@ class _TypeContext:
             if index is None:
                 return False
             stmt = statements[index]
-            levels.append((statements, index, stmt))
             if (stmt.lineno, stmt.col_offset) == (line, column):
+                levels.append((statements, index, stmt, None))
                 break
             inner = next(
                 (
@@ -1097,20 +1231,20 @@ class _TypeContext:
             )
             if inner is None:
                 return False
+            levels.append((statements, index, stmt, inner))
             statements = inner
-        for depth in range(len(levels) - 1, -1, -1):
-            statements, index, stmt = levels[depth]
-            if depth < len(levels) - 1 and isinstance(
-                stmt, (ast.For, ast.AsyncFor, ast.While)
-            ):
-                # A later iteration may run after the name is rebound.
-                if _binds_name(stmt, name):
-                    return False
-            for prior in reversed(statements[:index]):
-                if _exits_unless_present(prior, name):
-                    return True
-                if _binds_name(prior, name):
-                    return False
+        for statements, index, stmt, inner in reversed(levels):
+            if inner is not None:
+                if isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
+                    # A later iteration may run after the name is rebound.
+                    if _binds_name(stmt, name):
+                        return False
+                entered = _entered_settles(stmt, inner, name)
+                if entered is not None:
+                    return entered
+            settled = _settled_before(statements[:index], name)
+            if settled is not None:
+                return settled
         return False
 
     def same_type_of(
