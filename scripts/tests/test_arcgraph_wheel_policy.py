@@ -33,6 +33,7 @@ NEIGHBOR = "arcgraph/semantic_prototype_product.py"
         "untracked-prototype",
         "prototype-directory-entry",
         "broad-exclude",
+        "appended-exclude",
         "global-exclude",
         "missing-exclude",
         "missing-neighbor",
@@ -49,6 +50,11 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
     config = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     if case == "broad-exclude":
         config = config.replace('"/arcgraph/semantic_prototype/**"', '"/arcgraph/**"')
+    elif case == "appended-exclude":
+        config = config.replace(
+            '    "/arcgraph/semantic_prototype/**",',
+            '    "/arcgraph/semantic_prototype/**",\n    "/arcgraph/core/**",',
+        )
     elif case == "global-exclude":
         config = config.replace(
             "[tool.hatch.build.hooks.custom]",
@@ -127,7 +133,12 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
             "untracked-product": "arcgraph/core/untracked_product.py",
         }[case]
         assert any(expected in error for error in errors), errors
-    elif case in ("broad-exclude", "global-exclude", "missing-exclude"):
+    elif case in (
+        "broad-exclude",
+        "appended-exclude",
+        "global-exclude",
+        "missing-exclude",
+    ):
         assert any("reviewed source-only policy" in error for error in errors), errors
     else:
         assert any(
