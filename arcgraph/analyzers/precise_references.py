@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from arcgraph.analyzers.precision_positions import PrecisionPositions
 from arcgraph.core.ids import callsite_id, class_id, module_id, type_ref_id
 from arcgraph.core.schemas import BuildWarning, Edge, Evidence, Node
 from arcgraph.core.utils import int_or_none
@@ -83,6 +84,7 @@ class PreciseReferenceAnalyzer:
         )
 
     def analyze(self, nodes: list[Node]) -> PreciseReferenceAnalysis:
+        self._positions = PrecisionPositions(self.repo_root)
         node_by_id = {node.id: node for node in nodes}
         node_by_qualname = {node.qualname: node for node in nodes if node.qualname}
 
@@ -154,7 +156,14 @@ class PreciseReferenceAnalyzer:
             edges=edges,
             warnings=diagnostics,
             metrics=metrics,
-            status="available",
+            status=(
+                "partial"
+                if any(
+                    w.kind in {"scip_position_unmappable", "scip_callsite_unmatched"}
+                    for w in diagnostics
+                )
+                else "available"
+            ),
             payload=payload,
             path=path,
         )
@@ -206,6 +215,8 @@ class PreciseReferenceAnalyzer:
         )
         if status not in {"available", "partial", "unavailable"}:
             status = "available"
+        if any(w.kind == "pyright_callsite_unmatched" for w in diagnostics):
+            status = "partial"
         return _SourceAnalysis(
             edges=edges,
             warnings=diagnostics,
@@ -240,10 +251,28 @@ class PreciseReferenceAnalyzer:
         counts = self._edge_count_metrics()
         for document in documents:
             doc_path = self._document_path(document)
+            path_nodes = nodes_by_path.get(doc_path or "", [])
+            source_path = next(
+                (node.path for node in path_nodes if node.path), doc_path
+            )
             for occurrence in document.get("occurrences", []):
                 if not isinstance(occurrence, dict):
                     continue
                 occurrence_total += 1
+                try:
+                    occurrence = self._positions.normalize_scip(
+                        occurrence, document, source_path or ""
+                    )
+                except ValueError as exc:
+                    warnings.append(
+                        BuildWarning(
+                            kind="scip_position_unmappable",
+                            path=doc_path or self._display_path(scip_path),
+                            message=f"Line {self._record_start_line(occurrence)}: {exc}",
+                        )
+                    )
+                    unresolved_occurrences += 1
+                    continue
                 occurrence = self._scip_record_with_source(
                     occurrence,
                     doc_path=doc_path,
@@ -263,6 +292,7 @@ class PreciseReferenceAnalyzer:
                 if edge is None:
                     unresolved_occurrences += 1
                     continue
+                self._callsite_diagnostic(edge, warnings, "scip")
                 self._increment_edge_counts(counts, edge)
                 edges.append(edge)
         resolved_occurrences = len(edges)
@@ -312,6 +342,7 @@ class PreciseReferenceAnalyzer:
             if edge is None:
                 unresolved_records += 1
                 continue
+            self._callsite_diagnostic(edge, warnings, "pyright")
             self._increment_edge_counts(counts, edge)
             edges.append(edge)
 
@@ -396,11 +427,13 @@ class PreciseReferenceAnalyzer:
             node_by_id,
             node_by_qualname,
         )
-        if source is None or target is None or source.id == target.id:
+        if source is None or target is None:
             return None
         kind, evidence_kind, semantic_role = self._edge_classification(
             record, evidence_prefix, source=source, target=target
         )
+        if kind == "defines" and source.id == target.id:
+            return None
         matched_callsite = (
             self._matching_callsite(source, target, record) if kind == "calls" else None
         )
@@ -418,6 +451,25 @@ class PreciseReferenceAnalyzer:
                 int_or_none(matched_callsite.get("column")),
                 raw_name,
             )
+        elif kind == "calls":
+            resolution["detail"] = (
+                "No unique AST callsite matches this precision record"
+            )
+        properties = self._edge_properties(record, evidence_prefix)
+        if matched_callsite is not None:
+            fact = {
+                "callsite_id": resolution["callsite_id"],
+                "raw_expression": matched_callsite.get("name"),
+                "call_expression": matched_callsite.get("call_expression"),
+                "context": matched_callsite.get("context"),
+                "path": source.path,
+                "line": matched_callsite.get("line"),
+                "column": matched_callsite.get("column"),
+                "edge_kind": kind,
+                "resolution_strategy": evidence_prefix,
+                "candidate_count": 1,
+            }
+            properties.update(callsite=fact, callsites=[fact])
         return Edge(
             source=source.id,
             target=target.id,
@@ -435,7 +487,7 @@ class PreciseReferenceAnalyzer:
                     detail=self._record_detail(record),
                 )
             ],
-            properties=self._edge_properties(record, evidence_prefix),
+            properties=properties,
         )
 
     def _type_info_edge(
@@ -726,8 +778,8 @@ class PreciseReferenceAnalyzer:
             return bool(role & 1)
         return False
 
-    @staticmethod
     def _edge_classification(
+        self,
         record: dict[str, Any],
         evidence_prefix: str,
         *,
@@ -751,8 +803,7 @@ class PreciseReferenceAnalyzer:
             evidence_prefix == "scip"
             and source is not None
             and target is not None
-            and PreciseReferenceAnalyzer._matching_callsite(source, target, record)
-            is not None
+            and self._matching_callsite(source, target, record) is not None
         ):
             return "calls", f"{evidence_prefix}_call", "call"
         return "references", f"{evidence_prefix}_reference", "reference"
@@ -912,40 +963,66 @@ class PreciseReferenceAnalyzer:
                 return node.id
         return None
 
-    @classmethod
     def _matching_callsite(
-        cls, source: Node, target: Node, record: dict[str, Any]
+        self, source: Node, target: Node, record: dict[str, Any]
     ) -> dict[str, Any] | None:
         callsites = source.properties.get("callsites", [])
         if not isinstance(callsites, list):
             return None
-        line = cls._record_start_line(record)
-        column = cls._record_column(record)
+        line = self._record_start_line(record)
+        column = self._record_column(record)
+        if line is None and column is not None:
+            return None
         target_names = {target.name}
         if target.qualname:
             target_names.add(target.qualname.rsplit(".", 1)[-1])
+        matches = []
         for callsite in callsites:
             if not isinstance(callsite, dict):
-                continue
-            if line is not None and int_or_none(callsite.get("line")) != line:
                 continue
             raw_name = str(callsite.get("name") or "")
             if not raw_name:
                 continue
             call_column = int_or_none(callsite.get("column"))
-            if (
-                column is not None
-                and call_column is not None
-                and column + len(target.name) < call_column
-            ):
+            call_line = int_or_none(callsite.get("line"))
+            if line is not None and column is not None:
+                if call_line is None or call_column is None or source.path is None:
+                    continue
+                span = self._positions.callee_span(source.path, call_line, call_column)
+                if span is None or (line, column) != span[:2]:
+                    continue
+                value = record.get("range")
+                if isinstance(value, list) and len(value) in {3, 4}:
+                    end = (self._record_end_line(record), value[-1])
+                    if end != span[2:]:
+                        continue
+                matches.append(callsite)
+                continue
+            if line is not None and call_line != line:
                 continue
             call_targets = {raw_name.rsplit(".", 1)[-1]}
             attribute = callsite.get("attribute")
             if isinstance(attribute, str) and attribute:
                 call_targets.add(attribute)
             if target_names & call_targets:
-                return callsite
-        return None
+                matches.append(callsite)
+        return matches[0] if len(matches) == 1 else None
+
+    @staticmethod
+    def _callsite_diagnostic(
+        edge: Edge, warnings: list[BuildWarning], prefix: str
+    ) -> None:
+        if edge.kind == "calls" and edge.resolution.callsite_id is None:
+            warnings.append(
+                BuildWarning(
+                    kind=f"{prefix}_callsite_unmatched",
+                    path=edge.evidence[0].path,
+                    message=(
+                        f"Line {edge.evidence[0].start_line}: "
+                        f"{edge.resolution.detail or 'Callsite could not be matched'}"
+                    ),
+                )
+            )
 
     def _payload_diagnostics(
         self, payload: Any, path: Path, *, prefix: str
@@ -1160,7 +1237,8 @@ class PreciseReferenceAnalyzer:
 
     @classmethod
     def _record_column(cls, record: dict[str, Any]) -> int | None:
-        return cls._column(record.get("range")) or int_or_none(record.get("column"))
+        column = cls._column(record.get("range"))
+        return column if column is not None else int_or_none(record.get("column"))
 
     @staticmethod
     def _string_or_none(value: Any) -> str | None:
@@ -1174,8 +1252,10 @@ class PreciseReferenceAnalyzer:
 
     @staticmethod
     def _end_line(value: Any) -> int | None:
-        if isinstance(value, list) and len(value) >= 3 and isinstance(value[2], int):
-            return value[2] + 1
+        if isinstance(value, list) and len(value) in {3, 4}:
+            line = value[0] if len(value) == 3 else value[2]
+            if isinstance(line, int):
+                return line + 1
         return None
 
     @staticmethod

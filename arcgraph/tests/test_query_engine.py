@@ -957,46 +957,59 @@ def test_phase8_precise_references_and_coverage(tmp_path: Path) -> None:
                 "source_roots": ["src", "tests"],
                 "documents": [
                     {
-                        "relative_path": "tests/service_cases.py",
+                        "relative_path": "src/pkg/service.py",
+                        "position_encoding": 1,
                         "occurrences": [
                             {
                                 "symbol": "fn:pkg.service.build_message",
                                 "enclosing_symbol": "mod:pkg.service",
-                                "range": [7, 0, 7, 17],
+                                "range": [8, 4, 8, 17],
                                 "role": "definition",
                             },
+                            {
+                                "source": "class:pkg.service.MemoryService",
+                                "target": "class:pkg.service.Greeter",
+                                "range": [22, 6, 22, 19],
+                                "kind": "implementation",
+                            },
+                        ],
+                    },
+                    {
+                        "relative_path": "tests/service_cases.py",
+                        "position_encoding": 1,
+                        "occurrences": [
                             {
                                 "symbol": "fn:pkg.service.build_message",
                                 "enclosing_symbol": "fn:tests.service_cases.test_build_message",
                                 "range": [5, 11, 5, 24],
                                 "kind": "call",
                             },
+                        ],
+                    },
+                    {
+                        "relative_path": "src/pkg/api.py",
+                        "position_encoding": 1,
+                        "occurrences": [
                             {
                                 "symbol": "class:pkg.service.MemoryService",
                                 "enclosing_symbol": "fn:pkg.api.create_memory",
-                                "range": [7, 22, 7, 35],
+                                "range": [21, 13, 21, 26],
                                 "kind": "type_occurrence",
                             },
                             {
                                 "symbol": "fn:pkg.service.build_message",
                                 "enclosing_symbol": "fn:pkg.api.hello",
-                                "range": [13, 11, 13, 24],
+                                "range": [3, 45, 3, 58],
                                 "kind": "reference",
-                            },
-                            {
-                                "source": "class:pkg.service.MemoryService",
-                                "target": "class:pkg.service.Greeter",
-                                "range": [1, 0, 1, 10],
-                                "kind": "implementation",
                             },
                             {
                                 "symbol": "fn:pkg.service.missing",
                                 "enclosing_symbol": "fn:pkg.api.hello",
-                                "range": [14, 0, 14, 7],
+                                "range": [15, 0, 15, 1],
                                 "kind": "reference",
                             },
                         ],
-                    }
+                    },
                 ],
                 "diagnostics": [
                     {
@@ -1038,7 +1051,7 @@ def test_phase8_precise_references_and_coverage(tmp_path: Path) -> None:
                         "source": "fn:pkg.api.hello",
                         "target": "fn:pkg.service.build_message",
                         "path": "src/pkg/api.py",
-                        "line": 15,
+                        "line": 16,
                         "column": 11,
                         "kind": "call",
                     },
