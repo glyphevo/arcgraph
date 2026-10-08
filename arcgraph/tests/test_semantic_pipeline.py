@@ -874,6 +874,19 @@ def test_unproven_or_declarative_override_does_not_demote_runtime_noop(
     assert find(view, "Base.f").id not in view.declaration_evidence
 
 
+def test_ambiguous_base_names_do_not_select_the_first_definition(tmp_path):
+    _, _, view = make_view(tmp_path, filename="ambiguous-bases.txt")
+    bases = [d for d in view.definitions if d.qualname == "demo.Base"]
+    methods = [d for d in view.definitions if d.qualname == "demo.Base.f"]
+    assert len({d.id for d in bases}) == 2
+    assert len({d.id for d in methods}) == 2
+    assert all(view.records[d.id].payload["stub_body"] for d in methods)
+    assert view.records[find(view, "Child.f").id].payload["stub_body"] is None
+    # Both conditional definitions are possible. An arbitrary first match
+    # cannot establish an override relationship with either base method.
+    assert not {d.id for d in methods}.intersection(view.declaration_evidence)
+
+
 def staged_case(tmp_path):
     from types import SimpleNamespace
 

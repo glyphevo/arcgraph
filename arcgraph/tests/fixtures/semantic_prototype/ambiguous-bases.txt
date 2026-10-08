@@ -1,0 +1,11 @@
+from settings import feature_enabled
+
+if feature_enabled:
+    class Base:
+        def f(self): pass
+else:
+    class Base:
+        def f(self): ...
+
+class Child(Base):
+    def f(self): return 1
