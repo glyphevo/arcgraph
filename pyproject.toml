@@ -130,6 +130,7 @@ exclude = [
     "arcgraph/semantic_prototype/**",
     "arcgraph/tests/test_semantic_prototype.py",
     "arcgraph/tests/test_semantic_pipeline.py",
+    "arcgraph/tests/test_semantic_packaging.py",
     "arcgraph/tests/test_structure_provider.py",
     "arcgraph/tests/fixtures/semantic_prototype/**",
 ]

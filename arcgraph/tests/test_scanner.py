@@ -914,6 +914,7 @@ def test_self_index_excludes_only_the_unshipped_semantic_experiment() -> None:
         in {
             "arcgraph/tests/test_semantic_prototype.py",
             "arcgraph/tests/test_semantic_pipeline.py",
+            "arcgraph/tests/test_semantic_packaging.py",
             "arcgraph/tests/test_structure_provider.py",
         }
     }
@@ -936,6 +937,7 @@ def test_self_index_configuration_keeps_product_and_general_tests(
         "arcgraph/semantic_prototype/future_module.py",
         "arcgraph/tests/test_semantic_prototype.py",
         "arcgraph/tests/test_semantic_pipeline.py",
+        "arcgraph/tests/test_semantic_packaging.py",
         "arcgraph/tests/test_structure_provider.py",
         "arcgraph/tests/fixtures/semantic_prototype/nested/example.py",
     }
