@@ -54,6 +54,22 @@ LEGACY_SOURCE_ROOTS: tuple[SourceRoot, ...] = (
 # Deprecated alias – callers should use detect_source_roots(repo_root) instead.
 DEFAULT_SOURCE_ROOTS = LEGACY_SOURCE_ROOTS
 
+# Shared native scan scope: freshness must retain a supported extension even
+# when exclude temporarily removes every file with that suffix. The frontend
+# re-exports these constants for its existing callers.
+TYPESCRIPT_FRONTEND_NAME = "typescript-static"
+TYPESCRIPT_SOURCE_EXTENSIONS = (
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+)
+TYPESCRIPT_FILE_EXTENSIONS = (*TYPESCRIPT_SOURCE_EXTENSIONS, ".vue")
+
 # ArcGraph-owned safe defaults for common generated/build/cache directories.
 # This intentionally does not read .gitignore: project-specific exclusions still
 # belong in [tool.arcgraph].exclude. Names such as "generated" or "build" can be
@@ -1206,10 +1222,14 @@ class FileScanner:
             else detect_source_roots(self.repo_root).roots
         )
         self.ignore_rules = tuple(ignore_rules or DEFAULT_IGNORE_RULES)
+        self.exclude_rules: tuple[str, ...] = ()
         self.file_extensions = file_extensions or (".py",)
         self.warnings: list[BuildWarning] = []
 
     def scan(self) -> list[FileRecord]:
+        # Every consumer (build, sync, freshness and precision) uses the same
+        # current project exclusions, including when this scanner is reused.
+        self.exclude_rules = read_arcgraph_exclude(self.repo_root)
         records: list[FileRecord] = []
         skipped_emit_artifacts: list[str] = []
         self.warnings = []
@@ -1387,7 +1407,7 @@ class FileScanner:
             return True
 
         rel_path = rel.as_posix()
-        for rule in self.ignore_rules:
+        for rule in (*self.ignore_rules, *self.exclude_rules):
             if fnmatch.fnmatch(rel_path, rule):
                 return True
             if rule.endswith("/**"):

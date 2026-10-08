@@ -33,7 +33,6 @@ from arcgraph.core.schemas import ContextRequest
 from arcgraph.core.target_resolver import is_entrypoint_target, parse_route_target
 from arcgraph.pipeline.reindexer import ArcGraphReindexer
 from arcgraph.core.scanner import (
-    DEFAULT_IGNORE_RULES,
     LEGACY_SOURCE_ROOTS,
     ResolvedSourceRoots,
     SourceRoot,
@@ -1957,16 +1956,10 @@ def handle_build(args: argparse.Namespace) -> dict[str, Any]:
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     resolved = _resolve_source_roots(args, repo_root)
-    # Merge [tool.arcgraph] exclude patterns with default ignore_rules
-    exclude = resolved.detection.exclude
-    ignore_rules: list[str] | None = (
-        list(DEFAULT_IGNORE_RULES) + list(exclude) if exclude else None
-    )
     indexer = ArcGraphIndexer(
         repo_root,
         output_dir,
         resolved.roots,
-        ignore_rules=ignore_rules,
         scip_index_path=args.scip_index,
         scip_graph_index_path=args.scip_graph_index,
         openapi_path=args.openapi_spec,

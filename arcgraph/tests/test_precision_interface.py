@@ -183,6 +183,32 @@ def test_generate_pyright_json_emits_type_info_from_lsp_probe(
     assert "textDocument/typeDefinition" in methods
 
 
+def test_pyright_annotation_probes_obey_project_exclude(tmp_path: Path) -> None:
+    _write_fake_pyright_langserver(tmp_path)
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "models.py").write_text("class Payload: pass\n", encoding="utf-8")
+    for name in ("visible", "ignored"):
+        (package / (name + ".py")).write_text(
+            "from pkg.models import Payload\ndef handle(payload: Payload): return payload\n",
+            encoding="utf-8",
+        )
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.arcgraph]\nexclude = ["pkg/ignored.py"]\n', encoding="utf-8"
+    )
+    result = generate_pyright_json(
+        repo_root=tmp_path,
+        output_path="output/pyright-export.json",
+        source_roots=[SourceRoot("pkg")],
+        pyright_command=[sys.executable, str(tmp_path / "pyright_langserver.py")],
+    )
+    payload = json.loads(
+        (tmp_path / "output/pyright-export.json").read_text(encoding="utf-8")
+    )
+    assert result["type_info"] > 0
+    assert {row["path"] for row in payload["type_info"]} == {"pkg/visible.py"}
+
+
 def test_generate_pyright_json_uses_hover_fallback_from_lsp_probe(
     tmp_path: Path,
 ) -> None:

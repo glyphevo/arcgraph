@@ -13,7 +13,12 @@ from typing import Any
 
 from arcgraph.core.ids import external_package_id, module_id
 from arcgraph.core.merge import EvidenceMergeEngine
-from arcgraph.core.scanner import logical_module_name
+from arcgraph.core.scanner import (
+    TYPESCRIPT_FILE_EXTENSIONS,
+    TYPESCRIPT_FRONTEND_NAME,
+    TYPESCRIPT_SOURCE_EXTENSIONS,
+    logical_module_name,
+)
 from arcgraph.core.schemas import (
     BuildWarning,
     Edge,
@@ -25,20 +30,8 @@ from arcgraph.core.schemas import (
 from arcgraph.pipeline.contracts import FrontendGraphFragment
 from arcgraph.pipeline.typescript_frameworks import TypeScriptFrameworkAnalyzer
 
-TYPESCRIPT_FRONTEND_NAME = "typescript-static"
 TYPESCRIPT_FRONTEND_VERSION = "0.1.0"
 TYPESCRIPT_SIMILARITY_PROFILE_ALGORITHM = "typescript_syntax_kind_hashes_v6"
-TYPESCRIPT_SOURCE_EXTENSIONS = (
-    ".ts",
-    ".tsx",
-    ".mts",
-    ".cts",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-)
-TYPESCRIPT_FILE_EXTENSIONS = (*TYPESCRIPT_SOURCE_EXTENSIONS, ".vue")
 
 
 def typescript_similarity_profile_count(nodes: list[Node]) -> int:

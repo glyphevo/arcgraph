@@ -6,12 +6,15 @@ from pathlib import Path
 
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import (
+    TYPESCRIPT_FILE_EXTENSIONS,
+    TYPESCRIPT_FRONTEND_NAME,
     FileScanner,
     SourceRoot,
     infer_source_roots,
     logical_module_name,
 )
 from arcgraph.core.schemas import Freshness
+from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
 
 
 def fresh() -> Freshness:
@@ -23,7 +26,9 @@ def compute_freshness(store: GraphStoreReader) -> Freshness:
         repo_root = Path(str(store.metadata["repo_root"]))
         source_roots = _source_roots_from_metadata(store.metadata)
         indexed_files = store.read_files()
-        file_extensions = _indexed_file_extensions(indexed_files)
+        file_extensions = _indexed_file_extensions(
+            indexed_files, store.metadata.get("language_tiers", {})
+        )
         current_files = FileScanner(
             repo_root,
             source_roots,
@@ -70,13 +75,34 @@ def compute_freshness(store: GraphStoreReader) -> Freshness:
     return fresh()
 
 
-def _indexed_file_extensions(indexed_files: list[object]) -> tuple[str, ...]:
+def _indexed_file_extensions(
+    indexed_files: list[object], language_tiers: dict[str, dict[str, str]]
+) -> tuple[str, ...]:
     extensions: list[str] = []
     for file in indexed_files:
         path = getattr(file, "path", "")
         suffix = Path(str(path)).suffix
         if suffix and suffix not in extensions:
             extensions.append(suffix)
+    # Exclude can hide every file of a language (or one extension lane).
+    # Recover the complete built-in frontend scope from its persisted
+    # declaration, rather than concluding that absent files are unsupported.
+    for tier in language_tiers.values():
+        frontend = tier.get("frontend")
+        if tier.get("status") != "available":
+            continue
+        declared = (
+            (".py",)
+            if frontend == COMPAT_FRONTEND_NAME
+            else (
+                TYPESCRIPT_FILE_EXTENSIONS
+                if frontend == TYPESCRIPT_FRONTEND_NAME
+                else ()
+            )
+        )
+        for extension in declared:
+            if extension not in extensions:
+                extensions.append(extension)
     return tuple(extensions) or (".py",)
 
 

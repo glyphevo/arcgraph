@@ -499,6 +499,11 @@ class ArcGraphReindexer:
             old_edges,
             content.nodes,
             changed_paths,
+            excluded_paths={
+                path
+                for path in delta["deleted"]
+                if scanner._is_ignored(self.repo_root / path)
+            },
         )
         artifacts = EvidenceMergeEngine(
             self.repo_root,
@@ -793,6 +798,8 @@ class ArcGraphReindexer:
         old_edges: list[Edge],
         current_nodes: list[Node],
         changed_paths: set[str],
+        *,
+        excluded_paths: set[str] | None = None,
     ) -> list[SemanticDiagnostic]:
         if not changed_paths:
             return []
@@ -807,6 +814,17 @@ class ArcGraphReindexer:
             source = old_nodes_by_id.get(edge.source)
             target = old_nodes_by_id.get(edge.target)
             if source is None or source.path in changed_paths:
+                continue
+            # Exclusion intentionally removes a hierarchy member. Its contains
+            # relation was regenerated above, so it is not an unrefreshed
+            # consumer. Preserve the legacy diagnostics for physical deletions
+            # and for other relations whose source still needs reanalysis.
+            if (
+                edge.kind == "contains"
+                and source.kind in {"source_root", "package"}
+                and target is not None
+                and target.path in (excluded_paths or set())
+            ):
                 continue
             if target is not None and target.path not in changed_paths:
                 continue
