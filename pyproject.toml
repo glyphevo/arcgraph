@@ -123,6 +123,16 @@ skips = [
 
 [tool.arcgraph]
 source_roots = ["."]
+# Maintainer decision, 2026-10-08: self-index quality measures the product.
+# The prototype does not ship in the wheel; exclude it and its dedicated tests
+# from the measured source sample without changing any CI thresholds.
+exclude = [
+    "arcgraph/semantic_prototype/**",
+    "arcgraph/tests/test_semantic_prototype.py",
+    "arcgraph/tests/test_semantic_pipeline.py",
+    "arcgraph/tests/test_structure_provider.py",
+    "arcgraph/tests/fixtures/semantic_prototype/**",
+]
 
 [tool.arcgraph.ci.coverage]
 # Statement coverage floor for the full suite, enforced by the Quality lane in

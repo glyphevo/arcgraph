@@ -891,3 +891,62 @@ def test_declaration_emits_are_not_counted_in_skip_warning(
         warning.kind == "typescript_emit_artifact_skipped"
         for warning in scanner.warnings
     )
+
+
+def test_self_index_excludes_only_the_unshipped_semantic_experiment() -> None:
+    import fnmatch
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    tracked = subprocess.check_output(
+        ["git", "ls-files"], cwd=root, text=True, encoding="utf-8"
+    ).splitlines()
+    expected = {
+        path
+        for path in tracked
+        if path.startswith(
+            (
+                "arcgraph/semantic_prototype/",
+                "arcgraph/tests/fixtures/semantic_prototype/",
+            )
+        )
+        or path
+        in {
+            "arcgraph/tests/test_semantic_prototype.py",
+            "arcgraph/tests/test_semantic_pipeline.py",
+            "arcgraph/tests/test_structure_provider.py",
+        }
+    }
+    patterns = read_arcgraph_exclude(root)
+    matched = {
+        path for path in tracked if any(fnmatch.fnmatch(path, p) for p in patterns)
+    }
+    assert expected
+    assert matched == expected
+    assert "arcgraph/tests/test_scanner.py" not in matched
+
+
+def test_self_index_configuration_keeps_product_and_general_tests(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    (tmp_path / "pyproject.toml").write_bytes((root / "pyproject.toml").read_bytes())
+    kept = {"arcgraph/core/scanner.py", "arcgraph/tests/test_scanner.py"}
+    skipped = {
+        "arcgraph/semantic_prototype/future_module.py",
+        "arcgraph/tests/test_semantic_prototype.py",
+        "arcgraph/tests/test_semantic_pipeline.py",
+        "arcgraph/tests/test_structure_provider.py",
+        "arcgraph/tests/fixtures/semantic_prototype/nested/example.py",
+    }
+    for rel in kept | skipped:
+        file = tmp_path / rel
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("VALUE = 1\n", encoding="utf-8")
+    resolved = detect_source_roots(tmp_path)
+    scanner = FileScanner(
+        tmp_path,
+        resolved.roots,
+        [*DEFAULT_IGNORE_RULES, *resolved.detection.exclude],
+    )
+    assert {file.path for file in scanner.scan()} == kept
