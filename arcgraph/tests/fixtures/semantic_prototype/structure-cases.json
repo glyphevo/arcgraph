@@ -1,0 +1,104 @@
+{
+  "py311-control": {
+    "target": "3.11",
+    "source": "async def task(x):\n    try:\n        await work(x)\n    except* Exception as errors:\n        recover(errors)\n    match x:\n        case {\"name\": name} if guard(name):\n            consume(name)\n",
+    "sha256": "7b828c5ee89aed70489a643bf3a5fbc94c601c9e7d5be95573be0dc4e8692dce",
+    "error_fixture": false
+  },
+  "py312-generics": {
+    "target": "3.12",
+    "source": "type Alias[T] = list[T]\nclass Box[T](Base[T], metaclass=meta()):\n    value: T\n    def get[U](self, x: U = make()) -> Result[U]:\n        return use(x)\n",
+    "sha256": "7ef242139ed188aa6985265b2d1331296430cc3291f78e6017ba50795f247f92",
+    "error_fixture": false
+  },
+  "py312-fstring": {
+    "target": "3.12",
+    "source": "def render(row):\n    return f\"{format_value(row[\"key\"])} {f\"{inner()}\"}\"\n",
+    "sha256": "6f9c33140b1791cb4f84ce95ef5ebb06706a5ea551c6e2226b0933e14c4aa051",
+    "error_fixture": false
+  },
+  "py313-type-defaults": {
+    "target": "3.13",
+    "source": "type Alias[T = int, *Ts = *tuple[str, ...]] = tuple[T, *Ts]\ndef generic[T: bound() = default_type(), **P = [int, str]](value: annotation() = make()) -> result():\n    return use(value)\n",
+    "sha256": "4754c80c24a52e51b27be94dcea501792e7a32f467cb6af8e4bcf4c05328a62c",
+    "error_fixture": false
+  },
+  "py314-template-annotations": {
+    "target": "3.14",
+    "source": "def render(value: annotate()) -> result():\n    message = t\"{format_value(value)!r:>{width()}}\"\n    local: local_annotation() = prepare()\n    return message\nclass Model(Base):\n    field: field_type() = Field(default_factory=make)\n",
+    "sha256": "11c55e05449738d46cc1b69e1c8f2c1eba23a7a4ebf7113f919c67d130239ed1",
+    "error_fixture": false
+  },
+  "scopes-py311": {
+    "target": "3.11",
+    "source": "@decorate(factory())\ndef outer(x: annotate() = default(), /, *args: Var, flag=True, **kw: Kw) -> result():\n    def nested(y=inside_default()):\n        return inner(y)\n    build = lambda z=lambda_default(): lambda_body(z)\n    values = [emit(x) for x in first() for y in later(x) if keep(y)]\n    sets = {emit(x) for x in first()}\n    mapping = {key(x): value(x) for x in first()}\n    lazy = (emit(x) for x in first() for y in later(x) if keep(y))\n    class Local(base(), metaclass=meta()):\n        field = field_init()\n        @decorate_method()\n        def method(self, x=method_default()):\n            return method_body(x)\n    return nested(build())\n",
+    "sha256": "b0c8d72e815dc9cf9c19ff29db3fb1ad9375b4b29fdc2dd68234d6a4f4c61ead",
+    "error_fixture": false
+  },
+  "scopes-py312": {
+    "target": "3.12",
+    "source": "def outer():\n    return [emit(x) for x in first() if keep(x)], (emit(x) for x in first())\n",
+    "sha256": "25e8f152e02333102b46a2c6f503f869d02d65ce6cfd85ab83c7774da6010388",
+    "error_fixture": false
+  },
+  "future-annotations": {
+    "target": "3.14",
+    "source": "from __future__ import annotations\n@decorate()\ndef f(x: annotate() = make()) -> result():\n    return body(x)\n",
+    "sha256": "c0c0d0e37a26258271cda8128f514bc797808dc183d90bfbc658c4d08e0a3e09",
+    "error_fixture": false
+  },
+  "adapters-bindings": {
+    "target": "3.11",
+    "source": "from fastapi import APIRouter as Router, Depends\nfrom pydantic import BaseModel, Field\nfrom sqlalchemy.orm import mapped_column as column\nfrom .models import Item as Model\nfrom .. import settings\nfrom plugins import *\nimport package.module as mod, os\nrouter = Router(prefix=\"/items\")\n__all__ = [\"Model\", \"endpoint\"]\nclass Record(BaseModel):\n    name: str = Field(default=\"\")\n    id: int = column(primary_key=True)\n@router.get(\"/\", dependencies=[Depends(auth)])\ndef endpoint(item: Model, service=Depends(load_service)):\n    return service.run(item)\n",
+    "sha256": "92d51e01087028d1a587d0aa53c6d412f88d3ce5b398dfaaf54e1f588bf4c979",
+    "error_fixture": false
+  },
+  "binding-control": {
+    "target": "3.11",
+    "source": "counter = 0\n__all__ = compute_exports()\ndef outer():\n    value = 1\n    def inner():\n        global counter\n        nonlocal value\n        counter += bump()\n        value: local_type() = update()\n        if ready():\n            with manager() as handle:\n                handle.run()\n        return (value := next_value())\n    return inner\n",
+    "sha256": "4353dde0401d4986fc3ac3fa835ee488fc55df028136e9935bd4c609ee1bb8d9",
+    "error_fixture": false
+  },
+  "tokens-unicode": {
+    "target": "3.11",
+    "source": "def café(参数):\n    label = \"😀é\"; café(参数); (café)(参数)\n    return factory()(), (\n        参数\n        .méthod\n    )(label)\n",
+    "sha256": "966b41d6c19c5ce450a29960d1902082c6b194207ee478028b87e95cea30564a",
+    "error_fixture": false
+  },
+  "bom-crlf": {
+    "target": "3.11",
+    "source": "﻿def café():\r\n    return café()\r\n",
+    "sha256": "b7edbeaaebd738a77865b34dd48533ac1437ae32b2e4c6082e48b5e5960b3d0b",
+    "error_fixture": false
+  },
+  "dirty-overlay": {
+    "target": "3.11",
+    "source": "def old(): return old()\ndef added(): return old(), added()\n",
+    "sha256": "107bc502547be2e55b57677efaf5af93e389c41927197f8b286179cd717782ae",
+    "error_fixture": false
+  },
+  "error-middle": {
+    "target": "3.14",
+    "source": "def before(): return first()\nbroken = @\ndef after(): return last()\n",
+    "sha256": "1d91c16ec96ebbbd002be151a79f46cf83d1f2790a208887afe36b6fc0a91ad3",
+    "error_fixture": true
+  },
+  "error-bracket": {
+    "target": "3.14",
+    "source": "def before(): return first()\nbroken = (\ndef after(): return last()\n",
+    "sha256": "e71dde9750b37f32ddd9bdf5aaf885967dba0e8716ca493332efc8d8f0a5acd4",
+    "error_fixture": true
+  },
+  "error-indent": {
+    "target": "3.14",
+    "source": "def before(): return first()\n   broken = fail()\ndef after(): return last()\n",
+    "sha256": "a88e94a456d9770c083ee01a493242e9686bbc0f057c2084fcda7f522faff67c",
+    "error_fixture": true
+  },
+  "error-token": {
+    "target": "3.14",
+    "source": "def before(): return first()\n???\ndef after(): return last()\n",
+    "sha256": "086d349fbc4b9fb639e0d54d77d4b92321689895e603d602ac827fc133918f0b",
+    "error_fixture": true
+  }
+}

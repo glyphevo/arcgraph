@@ -63,6 +63,8 @@ packages = ["arcgraph"]
 exclude = [
     "/arcgraph/tests",
     "/arcgraph/tests/**",
+    "/arcgraph/semantic_prototype",
+    "/arcgraph/semantic_prototype/**",
 ]
 
 [tool.hatch.build.hooks.custom]
