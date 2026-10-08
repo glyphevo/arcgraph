@@ -22,6 +22,7 @@ _WithNode = ast.With | ast.AsyncWith
 
 @dataclass
 class BindingAnalysis:
+    export_mutations_by_scope: set[str] = field(default_factory=set)
     comprehension_writes: dict[str, set[str]] = field(default_factory=dict)
     bindings_by_scope: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     diagnostics_by_scope: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -31,6 +32,9 @@ class BindingAnalysis:
 
     def attach_to_nodes(self, nodes: list[Node]) -> None:
         by_id = {node.id: node for node in nodes}
+        for scope_id in self.export_mutations_by_scope:
+            if scope_id in by_id:
+                by_id[scope_id].properties["mutates_exports"] = True
         for scope_id, contexts in self.comprehension_contexts.items():
             if scope_id in by_id:
                 by_id[scope_id].properties["comprehension_contexts"] = contexts
@@ -329,6 +333,12 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self.visit(node.value)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if (
+            not self.static_only
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+        ):
+            self.analysis.export_mutations_by_scope.add(self.scope_id)
         self._add_target_bindings(
             node.target,
             node,
@@ -564,6 +574,14 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         context_manager_kind: str | None = None,
         value_region: list[int] | None = None,
     ) -> None:
+        if not self.static_only:
+            for part in ast.walk(target):
+                if isinstance(part, (ast.Subscript, ast.Attribute)):
+                    root = part.value
+                    while isinstance(root, (ast.Subscript, ast.Attribute)):
+                        root = root.value
+                    if isinstance(root, ast.Name) and root.id == "__all__":
+                        self.analysis.export_mutations_by_scope.add(self.scope_id)
         for name, unpack_path in self._unpack_targets(target):
             self._add_binding(
                 self.analysis,

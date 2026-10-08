@@ -3802,8 +3802,8 @@ class CallAnalyzer:
         if module is None or module.kind != "module" or module.id in seen:
             return None
         own = lexical.bindings.get(module.id, {})
-        if own.get("__all__"):
-            exported = self._declared_exports(module, own["__all__"])
+        if own.get("__all__") or (module.path, "__all__") in lexical.global_writes:
+            exported = self._declared_exports(module, own.get("__all__", []), lexical)
             if exported is None:
                 # Whether the name is exported is not known: the module's
                 # value if it is, nothing if it is not.
@@ -3819,20 +3819,60 @@ class CallAnalyzer:
 
     @staticmethod
     def _declared_exports(
-        module: Node, declared: list[dict[str, Any]]
+        module: Node, declared: list[dict[str, Any]], lexical: LexicalScopes
     ) -> set[str] | None:
         """The names a module's __all__ lists, empty or not; None where it is
         bound more than once or under a block that may not run, is not a
         literal list or tuple of strings, or is changed by a call such as
-        __all__.append()."""
+        __all__.append(). Cross-scope writes, mutations and escaping aliases
+        are unknown even if the function containing them is never called.
+        This deliberately does not execute or summarize arbitrary user code."""
 
+        if (module.path, "__all__") in lexical.global_writes:
+            return None
         if len(declared) != 1 or declared[0].get("may_not_run"):
             return None
-        if any(
-            isinstance(callsite, dict) and callsite.get("receiver") == "__all__"
-            for callsite in module.properties.get("callsites", [])
-        ):
-            return None
+        for scope in lexical.nodes.values():
+            if scope.path != module.path:
+                continue
+            # A local/captured __all__ belongs to that function, not the module.
+            refers_to_module = True
+            for owner in lexical.chain(scope):
+                if owner.id == module.id:
+                    break
+                own = lexical.bindings.get(owner.id, {}).get("__all__", [])
+                if any(binding.get("kind") == "global" for binding in own):
+                    break
+                if own:
+                    refers_to_module = False
+                    break
+            if not refers_to_module:
+                continue
+            if scope.properties.get("mutates_exports"):
+                return None
+            expressions = [
+                str(callsite.get("call_expression") or "")
+                for callsite in scope.properties.get("callsites", [])
+                if isinstance(callsite, dict)
+            ]
+            expressions.extend(
+                str(binding.get("value") or "")
+                for group in lexical.bindings.get(scope.id, {}).values()
+                for binding in group
+                if binding.get("name") != "__all__"
+                and binding.get("kind") != "re_export"
+                and not binding.get("static_only")
+            )
+            for expression in expressions:
+                try:
+                    parsed = ast.parse(expression, mode="eval")
+                except SyntaxError:
+                    continue
+                if any(
+                    isinstance(part, ast.Name) and part.id == "__all__"
+                    for part in ast.walk(parsed)
+                ):
+                    return None
         try:
             listed = ast.literal_eval(str(declared[0].get("value")))
         except (SyntaxError, ValueError):

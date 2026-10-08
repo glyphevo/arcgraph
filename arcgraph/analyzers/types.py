@@ -402,11 +402,14 @@ def _entered_settles(stmt: ast.stmt, block: list[ast.stmt], name: str) -> bool |
     return None
 
 
-def _generator_return_type(node: Node) -> "_ResolvedType | None":
+def _generator_return_type(node: Node, nodes: list[Node]) -> "_ResolvedType | None":
     """What calling a generator function returns, where its annotation does
-    not say: a generator, or an async generator for an async def."""
+    not say: a generator, or an async generator for an async def. Unknown
+    decorators can replace that return value, including when copying annotations."""
 
     if not node.properties.get("generator"):
+        return None
+    if not _generator_decorators_preserve_return(node, nodes):
         return None
     type_id = (
         ASYNC_GENERATOR_TYPE_ID if node.properties.get("async") else GENERATOR_TYPE_ID
@@ -417,6 +420,55 @@ def _generator_return_type(node: Node) -> "_ResolvedType | None":
         symbol_id=type_id,
         status="resolved",
     )
+
+
+def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool:
+    """Only unshadowed builtin descriptors preserve a decorated generator's
+    return. Check the definition's enclosing scopes, not its parameters/body.
+    Qualified names and aliases remain unknown rather than trusting a suffix.
+    """
+
+    decorators = node.properties.get("decorators", [])
+    if not decorators:
+        return True
+    if any(name not in {"staticmethod", "classmethod"} for name in decorators):
+        return False
+    by_id = {scope.id: scope for scope in nodes if scope.path == node.path}
+    for scope in by_id.values():
+        bindings = scope.properties.get("bindings", [])
+        for name in decorators:
+            own = [binding for binding in bindings if binding.get("name") == name]
+            if any(binding.get("kind") == "global" for binding in own) and any(
+                binding.get("kind") != "global" for binding in own
+            ):
+                return False
+    module = next((scope for scope in by_id.values() if scope.kind == "module"), None)
+    parent_id = node.properties.get("lexical_parent")
+    if not parent_id and node.kind == "method" and node.qualname:
+        parent_id = class_id(node.qualname.rsplit(".", 1)[0])
+    owners = []
+    seen = set()
+    while parent_id and parent_id not in seen:
+        seen.add(parent_id)
+        parent = by_id.get(str(parent_id))
+        if parent is None:
+            return False
+        owners.append(parent)
+        parent_id = parent.properties.get("lexical_parent")
+    if module is None:
+        return False
+    owners.append(module)
+    for owner in owners:
+        for binding in owner.properties.get("bindings", []):
+            if binding.get("static_only"):
+                continue
+            if owner.kind in {"module", "class"} and (binding.get("line") or 0) >= (
+                node.start_line or 0
+            ):
+                continue
+            if binding.get("name") in {*decorators, "*"}:
+                return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -518,7 +570,13 @@ class TypeRefAnalyzer:
         analysis: TypeRefAnalysis,
     ) -> None:
         returns = node.properties.get("returns")
-        generated = _generator_return_type(node)
+        generated = _generator_return_type(node, context.nodes)
+        if (
+            node.properties.get("generator")
+            and node.properties.get("decorators")
+            and generated is None
+        ):
+            return
         if generated is not None and not (isinstance(returns, str) and returns):
             analysis.type_refs_by_scope.setdefault(node.id, []).append(
                 self._type_ref_record(
@@ -1803,7 +1861,13 @@ class _TypeContext:
             if node.kind not in {"function", "method"} or not node.qualname:
                 continue
             returns = node.properties.get("returns")
-            generated = _generator_return_type(node)
+            generated = _generator_return_type(node, self.nodes)
+            if (
+                node.properties.get("generator")
+                and node.properties.get("decorators")
+                and generated is None
+            ):
+                continue
             if generated is not None and not (isinstance(returns, str) and returns):
                 resolved = generated
             elif not isinstance(returns, str) or not returns:
