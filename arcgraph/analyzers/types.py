@@ -425,18 +425,28 @@ def _generator_return_type(node: Node, nodes: list[Node]) -> "_ResolvedType | No
 def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool:
     """Only unshadowed builtin descriptors preserve a decorated generator's
     return. Check the definition's enclosing scopes, not its parameters/body.
-    Qualified names and aliases remain unknown rather than trusting a suffix.
+    Qualified descriptors need a visible import of the standard builtins module,
+    with no observed descriptor write or module escape before decoration.
     """
 
     decorators = node.properties.get("decorators", [])
     if not decorators:
         return True
-    if any(name not in {"staticmethod", "classmethod"} for name in decorators):
-        return False
+    descriptor_names = {"staticmethod", "classmethod"}
+    bare = {name for name in decorators if name in descriptor_names}
+    qualified = set()
+    for name in decorators:
+        if name in bare:
+            continue
+        root, dot, member = str(name).rpartition(".")
+        if not dot or not root.isidentifier() or member not in descriptor_names:
+            return False
+        qualified.add(root)
+    names = bare | qualified
     by_id = {scope.id: scope for scope in nodes if scope.path == node.path}
     for scope in by_id.values():
         bindings = scope.properties.get("bindings", [])
-        for name in decorators:
+        for name in names:
             own = [binding for binding in bindings if binding.get("name") == name]
             if any(binding.get("kind") == "global" for binding in own) and any(
                 binding.get("kind") != "global" for binding in own
@@ -458,6 +468,7 @@ def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool
     if module is None:
         return False
     owners.append(module)
+    imports = {}
     for owner in owners:
         for binding in owner.properties.get("bindings", []):
             if binding.get("static_only"):
@@ -466,8 +477,74 @@ def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool
                 node.start_line or 0
             ):
                 continue
-            if binding.get("name") in {*decorators, "*"}:
+            name = binding.get("name")
+            if name in {*bare, "*"}:
                 return False
+            if name in qualified and binding.get("kind") != "re_export":
+                if name in imports and imports[name][0] != owner.id:
+                    continue
+                if (
+                    binding.get("kind") != "import_alias"
+                    or (binding.get("target_qualname") or binding.get("value"))
+                    != "builtins"
+                    or binding.get("may_not_run")
+                    or not binding.get("scope_direct", True)
+                ):
+                    return False
+                imports[str(name)] = (owner.id, binding)
+    return qualified <= imports.keys() and _generator_descriptor_module_unchanged(
+        node, list(by_id.values()), qualified
+    )
+
+
+def _generator_descriptor_module_unchanged(
+    node: Node, scopes: list[Node], roots: set[str]
+) -> bool:
+    """Visible writes and escapes invalidate the qualified descriptor proof.
+    This is not a model of arbitrary reflection or cross-module monkeypatching.
+    """
+
+    if not roots:
+        return True
+    for scope in scopes:
+
+        def before_decoration(record: dict[str, Any]) -> bool:
+            return scope.kind not in {"module", "class"} or (
+                record.get("line") or 0
+            ) < (node.start_line or 0)
+
+        for write in scope.properties.get("generator_descriptor_writes", []):
+            if write.get("receiver") in roots and before_decoration(write):
+                return False
+        expressions = [
+            (call.get("call_expression"), call)
+            for call in scope.properties.get("callsites", [])
+            if isinstance(call, dict)
+        ]
+        expressions.extend(
+            (binding.get("value"), binding)
+            for binding in scope.properties.get("bindings", [])
+            if binding.get("kind") not in {"import_alias", "re_export"}
+            and not binding.get("static_only")
+        )
+        for expression, record in expressions:
+            if not expression or not before_decoration(record):
+                continue
+            try:
+                parsed = ast.parse(str(expression), mode="eval")
+            except SyntaxError:
+                continue
+            parents = {
+                child: part
+                for part in ast.walk(parsed)
+                for child in ast.iter_child_nodes(part)
+            }
+            for part in ast.walk(parsed):
+                if not isinstance(part, ast.Name) or part.id not in roots:
+                    continue
+                parent = parents.get(part)
+                if not (isinstance(parent, ast.Attribute) and parent.value is part):
+                    return False
     return True
 
 

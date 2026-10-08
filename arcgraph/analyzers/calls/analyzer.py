@@ -3851,26 +3851,30 @@ class CallAnalyzer:
             if scope.properties.get("mutates_exports"):
                 return None
             expressions = [
-                str(callsite.get("call_expression") or "")
+                (str(callsite.get("call_expression") or ""), callsite, False)
                 for callsite in scope.properties.get("callsites", [])
                 if isinstance(callsite, dict)
             ]
             expressions.extend(
-                str(binding.get("value") or "")
+                (
+                    str(binding.get("value") or ""),
+                    binding,
+                    binding.get("kind") == "for_target"
+                    or bool(binding.get("unpack_path")),
+                )
                 for group in lexical.bindings.get(scope.id, {}).values()
                 for binding in group
                 if binding.get("name") != "__all__"
                 and binding.get("kind") != "re_export"
                 and not binding.get("static_only")
             )
-            for expression in expressions:
+            for expression, record, iteration in expressions:
                 try:
                     parsed = ast.parse(expression, mode="eval")
                 except SyntaxError:
                     continue
-                if any(
-                    isinstance(part, ast.Name) and part.id == "__all__"
-                    for part in ast.walk(parsed)
+                if CallAnalyzer._exports_expression_escapes(
+                    parsed, scope, lexical, record, iteration=iteration
                 ):
                     return None
         try:
@@ -3882,6 +3886,93 @@ class CallAnalyzer:
         ):
             return None
         return set(listed)
+
+    @staticmethod
+    def _exports_expression_escapes(
+        parsed: ast.Expression,
+        scope: Node,
+        lexical: LexicalScopes,
+        record: dict[str, Any],
+        *,
+        iteration: bool,
+    ) -> bool:
+        """A known string list may be read, copied or iterated without escaping.
+        A retained list reference, arbitrary call/method, or unknown callback
+        remains unknown. Copies and indexed strings may be passed on safely.
+        """
+
+        parents = {
+            child: parent
+            for parent in ast.walk(parsed)
+            for child in ast.iter_child_nodes(parent)
+        }
+        for part in ast.walk(parsed):
+            if not isinstance(part, ast.Name) or part.id != "__all__":
+                continue
+            parent = parents.get(part)
+            if iteration and parent is parsed:
+                continue
+            if isinstance(parent, ast.Subscript) and parent.value is part:
+                continue
+            if isinstance(parent, ast.comprehension) and parent.iter is part:
+                continue
+            if isinstance(parent, ast.Compare) and any(
+                comparator is part and isinstance(op, (ast.In, ast.NotIn))
+                for op, comparator in zip(parent.ops, parent.comparators)
+            ):
+                continue
+            if (
+                isinstance(parent, ast.Call)
+                and isinstance(parent.func, ast.Name)
+                and parent.func.id in {"len", "sorted", "list", "tuple"}
+                and len(parent.args) == 1
+                and parent.args[0] is part
+                and all(
+                    parent.func.id == "sorted"
+                    and (
+                        keyword.arg == "reverse"
+                        and isinstance(keyword.value, ast.Constant)
+                        and isinstance(keyword.value.value, bool)
+                        or keyword.arg == "key"
+                        and isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value is None
+                    )
+                    for keyword in parent.keywords
+                )
+                and CallAnalyzer._exports_builtin_unshadowed(
+                    parent.func.id, scope, lexical, record
+                )
+            ):
+                continue
+            return True
+        return False
+
+    @staticmethod
+    def _exports_builtin_unshadowed(
+        name: str, scope: Node, lexical: LexicalScopes, record: dict[str, Any]
+    ) -> bool:
+        if (scope.path, name) in lexical.global_writes:
+            return False
+        for owner in lexical.chain(scope):
+            position = (
+                (owner.id, int(record.get("line") or 0), int(record.get("column") or 0))
+                if scope.kind in {"module", "class"}
+                and owner.kind in {"module", "class"}
+                else None
+            )
+            for binding in [
+                *lexical.bindings.get(owner.id, {}).get(name, []),
+                *lexical.bindings.get(owner.id, {}).get("*", []),
+            ]:
+                if binding.get("static_only") or binding.get("kind") in {
+                    "global",
+                    "nonlocal",
+                    "re_export",
+                }:
+                    continue
+                if binding_in_effect(binding, position):
+                    return False
+        return True
 
     def _star_imports_exclude(
         self,

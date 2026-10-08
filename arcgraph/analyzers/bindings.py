@@ -23,6 +23,9 @@ _WithNode = ast.With | ast.AsyncWith
 @dataclass
 class BindingAnalysis:
     export_mutations_by_scope: set[str] = field(default_factory=set)
+    generator_descriptor_writes: dict[str, list[dict[str, Any]]] = field(
+        default_factory=dict
+    )
     comprehension_writes: dict[str, set[str]] = field(default_factory=dict)
     bindings_by_scope: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     diagnostics_by_scope: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -35,6 +38,9 @@ class BindingAnalysis:
         for scope_id in self.export_mutations_by_scope:
             if scope_id in by_id:
                 by_id[scope_id].properties["mutates_exports"] = True
+        for scope_id, writes in self.generator_descriptor_writes.items():
+            if scope_id in by_id:
+                by_id[scope_id].properties["generator_descriptor_writes"] = writes
         for scope_id, contexts in self.comprehension_contexts.items():
             if scope_id in by_id:
                 by_id[scope_id].properties["comprehension_contexts"] = contexts
@@ -579,6 +585,21 @@ class _BindingScopeVisitor(ast.NodeVisitor):
                 if isinstance(part, (ast.Subscript, ast.Attribute)) and isinstance(
                     part.ctx, (ast.Store, ast.Del)
                 ):
+                    if (
+                        isinstance(part, ast.Attribute)
+                        and isinstance(part.value, ast.Name)
+                        and part.attr in {"staticmethod", "classmethod"}
+                    ):
+                        self.analysis.generator_descriptor_writes.setdefault(
+                            self.scope_id, []
+                        ).append(
+                            {
+                                "receiver": part.value.id,
+                                "attribute": part.attr,
+                                "line": node.lineno,
+                                "column": node.col_offset,
+                            }
+                        )
                     root = part.value
                     while isinstance(root, (ast.Subscript, ast.Attribute)):
                         root = root.value
