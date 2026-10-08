@@ -28,10 +28,10 @@ def make_view(tmp_path, filename="policy-v2.txt", source=None):
     src = tmp_path / "source"
     src.mkdir()
     (src / "demo.py").write_text(
-        source or (FIXTURE / filename).read_text(), encoding="utf-8"
+        source or (FIXTURE / filename).read_text(encoding="utf-8"), encoding="utf-8"
     )
     root = tmp_path / "frozen"
-    (src / "pyrightconfig.json").write_text("{}")
+    (src / "pyrightconfig.json").write_text("{}", encoding="utf-8")
     snapshot = capture(
         src,
         ["demo.py", "pyrightconfig.json"],
@@ -562,9 +562,9 @@ def test_module_entry_writes_complete_records_and_streams_raw_dialogue(
     from types import SimpleNamespace
 
     snapshot, root, view = make_view(tmp_path, filename="source.txt")
-    (root / "pyrightconfig.json").write_text("{}")
+    (root / "pyrightconfig.json").write_text("{}", encoding="utf-8")
     snap = tmp_path / "snapshot.json"
-    snap.write_text(snapshot.model_dump_json())
+    snap.write_text(snapshot.model_dump_json(), encoding="utf-8")
     monkeypatch.setattr(pipeline, "analyze", lambda *a, **kw: view.bundle)
     peers = []
 
@@ -603,11 +603,12 @@ def test_module_entry_writes_complete_records_and_streams_raw_dialogue(
     )
     assert BackendRun.model_validate_json((out / "pyright.json").read_bytes()).complete
     assert (
-        json.loads((out / "projection.json").read_text())["policy"]
+        json.loads((out / "projection.json").read_text(encoding="utf-8"))["policy"]
         == "shadow-open-targets/0.2"
     )
     assert (
-        json.loads((out / "lsp.jsonl").read_text())["message"]["method"] == "shutdown"
+        json.loads((out / "lsp.jsonl").read_text(encoding="utf-8"))["message"]["method"]
+        == "shutdown"
     )
 
 
@@ -734,7 +735,7 @@ def test_module_requires_frozen_configuration_and_a_valid_heap_limit(
             }
         )
     snap = tmp_path / "snapshot.json"
-    snap.write_text(snapshot.model_dump_json())
+    snap.write_text(snapshot.model_dump_json(), encoding="utf-8")
     args = [
         "--snapshot",
         str(snap),

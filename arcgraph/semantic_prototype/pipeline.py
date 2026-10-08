@@ -158,7 +158,7 @@ def main(argv=None):
         raise ValueError("frozen pyright configuration required")
     if args.pyright_heap_mib is not None and args.pyright_heap_mib < 128:
         raise ValueError("pyright heap must be at least 128 MiB")
-    config = json.loads((args.root / "pyrightconfig.json").read_text())
+    config = json.loads((args.root / "pyrightconfig.json").read_text(encoding="utf-8"))
     config["prototype_node_heap_mib"] = args.pyright_heap_mib or "runtime-default"
     environment = dict(os.environ)
     if args.pyright_heap_mib is not None:
