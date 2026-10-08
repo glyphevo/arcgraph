@@ -285,7 +285,9 @@ def write_generation(generation: Generation, path: Path) -> None:
     fd, name = tempfile.mkstemp(prefix=".generation-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(generation.model_dump_json())
+            from .json_stream import chunks
+
+            f.writelines(chunks(generation))
             f.flush()
             os.fsync(f.fileno())
         os.replace(name, path)

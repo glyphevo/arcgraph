@@ -7,6 +7,7 @@ Run with ``python -m arcgraph.semantic_prototype.structure_provider --help``.
 from __future__ import annotations
 
 import argparse
+import tempfile
 import json
 from pathlib import Path
 import subprocess
@@ -18,6 +19,7 @@ from . import structure_facts
 from .contract import Envelope, Model, Snapshot, Span, digest, write_generation
 from arcgraph.analyzers.precision_positions import PrecisionPositions
 from .snapshot import canonical, sha, verify
+from .json_stream import content_digest
 
 SUPPORTED = ("3.11", "3.12", "3.13", "3.14")
 CAPABILITIES = (
@@ -68,6 +70,7 @@ class StructuralRecord(Model):
         "binding",
         "export",
         "control",
+        "access",
     ]
     path: str
     span: Span
@@ -108,12 +111,23 @@ class StructuralGeneration(Model):
     checksum: str = ""
 
     def content_digest(self):
-        return digest(
-            self.model_dump(mode="json", exclude={"complete", "count", "checksum"})
-        )
+        return content_digest(self)
 
     def checked(self):
-        result = StructuralGeneration.model_validate(self.model_dump(mode="json"))
+        # Validate one record at a time: nested mutable payloads and model_copy
+        # remain checked, without copying the complete structural corpus.
+        StructuralGeneration.model_validate(
+            {
+                **self.model_dump(mode="json", exclude={"records", "files"}),
+                "records": (),
+                "files": (),
+            }
+        )
+        for file in self.files:
+            StructuralFile.model_validate(file.model_dump(mode="json"))
+        for record in self.records:
+            StructuralRecord.model_validate(record.model_dump(mode="json"))
+        result = self
         if (
             not result.complete
             or result.availability == "unavailable"
@@ -180,6 +194,13 @@ class StructuralGeneration(Model):
                     "expression",
                     "execution",
                 ),
+                "access": (
+                    "callee_span",
+                    "token_span",
+                    "callee",
+                    "expression",
+                    "execution",
+                ),
                 "scope": ("parent", "scope_kind"),
                 "annotation": ("role", "expression"),
                 "import": ("module", "level", "aliases", "star"),
@@ -207,7 +228,7 @@ class StructuralGeneration(Model):
                 parent = r.payload["parent"]
                 if owners.get(parent) != r.path and parent != "module:" + r.path:
                     raise ValueError("unmapped structural scope parent")
-            if r.kind == "callsite" and r.payload["token_span"] is not None:
+            if r.kind in ("callsite", "access") and r.payload["token_span"] is not None:
                 callee = r.payload["callee_span"]
                 token = r.payload["token_span"]
                 if not (
@@ -259,6 +280,7 @@ def analyze(
     *,
     timeout: float = 60,
     environment: dict[str, str] | None = None,
+    access_facts: bool = False,
 ) -> StructuralGeneration:
     """Choose only an explicitly registered interpreter of the requested minor."""
     verify(snapshot, root)
@@ -268,6 +290,8 @@ def analyze(
         worker_digest=sha(worker.read_bytes()),
         wrapper_digest=sha(Path(__file__).read_bytes()),
         interpreter=(("requested", target),),
+        capabilities=CAPABILITIES
+        + (("accesses:attribute-load",) if access_facts else ()),
     )
     generation_id = str(uuid.uuid4())
     initial = StructuralGeneration(
@@ -282,81 +306,119 @@ def analyze(
     if not interpreter:
         return initial.model_copy(update={"reasons": ("target_interpreter_missing",)})
     paths = sorted(f.path for f in snapshot.files if f.path.endswith(".py"))
-    request = {"root": str(root.resolve()), "paths": paths, "target": target}
-    try:
-        process = subprocess.run(
-            [interpreter, "-I", "-S", "-B", "-X", "utf8", str(worker)],
-            input=json.dumps(request),
-            text=True,
-            encoding="utf-8",
-            capture_output=True,
-            timeout=timeout,
-            check=True,
-            env=environment,
-        )
-        data = json.loads(process.stdout)
-    except subprocess.TimeoutExpired:
-        return initial.model_copy(update={"reasons": ("timeout",)})
-    except (OSError, subprocess.CalledProcessError, ValueError):
-        return initial.model_copy(update={"reasons": ("tool_error_or_invalid_output",)})
-    verify(snapshot, root)
-    if not isinstance(data, dict) or not isinstance(data.get("interpreter"), dict):
-        return initial.model_copy(update={"reasons": ("tool_error_or_invalid_output",)})
-    version_text = data["interpreter"].get("version", "")
-    actual_version = version_text.split() if isinstance(version_text, str) else []
-    actual_minor = ".".join(actual_version[0].split(".")[:2]) if actual_version else ""
-    if (
-        data.get("profile") != structure_facts.PROFILE
-        or data.get("interpreter", {}).get("target") != target
-        or data["interpreter"].get("implementation") != "cpython"
-        or actual_minor != target
-    ):
-        return initial.model_copy(
-            update={"reasons": ("interpreter_identity_mismatch",)}
-        )
-    producer = producer.model_copy(
-        update={"interpreter": tuple(sorted(data["interpreter"].items()))}
-    )
-    producer_id, snapshot_id = producer.id, snapshot.id
-    records = []
-    try:
-        files = tuple(StructuralFile.model_validate(f) for f in data["files"])
-        for row in data["records"]:
-            row = dict(row)
-            raw_span = row.pop("span")
-            row["span"] = Span(start=tuple(raw_span[:2]), end=tuple(raw_span[2:]))
-            row["envelope"] = Envelope(
-                generation=generation_id,
-                producer=producer_id,
-                snapshot=snapshot_id,
-                record_id=digest((generation_id, row["id"])),
-                provenance=(structure_facts.PROFILE, "target_cpython_parse_only"),
+    request = {
+        "root": str(root.resolve()),
+        "paths": paths,
+        "target": target,
+        "access_facts": access_facts,
+        "format": "jsonl/1",
+    }
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as wire:
+        try:
+            process = subprocess.run(
+                [interpreter, "-I", "-S", "-B", "-X", "utf8", str(worker)],
+                input=json.dumps(request),
+                text=True,
+                encoding="utf-8",
+                stdout=wire,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+                check=True,
+                env=environment,
             )
-            records.append(StructuralRecord.model_validate(row))
-        bundle = StructuralGeneration(
-            id=generation_id,
-            snapshot=snapshot,
-            producer=producer,
-            availability=(
-                "partial" if any(f.status != "parsed" for f in files) else "available"
-            ),
-            files=files,
-            records=tuple(records),
-        ).seal()
-        lines = {
-            f.path: canonical((root / f.path).read_bytes()).split("\n")
-            for f in files
-            if f.status == "parsed"
-        }
-        for record in bundle.records:
-            for s in [record.span, *spans(record.payload)]:
-                for line, col in (s.start, s.end):
-                    if line >= len(lines[record.path]):
-                        raise ValueError("structural line outside source")
-                    PrecisionPositions._byte_column(lines[record.path][line], col, 1)
-        return bundle
-    except (KeyError, TypeError, ValueError):
-        return initial.model_copy(update={"reasons": ("invalid_structural_records",)})
+            legacy = getattr(process, "stdout", None)
+            if legacy is not None:
+                wire.write(legacy)
+            wire.seek(0)
+            first = wire.readline()
+            if first.startswith('{"wire_format":"jsonl/1",'):
+                data = json.loads(first)
+                data["records"] = (json.loads(line) for line in wire)
+            else:
+                # Existing recorded worker replies remain valid for profile 0.1.
+                wire.seek(0)
+                data = json.load(wire)
+        except subprocess.TimeoutExpired:
+            return initial.model_copy(update={"reasons": ("timeout",)})
+        except (OSError, subprocess.CalledProcessError, ValueError):
+            return initial.model_copy(
+                update={"reasons": ("tool_error_or_invalid_output",)}
+            )
+        verify(snapshot, root)
+        if not isinstance(data, dict) or not isinstance(data.get("interpreter"), dict):
+            return initial.model_copy(
+                update={"reasons": ("tool_error_or_invalid_output",)}
+            )
+        version_text = data["interpreter"].get("version", "")
+        actual_version = version_text.split() if isinstance(version_text, str) else []
+        actual_minor = (
+            ".".join(actual_version[0].split(".")[:2]) if actual_version else ""
+        )
+        if (
+            data.get("profile") != structure_facts.PROFILE
+            or data.get("interpreter", {}).get("target") != target
+            or data["interpreter"].get("implementation") != "cpython"
+            or actual_minor != target
+        ):
+            return initial.model_copy(
+                update={"reasons": ("interpreter_identity_mismatch",)}
+            )
+        producer = producer.model_copy(
+            update={"interpreter": tuple(sorted(data["interpreter"].items()))}
+        )
+        producer_id, snapshot_id = producer.id, snapshot.id
+        records = []
+        try:
+            files = tuple(StructuralFile.model_validate(f) for f in data["files"])
+            for row in data["records"]:
+                row = dict(row)
+                raw_span = row.pop("span")
+                row["span"] = Span(start=tuple(raw_span[:2]), end=tuple(raw_span[2:]))
+                row["envelope"] = Envelope(
+                    generation=generation_id,
+                    producer=producer_id,
+                    snapshot=snapshot_id,
+                    record_id=digest((generation_id, row["id"])),
+                    provenance=(structure_facts.PROFILE, "target_cpython_parse_only"),
+                )
+                records.append(StructuralRecord.model_validate(row))
+            if data.get("record_count", len(records)) != len(records):
+                raise ValueError("truncated structural wire output")
+            wire.close()
+            bundle = StructuralGeneration(
+                id=generation_id,
+                snapshot=snapshot,
+                producer=producer,
+                availability=(
+                    "partial"
+                    if any(f.status != "parsed" for f in files)
+                    else "available"
+                ),
+                files=files,
+                records=tuple(records),
+            )
+            # The wire representation and its parsed dictionaries are no longer
+            # needed once every record has been validated into the owned corpus.
+            del data, process
+            bundle = bundle.seal()
+            lines = {
+                f.path: canonical((root / f.path).read_bytes()).split("\n")
+                for f in files
+                if f.status == "parsed"
+            }
+            for record in bundle.records:
+                for s in [record.span, *spans(record.payload)]:
+                    for line, col in (s.start, s.end):
+                        if line >= len(lines[record.path]):
+                            raise ValueError("structural line outside source")
+                        PrecisionPositions._byte_column(
+                            lines[record.path][line], col, 1
+                        )
+            return bundle
+        except (KeyError, TypeError, ValueError):
+            return initial.model_copy(
+                update={"reasons": ("invalid_structural_records",)}
+            )
 
 
 def main(argv=None):

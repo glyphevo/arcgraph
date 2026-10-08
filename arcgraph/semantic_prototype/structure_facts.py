@@ -32,7 +32,7 @@ def source_text(raw):
 
 
 class Facts(ast.NodeVisitor):
-    def __init__(self, path, text, version):
+    def __init__(self, path, text, version, access_facts=False):
         self.path = path
         self.text = text
         self.lines = text.split("\n")
@@ -51,6 +51,8 @@ class Facts(ast.NodeVisitor):
         self.phase = "module_body"
         self.qualname = ""
         self.future = False
+        self.access_facts = access_facts
+        self.callee_nodes = set()
 
     @contextmanager
     def context(self, **values):
@@ -365,6 +367,7 @@ class Facts(ast.NodeVisitor):
             self.visit(node.value)
 
     def visit_Call(self, node):
+        self.callee_nodes.add(id(node.func))
         self.record(
             "callsite",
             node,
@@ -383,6 +386,28 @@ class Facts(ast.NodeVisitor):
             },
             record_id=identity("call", self.path, *location(node)),
         )
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        if (
+            self.access_facts
+            and isinstance(node.ctx, ast.Load)
+            and id(node) not in self.callee_nodes
+        ):
+            self.record(
+                "access",
+                node,
+                {
+                    "callee_span": location(node),
+                    "token_span": self.token(node),
+                    "callee": self.expression(node),
+                    "expression": self.segment(node),
+                    "normalized_expression": ast.unparse(node),
+                    "execution": (
+                        "syntax_only" if self.execution is None else "conditional"
+                    ),
+                },
+            )
         self.generic_visit(node)
 
     def visit_Import(self, node):
@@ -531,7 +556,7 @@ class Facts(ast.NodeVisitor):
         super().generic_visit(node)
 
 
-def scan(root, paths, target):
+def scan(root, paths, target, access_facts=False):
     version = sys.version_info[:2]
     if sys.implementation.name != "cpython" or target != ".".join(map(str, version)):
         return {
@@ -561,7 +586,7 @@ def scan(root, paths, target):
         try:
             text = source_text(raw)
             tree = ast.parse(text, relative, type_comments=True)
-            visitor = Facts(relative, text, version)
+            visitor = Facts(relative, text, version, access_facts)
             visitor.future = any(
                 isinstance(n, ast.ImportFrom)
                 and n.module == "__future__"
@@ -595,8 +620,17 @@ def scan(root, paths, target):
 
 if __name__ == "__main__":
     request = json.load(sys.stdin)
-    json.dump(
-        scan(request["root"], request["paths"], request["target"]),
-        sys.stdout,
-        ensure_ascii=False,
+    response = scan(
+        request["root"],
+        request["paths"],
+        request["target"],
+        request.get("access_facts", False),
     )
+    if request.get("format") == "jsonl/1":
+        records = response.pop("records")
+        header = {"wire_format": "jsonl/1", **response, "record_count": len(records)}
+        print(json.dumps(header, ensure_ascii=False, separators=(",", ":")))
+        for record in records:
+            print(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+    else:
+        json.dump(response, sys.stdout, ensure_ascii=False)

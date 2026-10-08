@@ -1,0 +1,26 @@
+from typing import Protocol, Any
+from abc import abstractmethod
+
+def wrapper(fn): return fn
+class Contract(Protocol):
+    def run(self): ...
+class Base:
+    @abstractmethod
+    def abstract(self): ...
+class Concrete:
+    @property
+    def value(self): return 1
+    def run(self): return 1
+    def second(self): return 2
+    @wrapper
+    def wrapped(self): return 3
+
+def caller(x: object, y: Any, known: Base):
+    x.run()
+    y.run()
+    known.run()
+    x.value
+    x.wrapped()
+    x.second()
+    Contract.run(x)
+    Base.abstract(x)

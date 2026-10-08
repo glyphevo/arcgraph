@@ -79,6 +79,17 @@ def test_defaults_decorators_class_body_and_nested_execution_owners():
     assert ds["Local"]["payload"]["bases"][0]["source"] == "base()"
 
 
+def test_class_body_phase_is_distinct_from_method_body_and_defaults():
+    records = facts(CASES["scopes-py311"]["source"])
+    ds, cs = definitions(records), calls(records)
+    assert cs["field_init()"]["phase"] == "class_body"
+    assert cs["field_init()"]["execution_owner"] == ds["Local"]["id"]
+    assert cs["method_default()"]["phase"] == "definition_default"
+    assert cs["method_default()"]["execution_owner"] == ds["Local"]["id"]
+    assert cs["method_body(x)"]["phase"] == "function_body"
+    assert cs["method_body(x)"]["execution_owner"] == ds["method"]["id"]
+
+
 @pytest.mark.parametrize(
     "version,inlined", [((3, 11), False), ((3, 12), True), ((3, 14), True)]
 )

@@ -153,9 +153,15 @@ class Records:
         path = self.path(item["uri"])
         if path not in self.texts:
             return None
-        span = native_span(self.texts[path], item["selectionRange"], unit)
+        span = self.range(path, item["selectionRange"], unit)
         choices = self.by_definition[(path, span.start, item["name"])]
         return choices[0] if len(choices) == 1 else None
+
+    def owner_matches(self, source, site):
+        return source is not None and source.id == site.owner
+
+    def range(self, path, value, unit):
+        return native_span(self.texts[path], value, unit)
 
     def candidate(
         self,
@@ -277,10 +283,11 @@ def pyright_records(
     *,
     timeout: float = 30,
     initialize_result: dict | None = None,
+    record_factory=Records,
 ) -> tuple[Generation, dict]:
     started = time.perf_counter()
     verify(snapshot, root)
-    records = Records(snapshot, root, backend, data)
+    records = record_factory(snapshot, root, backend, data)
     requests = {
         "initialize": 0,
         "prepare": 0,
@@ -370,7 +377,7 @@ def pyright_records(
                         site = target = None
                         try:
                             path = records.path(item["uri"])
-                            span = native_span(records.texts[path], native, unit)
+                            span = records.range(path, native, unit)
                             matches = records.by_token[(path, span.start, span.end)]
                             if len(matches) != 1:
                                 reason, stage = (
@@ -379,7 +386,7 @@ def pyright_records(
                                 )
                             else:
                                 site = matches[0]
-                                if source is None or source.id != site.owner:
+                                if not records.owner_matches(source, site):
                                     reason, stage = "owner_mismatch", "owner"
                                 else:
                                     target = records.lookup(entry["to"], unit)
@@ -404,9 +411,11 @@ def pyright_records(
             reason = "timeout" if isinstance(exc, TimeoutError) else "tool_error"
             requests["timeout" if reason == "timeout" else "error"] += 1
             for c in records.callsites:
-                if c.owner == definition.id:
+                if records.owner_matches(definition, c):
                     records.reasons[c.id].add(reason)
-    partial = bool(requests["error"] or requests["timeout"] or data["parse_failures"])
+    partial = bool(
+        requests["error"] or requests["timeout"] or records.data["parse_failures"]
+    )
     query_seconds = time.perf_counter() - query_start
     return records.finish(
         unit=unit, availability="partial" if partial else "available"
@@ -442,9 +451,15 @@ def arcgraph_records(
 
 
 def wrap_graph(
-    snapshot: Snapshot, root: Path, backend: Producer, data: dict, raw: dict
+    snapshot: Snapshot,
+    root: Path,
+    backend: Producer,
+    data: dict,
+    raw: dict,
+    *,
+    record_factory=Records,
 ) -> Generation:
-    records = Records(snapshot, root, backend, data)
+    records = record_factory(snapshot, root, backend, data)
     failures = [
         (w["path"], w["message"])
         for w in raw.get("warnings", [])
@@ -461,7 +476,7 @@ def wrap_graph(
             continue
         choices = [
             d
-            for d in data["definitions"]
+            for d in records.data["definitions"]
             if d["path"] == n.get("path")
             and d["qualname"] == n.get("qualname")
             and n.get("start_line") in (d["line"], d["first_line"])
@@ -506,7 +521,12 @@ def wrap_graph(
             else:
                 site = matches[0]
                 target = records.defs.get(by_node.get(edge["target"]))
-                if by_node.get(edge["source"]) != site.owner:
+                if (
+                    not records.owner_matches(
+                        records.defs.get(by_node.get(edge["source"])), site
+                    )
+                    and by_node.get(edge["source"]) != site.owner
+                ):
                     reason, stage = "owner_mismatch", "owner"
                 else:
                     reason, stage = (
@@ -533,7 +553,9 @@ def wrap_graph(
                 )
                 records.candidate(site, target, method, rid, edge["confidence"])
     generation = records.finish(
-        availability="partial" if data["parse_failures"] or failures else "available"
+        availability=(
+            "partial" if records.data["parse_failures"] or failures else "available"
+        )
     )
     return generation.model_copy(
         update={

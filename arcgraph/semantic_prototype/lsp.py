@@ -21,12 +21,18 @@ class LspError(RuntimeError):
 
 class Client:
     def __init__(
-        self, command: list[str], cwd, env: dict[str, str], configuration: dict
+        self,
+        command: list[str],
+        cwd,
+        env: dict[str, str],
+        configuration: dict,
+        *,
+        transcript=None,
     ):
         self.configuration = configuration
         self.events: queue.Queue = queue.Queue()
         self.ids = 0
-        self.transcript: list[dict] = []
+        self.transcript = [] if transcript is None else transcript
         self.process = subprocess.Popen(
             command,
             cwd=cwd,
