@@ -1,14 +1,17 @@
-"""Shadow policy 0.2: open execution targets and distinct dependency relations."""
+"""Shadow policy 0.3: open targets and evidence-backed declaration relations."""
 
 from collections import Counter
 from .anchors import View, BackendRun, admit
 
-POLICY = "shadow-open-targets/0.2"
+POLICY = "shadow-open-targets/0.3"
 
 
 def relation(view, subject, candidate):
     fact = view.records[subject]
-    if candidate.semantics == "declaration":
+    if (
+        candidate.semantics == "declaration"
+        or candidate.target in view.declaration_evidence
+    ):
         return "declaration_dependency"
     if candidate.semantics == "descriptor_value":
         return "property_access"
@@ -59,6 +62,9 @@ def project(view: View, primary: BackendRun, fallback: BackendRun, expected_prod
                     reason = "non_execution_syntax_or_access"
                 elif kind != "execution":
                     reason = "retain_" + kind
+                    declaration = view.declaration_evidence.get(candidate.target)
+                    if declaration:
+                        reason = "retain_declaration_dependency:" + declaration[0]
                 elif run is fallback and candidate.method == "name_guess" and positive:
                     accepted, reason = False, "primary_execution_blocks_name_guess"
                 elif (
@@ -77,7 +83,8 @@ def project(view: View, primary: BackendRun, fallback: BackendRun, expected_prod
                     "method": candidate.method,
                     "confidence": candidate.confidence,
                     "receiver_relation": candidate.receiver_relation,
-                    "evidence": candidate.evidence,
+                    "evidence": candidate.evidence
+                    + view.declaration_evidence.get(candidate.target, ()),
                     "decision": reason,
                     "policy": POLICY,
                 }

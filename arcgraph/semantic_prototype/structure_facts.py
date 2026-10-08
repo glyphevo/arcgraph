@@ -31,6 +31,87 @@ def source_text(raw):
     return raw.decode(encoding).replace("\r\n", "\n").replace("\r", "\n")
 
 
+def typing_only_nodes(tree):
+    """Recognize standard typing guards, conservatively rejecting shadowed names."""
+    bindings = {}
+    approved = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "typing":
+            for alias in node.names:
+                if alias.name == "TYPE_CHECKING":
+                    bindings[alias.asname or alias.name] = "constant"
+                    approved.add(id(alias))
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "typing":
+                    bindings[alias.asname or alias.name] = "module"
+                    approved.add(id(alias))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bindings.pop(node.id, None)
+        if isinstance(node, ast.arg):
+            bindings.pop(node.arg, None)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bindings.pop(node.name, None)
+        if isinstance(node, ast.alias):
+            name = node.asname or node.name.split(".")[0]
+            if name in bindings and id(node) not in approved:
+                bindings.pop(name, None)
+            if node.name == "*":
+                bindings.clear()
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            if isinstance(node.value, ast.Name) and node.attr == "TYPE_CHECKING":
+                bindings.pop(node.value.id, None)
+
+    def false_guard(node):
+        if isinstance(node, ast.Name):
+            return bindings.get(node.id) == "constant"
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            return (
+                node.attr == "TYPE_CHECKING" and bindings.get(node.value.id) == "module"
+            )
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            return any(false_guard(v) for v in node.values)
+        return False
+
+    marked = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and false_guard(node.test):
+            marked.update(id(child) for stmt in node.body for child in ast.walk(stmt))
+    return marked
+
+
+def stub_body(node):
+    """Syntactic convention only; a known concrete override is also required."""
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return None
+    body = list(node.body)
+    if body and isinstance(body[0], ast.Expr):
+        if isinstance(body[0].value, ast.Constant) and isinstance(
+            body[0].value.value, str
+        ):
+            body.pop(0)
+    if all(
+        isinstance(s, ast.Pass)
+        or isinstance(s, ast.Expr)
+        and isinstance(s.value, ast.Constant)
+        and s.value.value is Ellipsis
+        for s in body
+    ):
+        return "empty"
+    if len(body) == 1 and isinstance(body[0], ast.Raise) and body[0].cause is None:
+        exc = body[0].exc
+        if isinstance(exc, ast.Call):
+            if not all(isinstance(a, ast.Constant) for a in exc.args) or not all(
+                isinstance(k.value, ast.Constant) for k in exc.keywords
+            ):
+                return None
+            exc = exc.func
+        if isinstance(exc, ast.Name) and exc.id == "NotImplementedError":
+            return "not_implemented"
+    return None
+
+
 class Facts(ast.NodeVisitor):
     def __init__(self, path, text, version, access_facts=False):
         self.path = path
@@ -53,6 +134,24 @@ class Facts(ast.NodeVisitor):
         self.future = False
         self.access_facts = access_facts
         self.callee_nodes = set()
+        self.typing_only = set()
+        self.notimplemented_shadowed = False
+
+    def visit_Module(self, node):
+        self.typing_only = typing_only_nodes(node)
+        self.notimplemented_shadowed = any(
+            isinstance(n, ast.Name)
+            and isinstance(n.ctx, (ast.Store, ast.Del))
+            and n.id == "NotImplementedError"
+            or isinstance(n, ast.arg)
+            and n.arg == "NotImplementedError"
+            or isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and n.name == "NotImplementedError"
+            or isinstance(n, ast.alias)
+            and (n.asname or n.name.split(".")[0]) == "NotImplementedError"
+            for n in ast.walk(node)
+        )
+        self.generic_visit(node)
 
     @contextmanager
     def context(self, **values):
@@ -80,6 +179,15 @@ class Facts(ast.NodeVisitor):
         return self.raw[start:end].decode()
 
     def record(self, kind, node, payload, *, tag="", record_id=None):
+        if kind in ("definition", "import"):
+            payload["typing_only"] = id(node) in self.typing_only
+        if kind == "definition":
+            payload["stub_body"] = stub_body(node)
+            if (
+                self.notimplemented_shadowed
+                and payload["stub_body"] == "not_implemented"
+            ):
+                payload["stub_body"] = None
         row = {
             "id": record_id or identity(kind, self.path, *location(node), tag),
             "kind": kind,

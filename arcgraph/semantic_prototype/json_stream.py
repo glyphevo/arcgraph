@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pydantic import BaseModel
 
 
@@ -39,7 +40,7 @@ def chunks(value, exclude=frozenset()):
             yield ":"
             yield from chunks(value[key])
         yield "}"
-    elif isinstance(value, (tuple, list)):
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         yield "["
         for index, item in enumerate(value):
             if index:

@@ -587,6 +587,7 @@ def test_module_entry_writes_complete_records_and_streams_raw_dialogue(
             [
                 "--snapshot",
                 str(snap),
+                "--in-process",
                 "--root",
                 str(root),
                 "--interpreter",
@@ -604,7 +605,7 @@ def test_module_entry_writes_complete_records_and_streams_raw_dialogue(
     assert BackendRun.model_validate_json((out / "pyright.json").read_bytes()).complete
     assert (
         json.loads((out / "projection.json").read_text(encoding="utf-8"))["policy"]
-        == "shadow-open-targets/0.2"
+        == "shadow-open-targets/0.3"
     )
     assert (
         json.loads((out / "lsp.jsonl").read_text(encoding="utf-8"))["message"]["method"]
@@ -754,3 +755,661 @@ def test_module_requires_frozen_configuration_and_a_valid_heap_limit(
         args += ["--pyright-heap-mib", "64"]
     with pytest.raises(ValueError, match=reason):
         pipeline.main(args)
+
+
+def test_overridden_stub_methods_are_declarations_but_noops_are_execution(tmp_path):
+    snapshot, root, view = make_view(tmp_path, filename="policy-v3.txt")
+    main = make_records(snapshot, root, view)
+    fallback = make_records(snapshot, root, view, "arcgraph")
+    stubs = ("raises", "empty", "documented", "ellipsis")
+    for name in (*stubs, "effect", "unoverridden"):
+        add(main, f"x.{name}()", f"Base.{name}")
+    # A real override remains an execution target alongside its base declaration.
+    add(main, "x.raises()", "Concrete.raises")
+    generation = main.finish()
+    assert sum(len(a.candidates) for a in generation.answers) == 7
+    report = project(
+        view, generation, fallback.finish(), (main.backend, fallback.backend)
+    )
+    dependencies = {
+        view.defs[e["key"][1]].qualname: e
+        for e in report["edges"]
+        if e["relation"] == "declaration_dependency"
+    }
+    assert set(dependencies) == {f"demo.Base.{name}" for name in stubs}
+    for edge in dependencies.values():
+        support = edge["supports"][0]
+        assert support["decision"] == "retain_declaration_dependency:overridden_stub"
+        assert support["evidence"][-2] == "overridden_stub"
+        assert view.defs[support["evidence"][-1]].owner == find(view, "Concrete").id
+    assert {view.defs[k[1]].qualname for k in report["projected_calls"]} == {
+        "demo.Base.effect",
+        "demo.Base.unoverridden",
+        "demo.Concrete.raises",
+    }
+
+
+def test_typing_only_mixin_members_keep_dependency_and_runtime_candidate(tmp_path):
+    snapshot, root, view = make_view(tmp_path, filename="policy-v3.txt")
+    main = make_records(snapshot, root, view)
+    fallback = make_records(snapshot, root, view, "arcgraph")
+    add(main, "self.declared()", "RuntimeMixin.declared")
+    add(main, "self.second()", "RuntimeMixin.second")
+    add(main, "self.runtime()", "RuntimeMixin.runtime")
+    add(fallback, "self.declared()", "RuntimeImplementation.declared", "name_guess")
+    report = project_records(main, fallback)
+    assert {view.defs[k[1]].qualname for k in report["projected_calls"]} == {
+        "demo.RuntimeImplementation.declared",
+        "demo.RuntimeMixin.runtime",
+    }
+    dependencies = [
+        e for e in report["edges"] if e["relation"] == "declaration_dependency"
+    ]
+    assert len(dependencies) == 2
+    assert all(
+        e["supports"][0]["decision"]
+        == "retain_declaration_dependency:typing_only_definition"
+        and "typing_only_definition" in e["supports"][0]["evidence"]
+        for e in dependencies
+    )
+    assert all(a.outcome == "candidates" for a in main.finish().answers if a.candidates)
+
+
+@pytest.mark.parametrize(
+    "import_line,base",
+    [
+        ("from demo import Base as Imported", "Imported"),
+        ("from .demo import Base as Imported", "Imported"),
+        ("import demo as imported", "imported.Base"),
+        ("import demo", "demo.Base[int]"),
+    ],
+)
+def test_stub_override_can_follow_unambiguous_import_aliases(
+    tmp_path, import_line, base
+):
+    source = (
+        f"{import_line}\nclass Base:\n    def f(self): ...\n"
+        f"class Child({base}):\n    def f(self): return 1\n"
+    )
+    _, _, view = make_view(tmp_path, source=source)
+    target = find(view, "Base.f").id
+    assert view.declaration_evidence[target] == (
+        "overridden_stub",
+        find(view, "Child.f").id,
+    )
+
+
+@pytest.mark.parametrize(
+    "base,extra,override",
+    [
+        ("unknown()", "", "return 1"),
+        ("Missing", "", "return 1"),
+        ("Base", "", "..."),
+        ("Base", "", "@abstractmethod\n    def f(self): return 1"),
+        (
+            "Imported",
+            "from other import Base as Imported\nfrom another import Base as Imported\n",
+            "return 1",
+        ),
+        (
+            "Base",
+            "if TYPE_CHECKING:\n    class Child(Base):\n        def f(self): return 1\n",
+            None,
+        ),
+        ("Base", "", None),
+    ],
+)
+def test_unproven_or_declarative_override_does_not_demote_runtime_noop(
+    tmp_path, base, extra, override
+):
+    source = (
+        "from typing import TYPE_CHECKING\nclass Base:\n    def f(self): pass\n" + extra
+    )
+    if override is not None:
+        if override.startswith("@"):
+            source += f"class Child({base}):\n    {override}\n"
+        else:
+            source += f"class Child({base}):\n    def f(self): {override}\n"
+    _, _, view = make_view(tmp_path, source=source)
+    assert find(view, "Base.f").id not in view.declaration_evidence
+
+
+def staged_case(tmp_path):
+    from types import SimpleNamespace
+
+    snapshot, root, view = make_view(tmp_path, filename="source.txt")
+    path = tmp_path / "snapshot.json"
+    path.write_text(snapshot.model_dump_json(), encoding="utf-8")
+    out = tmp_path / "staged"
+    out.mkdir()
+    cache = out / ".stage-cache"
+    cache.mkdir()
+    return (
+        SimpleNamespace(
+            snapshot=path,
+            root=root,
+            output=out,
+            interpreter=sys.executable,
+            pyright="fixture",
+            pyright_version="1.1.414",
+            pyright_heap_mib=None,
+        ),
+        cache,
+        view,
+    )
+
+
+class StagedReplay(Replay):
+    def __init__(self, command, cwd, environment, configuration, transcript):
+        super().__init__(cwd)
+        self.stderr = []
+        self.transcript = transcript
+
+    def request(self, method, params, timeout=30):
+        result = super().request(method, params, timeout)
+        self.transcript.append(
+            {"direction": "fixture", "method": method, "result": result}
+        )
+        return result
+
+    def close(self):
+        self.transcript.append({"direction": "fixture", "method": "shutdown"})
+
+
+def test_staged_records_and_checked_disk_view_preserve_complete_generation(tmp_path):
+    from arcgraph.semantic_prototype import staged
+    from arcgraph.semantic_prototype.disk_structure import read
+
+    args, cache, original = staged_case(tmp_path)
+    staged.structure_stage(args, cache)
+    eager = staged.read_structure_cache(cache / "structure.jsonl")
+    lazy = read(cache / "structure.jsonl")
+    assert lazy.content_digest() == eager.content_digest()
+    assert list(lazy.records) == list(eager.records)
+    assert lazy.records[-1] == eager.records[-1]
+    assert lazy.records[:2] == eager.records[:2]
+    assert len(lazy.records.by_id) == eager.count
+    assert set(lazy.records.by_id) == {r.id for r in eager.records}
+    assert lazy.records.by_id[eager.records[0].id] == eager.records[0]
+    with pytest.raises(KeyError):
+        lazy.records.by_id["absent"]
+    encoded = tmp_path / "disk-generation.json"
+    write_generation(lazy, encoded)
+    assert encoded.read_bytes() == (args.output / "structure.json").read_bytes()
+    staged.transport_stage(args, cache, StagedReplay)
+    staged.graph_stage(args, cache)
+    staged.map_stage(args, cache)
+    primary = BackendRun.model_validate_json(
+        (args.output / "pyright.json").read_bytes()
+    )
+    assert primary.complete and primary.raw_count == 4
+    assert sum(len(a.candidates) for a in primary.answers) == 3
+    projected = staged.load(args.output / "projection.json")
+    assert len(projected["projected_calls"]) == 3
+    assert len(primary.answers) == len(original.callsites)
+    assert staged.load(cache / "mapping.json")["pyright"]["requests"]["error"] == 0
+    # Every existing field and candidate remains present after string sharing.
+    value = {"same": [{"value": "é😀"}, {"value": "é😀"}], "number": 4}
+    before = json.loads(json.dumps(value))
+    assert staged.intern_keys(value) is value and value == before
+    assert value["same"][0]["value"] is value["same"][1]["value"]
+
+
+def test_disk_structure_rejects_truncation_duplicates_and_payload_corruption(tmp_path):
+    from arcgraph.semantic_prototype import staged
+    from arcgraph.semantic_prototype.disk_structure import read
+
+    _, cache, view = staged_case(tmp_path)
+    file = cache / "structure.jsonl"
+    staged.write_structure_cache(view.bundle, file)
+    original = file.read_bytes()
+    lines = original.splitlines(keepends=True)
+    for broken in (b"".join(lines[:-1]), original + lines[1]):
+        file.write_bytes(broken)
+        with pytest.raises(ValueError):
+            read(file)
+    file.write_bytes(original)
+    lazy = read(file)
+    row = json.loads(lines[1])
+    row["payload"]["name"] = "changed"
+    lines[1] = (json.dumps(row) + "\n").encode()
+    file.write_bytes(b"".join(lines))
+    with pytest.raises(ValueError, match="corrupt"):
+        lazy.checked()
+
+
+def write_test_journal(path, snapshot_id, rows, footer=None, extra=""):
+    import hashlib
+    from arcgraph.semantic_prototype import staged
+
+    checksum = hashlib.sha256()
+    with path.open("w", encoding="utf-8") as handle:
+        staged.wire_line(handle, {"snapshot": snapshot_id})
+        for row in rows:
+            checksum.update(staged.wire_line(handle, row))
+        staged.wire_line(
+            handle,
+            footer
+            or {"complete": True, "count": len(rows), "checksum": checksum.hexdigest()},
+        )
+        handle.write(extra)
+
+
+@pytest.mark.parametrize("reason", ["timeout", "tool_error"])
+def test_journal_errors_preserve_unknown_reason_and_checked_completion(
+    tmp_path, reason
+):
+    from arcgraph.semantic_prototype.staged import JournalReplay
+    from arcgraph.semantic_prototype.lsp import LspError
+
+    file = tmp_path / "responses.jsonl"
+    write_test_journal(
+        file,
+        "snapshot",
+        [
+            {
+                "method": "example",
+                "params": {},
+                "error": {"kind": reason, "message": "fixture"},
+            }
+        ],
+    )
+    peer = JournalReplay(file, "snapshot")
+    with pytest.raises(TimeoutError if reason == "timeout" else LspError):
+        peer.request("example", {})
+    peer.close()
+    assert peer.handle.closed
+
+
+@pytest.mark.parametrize(
+    "broken",
+    ["count", "digest", "complete", "extra", "snapshot", "request", "truncated"],
+)
+def test_journal_rejects_mismatched_or_incomplete_evidence(tmp_path, broken):
+    from arcgraph.semantic_prototype.staged import JournalReplay
+
+    path = tmp_path / "responses.jsonl"
+    rows = [{"method": "example", "params": {"position": 1}, "result": []}]
+    write_test_journal(path, "snapshot", rows)
+    text = path.read_text(encoding="utf-8").splitlines()
+    if broken in ("count", "digest", "complete"):
+        footer = json.loads(text[-1])
+        key = {"count": "count", "digest": "checksum", "complete": "complete"}[broken]
+        footer[key] = {"count": 99, "digest": "wrong", "complete": False}[broken]
+        text[-1] = json.dumps(footer)
+    if broken == "extra":
+        text.append("{}")
+    if broken == "truncated":
+        text = text[:-1]
+    path.write_text("\n".join(text) + "\n", encoding="utf-8")
+    if broken == "snapshot":
+        with pytest.raises(ValueError):
+            JournalReplay(path, "different")
+        return
+    peer = JournalReplay(path, "snapshot")
+    try:
+        if broken == "request":
+            with pytest.raises(ValueError):
+                peer.request("different", {})
+        else:
+            assert peer.request("example", {"position": 1}) == []
+            with pytest.raises((ValueError, StopIteration)):
+                peer.close()
+    finally:
+        peer.handle.close()
+
+
+@pytest.mark.parametrize("failure", ["empty", "unsupported", "timeout", "tool_error"])
+def test_staged_transport_preserves_empty_unsupported_and_failed_scope_answers(
+    tmp_path, failure
+):
+    from arcgraph.semantic_prototype import staged
+
+    args, cache, view = staged_case(tmp_path)
+    staged.structure_stage(args, cache)
+
+    class Peer:
+        def __init__(self, *a, **kw):
+            self.stderr = []
+
+        def request(self, method, params, timeout=30):
+            if failure == "timeout":
+                raise TimeoutError("fixture")
+            if failure == "tool_error":
+                raise OSError("fixture")
+            if method == "initialize":
+                return {
+                    "capabilities": {"callHierarchyProvider": failure != "unsupported"}
+                }
+            return []
+
+        def notify(self, *a):
+            pass
+
+        def close(self):
+            pass
+
+    staged.transport_stage(args, cache, Peer)
+    staged.graph_stage(args, cache)
+    staged.map_stage(args, cache)
+    generation = BackendRun.model_validate_json(
+        (args.output / "pyright.json").read_bytes()
+    )
+    assert generation.complete
+    assert not any(a.candidates for a in generation.answers)
+    assert generation.availability == (
+        "available" if failure == "empty" else "unavailable"
+    )
+    assert set(a.reasons for a in generation.answers) == {
+        (
+            {
+                "empty": "no_answer",
+                "unsupported": "capability_unsupported",
+                "timeout": "timeout",
+                "tool_error": "tool_error",
+            }[failure],
+        )
+    }
+    assert len(generation.answers) == len(view.callsites)
+
+
+@pytest.mark.parametrize("changed_encoding", [False, True])
+def test_transport_restarts_keep_all_documents_and_queries_and_encoding(
+    tmp_path, monkeypatch, changed_encoding
+):
+    from arcgraph.semantic_prototype import staged
+
+    args, cache, view = staged_case(tmp_path)
+    staged.structure_stage(args, cache)
+    monkeypatch.setattr(staged, "SESSION_DEFINITIONS", 1)
+    peers = []
+
+    class Peer:
+        def __init__(self, *a, **kw):
+            self.stderr = []
+            self.notifications = []
+            self.queries = []
+            self.closed = False
+            peers.append(self)
+
+        def request(self, method, params, timeout=30):
+            self.queries.append(method)
+            if method == "initialize":
+                return {
+                    "capabilities": {
+                        "callHierarchyProvider": True,
+                        **(
+                            {"positionEncoding": "utf-8"}
+                            if changed_encoding and len(peers) > 1
+                            else {}
+                        ),
+                    }
+                }
+            return []
+
+        def notify(self, method, params):
+            self.notifications.append(method)
+
+        def close(self):
+            self.closed = True
+
+    if changed_encoding:
+        with pytest.raises(ValueError, match="capabilities changed"):
+            staged.transport_stage(args, cache, Peer)
+        assert not (cache / "responses.jsonl").exists()
+    else:
+        staged.transport_stage(args, cache, Peer)
+        assert len(peers) == 3
+        assert (
+            sum(p.queries.count("textDocument/prepareCallHierarchy") for p in peers)
+            == 3
+        )
+        assert all(
+            p.notifications == ["initialized", "textDocument/didOpen"] for p in peers
+        )
+        staged.graph_stage(args, cache)
+        staged.map_stage(args, cache)
+        assert (
+            staged.load(cache / "mapping.json")["pyright"]["requests"]["prepare"] == 3
+        )
+    assert all(p.closed for p in peers)
+
+
+def test_transport_rejects_changed_frozen_source_before_starting_server(tmp_path):
+    from arcgraph.semantic_prototype import staged
+
+    args, cache, _ = staged_case(tmp_path)
+    staged.structure_stage(args, cache)
+    (args.root / "demo.py").write_text("changed", encoding="utf-8")
+    with pytest.raises(ValueError, match="frozen source changed"):
+        staged.transport_stage(args, cache, StagedReplay)
+    assert not (cache / "responses.jsonl").exists()
+
+
+def staged_arguments(args, output=None):
+    return [
+        "--snapshot",
+        str(args.snapshot),
+        "--root",
+        str(args.root),
+        "--interpreter",
+        args.interpreter,
+        "--pyright",
+        args.pyright,
+        "--pyright-version",
+        args.pyright_version,
+        "--output",
+        str(output or args.output),
+    ]
+
+
+def test_pipeline_default_replaces_heavy_parent_before_starting_transport(
+    tmp_path, monkeypatch
+):
+    import os
+
+    args, _, _ = staged_case(tmp_path)
+    seen = []
+
+    def execute(executable, argv, environment):
+        seen.append((executable, argv, environment))
+        raise RuntimeError("exec boundary")
+
+    monkeypatch.setattr(os, "execve", execute)
+    monkeypatch.setattr(
+        pipeline, "Client", lambda *a, **kw: pytest.fail("heavy parent started LSP")
+    )
+    with pytest.raises(RuntimeError, match="exec boundary"):
+        pipeline.main(staged_arguments(args))
+    assert Path(seen[0][1][1]).name == "staged.py"
+    assert seen[0][1][2:] == staged_arguments(args)
+    assert not (args.output / "lsp.jsonl").exists()
+
+
+def test_staged_coordinator_completes_only_after_all_serial_stages(
+    tmp_path, monkeypatch
+):
+    from arcgraph.semantic_prototype import staged
+
+    args, _, _ = staged_case(tmp_path)
+    target = tmp_path / "final"
+    calls = []
+    collect = staged.transport_stage
+    monkeypatch.setattr(
+        staged, "transport_stage", lambda a, c: collect(a, c, StagedReplay)
+    )
+
+    process_run = staged.subprocess.run
+    monkeypatch.setenv("NODE_OPTIONS", "")
+
+    def dispatch(command, check=False, **kwargs):
+        if len(command) > 2 and command[2] == str(Path(staged.__file__).resolve()):
+            assert check
+            calls.append(command[-1])
+            assert staged.main(command[3:]) == 0
+        else:
+            return process_run(command, check=check, **kwargs)
+
+    monkeypatch.setattr(staged.subprocess, "run", dispatch)
+    assert (
+        staged.main(staged_arguments(args, target) + ["--pyright-heap-mib", "128"]) == 0
+    )
+    assert calls == ["structure", "transport", "graph", "map"]
+    assert staged.load(target / "run.json")["staged_complete"] is True
+    assert staged.load(target / ".stage-cache/phase.json")["phase"] == "complete"
+    with pytest.raises(ValueError):
+        staged.main(
+            staged_arguments(args, tmp_path / "invalid") + ["--pyright-heap-mib", "0"]
+        )
+    with pytest.raises(FileExistsError):
+        staged.main(staged_arguments(args, target))
+
+
+def test_failed_stage_cannot_publish_complete_pipeline_result(tmp_path, monkeypatch):
+    import subprocess
+    from arcgraph.semantic_prototype import staged
+
+    args, _, _ = staged_case(tmp_path)
+    target = tmp_path / "failed"
+
+    def fail(command, check):
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(staged.subprocess, "run", fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        staged.main(staged_arguments(args, target))
+    assert not (target / "run.json").exists()
+    assert not (target / "projection.json").exists()
+
+
+def test_rebound_class_name_is_not_a_known_override(tmp_path):
+    _, _, view = make_view(
+        tmp_path,
+        source="class Base:\n    def f(self): pass\nBase = factory()\nclass Child(Base):\n    def f(self): return 1\n",
+    )
+    assert find(view, "Base.f").id not in view.declaration_evidence
+
+
+@pytest.mark.parametrize("broken", ["payload", "count", "truncated", "extra"])
+def test_graph_journal_preserves_fields_and_rejects_corruption(tmp_path, broken):
+    from arcgraph.semantic_prototype import staged
+
+    file = tmp_path / "graph.jsonl"
+    original = {
+        "nodes": [{"id": "n", "properties": {"unicode": "é😀", "unknown": None}}],
+        "edges": [{"source": "n", "target": "n"}],
+        "warnings": [],
+    }
+    staged.write_graph_cache(original, file)
+    assert staged.read_graph_cache(file) == original
+    lines = file.read_text(encoding="utf-8").splitlines()
+    if broken == "payload":
+        lines[1] = lines[1].replace('"unknown":null', '"unknown":false')
+    if broken == "count":
+        lines[0] = lines[0].replace('"nodes":1', '"nodes":2')
+    if broken == "truncated":
+        lines = lines[:-1]
+    if broken == "extra":
+        lines.append("{}")
+    file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        staged.read_graph_cache(file)
+
+
+def test_disk_generation_rejects_non_disk_records(tmp_path):
+    from arcgraph.semantic_prototype.disk_structure import DiskGeneration
+
+    _, _, view = make_view(tmp_path)
+    invalid = DiskGeneration.model_validate(view.bundle.model_dump(mode="json"))
+    with pytest.raises(ValueError, match="disk record sequence"):
+        invalid.checked()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "tool_error"])
+def test_transport_scope_errors_replay_as_partial_without_losing_universe(
+    tmp_path, failure
+):
+    from arcgraph.semantic_prototype import staged
+
+    args, cache, view = staged_case(tmp_path)
+    staged.structure_stage(args, cache)
+
+    class Peer:
+        def __init__(self, *a, **kw):
+            self.stderr = []
+
+        def request(self, method, params, timeout=30):
+            if method == "initialize":
+                return {"capabilities": {"callHierarchyProvider": True}}
+            if failure == "timeout":
+                raise TimeoutError("fixture")
+            raise OSError("fixture")
+
+        def notify(self, *a):
+            pass
+
+        def close(self):
+            pass
+
+    staged.transport_stage(args, cache, Peer)
+    staged.graph_stage(args, cache)
+    staged.map_stage(args, cache)
+    result = BackendRun.model_validate_json((args.output / "pyright.json").read_bytes())
+    assert result.availability == "partial" and result.complete
+    assert len(result.answers) == len(view.callsites)
+    assert any(failure in a.reasons for a in result.answers)
+    assert (
+        staged.load(cache / "mapping.json")["pyright"]["requests"][
+            failure if failure == "timeout" else "error"
+        ]
+        == 3
+    )
+
+
+def test_disk_validation_receipt_checks_bytes_and_metadata_not_mtime(
+    tmp_path, monkeypatch
+):
+    import os
+    from dataclasses import FrozenInstanceError
+    from arcgraph.semantic_prototype import staged
+    from arcgraph.semantic_prototype.disk_structure import read
+
+    _, cache, view = staged_case(tmp_path)
+    file = cache / "structure.jsonl"
+    staged.write_structure_cache(view.bundle, file)
+    generation = read(file)
+    original = file.read_bytes()
+    stat = file.stat()
+    with pytest.raises(ValueError):
+        generation.model_copy(update={"count": 0}).checked()
+    # Revalidation of identical bytes can reuse the receipt, but a changed file
+    # with preserved timestamp must not pass the admission boundary.
+    assert generation.checked() is generation
+    with pytest.raises(FrozenInstanceError):
+        generation.records.path = tmp_path / "other"
+    with pytest.raises(TypeError):
+        generation.records.identities["forged"] = 0
+    with pytest.raises(FrozenInstanceError):
+        generation.records.by_id.records = None
+    file.write_bytes(
+        original.replace(b'"stub_body":"empty"', b'"stub_body":"other"', 1)
+    )
+    os.utime(file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert file.stat().st_mtime_ns == stat.st_mtime_ns
+    with pytest.raises(ValueError, match="corrupt"):
+        generation.checked()
+
+
+def test_missing_disk_record_store_is_rejected_by_admission(tmp_path):
+    from arcgraph.semantic_prototype import staged
+    from arcgraph.semantic_prototype.disk_structure import read
+
+    _, cache, view = staged_case(tmp_path)
+    file = cache / "structure.jsonl"
+    staged.write_structure_cache(view.bundle, file)
+    disk = read(file)
+    file.unlink()
+    assert structure_provider.admit_structure(disk, view.bundle.snapshot) == (
+        False,
+        "structural journal unavailable",
+    )

@@ -35,6 +35,7 @@ CAPABILITIES = (
     "exports:literal-or-dynamic",
     "annotations:phase",
     "control:syntax",
+    "declaration_syntax:stub/typing_guard",
 )
 
 

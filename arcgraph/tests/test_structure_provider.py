@@ -619,3 +619,88 @@ def test_structural_admission_rejects_rebound_unsupported_and_wrong_interpreters
         changed = changed.model_copy(update={"checksum": changed.content_digest()})
         changed.checked()
         assert provider.admit_structure(changed, rebound) == (False, reason)
+
+
+@pytest.mark.parametrize(
+    "source,typing_only",
+    [
+        (
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    def f(): ...\n",
+            True,
+        ),
+        ("import typing as t\nif t.TYPE_CHECKING:\n    def f(): ...\n", True),
+        (
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING and test():\n    def f(): ...\n",
+            True,
+        ),
+        (
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n    def f(): ...\n",
+            False,
+        ),
+        (
+            "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\nif TYPE_CHECKING:\n    def f(): ...\n",
+            False,
+        ),
+        (
+            "from typing import TYPE_CHECKING\ndef outer(TYPE_CHECKING):\n    if TYPE_CHECKING:\n        def f(): ...\n",
+            False,
+        ),
+        (
+            "from typing import TYPE_CHECKING\nfrom other import TYPE_CHECKING\nif TYPE_CHECKING:\n    def f(): ...\n",
+            False,
+        ),
+        (
+            "from typing import TYPE_CHECKING\nfrom other import *\nif TYPE_CHECKING:\n    def f(): ...\n",
+            False,
+        ),
+        (
+            "import typing\ntyping.TYPE_CHECKING = True\nif typing.TYPE_CHECKING:\n    def f(): ...\n",
+            False,
+        ),
+        (
+            "from typing import TYPE_CHECKING\ndef TYPE_CHECKING(): return True\nif TYPE_CHECKING:\n    def f(): ...\n",
+            False,
+        ),
+        ("TYPE_CHECKING = True\nif TYPE_CHECKING:\n    def f(): ...\n", False),
+        (
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING or True:\n    def f(): ...\n",
+            False,
+        ),
+    ],
+)
+def test_type_checking_guard_requires_standard_unshadowed_binding(source, typing_only):
+    definition = definitions(facts(source))["f"]
+    assert definition["payload"]["typing_only"] is typing_only
+    assert definition["payload"]["stub_body"] == "empty"
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        ('"doc"', "empty"),
+        ("pass", "empty"),
+        ("...", "empty"),
+        ('"doc"; pass; ...', "empty"),
+        ("raise NotImplementedError", "not_implemented"),
+        ('raise NotImplementedError("override")', "not_implemented"),
+        ("raise NotImplementedError(message='override')", "not_implemented"),
+        ("raise NotImplementedError(factory())", None),
+        ("raise NotImplementedError(message=factory())", None),
+        ("raise NotImplementedError from cause", None),
+        ("return None", None),
+        ("effect(); raise NotImplementedError", None),
+        ("raise OtherError", None),
+    ],
+)
+def test_stub_body_does_not_hide_effects_or_other_exceptions(body, expected):
+    assert (
+        definitions(facts(f"def f(): {body}\n"))["f"]["payload"]["stub_body"]
+        == expected
+    )
+
+
+def test_shadowed_not_implemented_error_is_not_a_stub_convention():
+    result = definitions(
+        facts("def f(NotImplementedError): raise NotImplementedError\n")
+    )
+    assert result["f"]["payload"]["stub_body"] is None

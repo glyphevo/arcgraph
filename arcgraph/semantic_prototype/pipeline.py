@@ -82,16 +82,20 @@ def run(
     configuration: dict,
     environment=None,
     timeout=30,
+    structure=None,
+    graph=None,
 ):
     times = {}
     started = time.perf_counter()
-    bundle = analyze(
-        snapshot,
-        root,
-        {snapshot.target_python: interpreter},
-        environment=environment,
-        access_facts=True,
-    )
+    bundle = structure
+    if bundle is None:
+        bundle = analyze(
+            snapshot,
+            root,
+            {snapshot.target_python: interpreter},
+            environment=environment,
+            access_facts=True,
+        )
     allowed, reason = admit_structure(bundle, snapshot)
     if not allowed:
         raise ValueError(reason)
@@ -123,7 +127,7 @@ def run(
     if hasattr(peer, "close"):
         peer.close()
     started = time.perf_counter()
-    raw = existing_graph(snapshot, root)
+    raw = existing_graph(snapshot, root) if graph is None else graph
     fallback = wrap_graph(snapshot, root, ab, view, raw, record_factory=AnchoredRecords)
     times["arcgraph"] = time.perf_counter() - started
     started = time.perf_counter()
@@ -149,6 +153,7 @@ def main(argv=None):
     parser.add_argument("--pyright-version", required=True)
     parser.add_argument("--pyright-heap-mib", type=int)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--in-process", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     import os
 
@@ -166,6 +171,20 @@ def main(argv=None):
     config["prototype_node_options_digest"] = sha(
         environment.get("NODE_OPTIONS", "").encode()
     )
+    if not args.in_process:
+        import sys
+
+        # Replace this interpreter too: retaining its imported graph schemas
+        # while the transport runs would spend memory without doing work.
+        os.execve(
+            sys.executable,
+            [
+                sys.executable,
+                str(Path(__file__).with_name("staged.py")),
+                *(sys.argv[1:] if argv is None else argv),
+            ],
+            environment,
+        )
     args.output.mkdir(parents=True, exist_ok=True)
     transcript = (args.output / "lsp.jsonl").open("w", encoding="utf-8")
     peer = Client(

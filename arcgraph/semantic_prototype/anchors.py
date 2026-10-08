@@ -92,8 +92,15 @@ class View:
     """Derived indexes only. All identities and ranges come from structural facts."""
 
     def __init__(self, bundle: StructuralGeneration):
+        from .declaration_policy import declaration_evidence
+
         self.bundle = bundle
-        self.records = {r.id: r for r in bundle.records}
+        self.declaration_evidence = declaration_evidence(bundle.records)
+        self.records = (
+            bundle.records.by_id
+            if hasattr(bundle.records, "by_id")
+            else {r.id: r for r in bundle.records}
+        )
         self.definitions = []
         self.callsites = []
         self.annotations = {}

@@ -1,0 +1,48 @@
+from typing import TYPE_CHECKING as CHECK
+import typing as types
+
+class Base:
+    def raises(self):
+        """To be implemented by the derived class."""
+        raise NotImplementedError("override")
+    def empty(self): pass
+    def documented(self):
+        """An interface declaration."""
+    def ellipsis(self): ...
+    def effect(self):
+        print("observable")
+        raise NotImplementedError
+    def unoverridden(self): pass
+
+class Middle(Base): pass
+class Concrete(Middle):
+    def raises(self): return 1
+    def empty(self): return 2
+    def documented(self): return 3
+    def ellipsis(self): return 4
+    def effect(self): return 5
+
+class RuntimeMixin:
+    if CHECK:
+        def declared(self): ...
+    if types.TYPE_CHECKING and True:
+        def second(self): ...
+    else:
+        def runtime(self): return 6
+    def caller(self):
+        self.declared()
+        self.second()
+        self.runtime()
+
+class RuntimeImplementation:
+    def declared(self): return 7
+
+class Combined(RuntimeMixin, RuntimeImplementation): pass
+
+def use(x):
+    x.raises()
+    x.empty()
+    x.documented()
+    x.ellipsis()
+    x.effect()
+    x.unoverridden()
