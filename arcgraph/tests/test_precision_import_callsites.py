@@ -194,6 +194,33 @@ def test_precision_line_only_ambiguous_call_does_not_pick_first(tmp_path):
     assert result.status == "partial"
 
 
+def test_scip_range_with_wrong_callee_end_stays_reference(tmp_path):
+    source = "def f(): pass\ndef g():\n    f()\n"
+    # The range includes '('; sharing the callee's start is insufficient.
+    result, _ = _import(tmp_path, source, [_occurrence(3, 4, 6)])
+    assert result.edges[0].kind == "references"
+    assert result.edges[0].resolution.callsite_id is None
+    exact, nodes = _import(tmp_path, source, [_occurrence(3, 4, 5)])
+    assert exact.edges[0].kind == "calls"
+    assert exact.edges[0].resolution.callsite_id == _call_id(nodes["g"], 3, 4)
+
+
+def test_precision_column_without_line_does_not_match_unique_named_call(tmp_path):
+    source = "def f(): pass\ndef g():\n    f()\n"
+    record = {
+        "source": "fn:demo.g",
+        "target": "fn:demo.f",
+        "kind": "call",
+        "column": 4,
+    }
+    result, _ = _import(tmp_path, source, [record], backend="pyright")
+    assert result.edges[0].resolution.callsite_id is None
+    assert any(w.kind == "pyright_callsite_unmatched" for w in result.warnings)
+    assert result.status == "partial"
+    exact, nodes = _import(tmp_path, source, [dict(record, line=3)], backend="pyright")
+    assert exact.edges[0].resolution.callsite_id == _call_id(nodes["g"], 3, 4)
+
+
 @pytest.mark.parametrize(
     "encoding,range_value",
     [
