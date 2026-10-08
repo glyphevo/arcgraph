@@ -92,3 +92,16 @@ def test_every_packaged_version_is_also_a_tested_version() -> None:
     """A wheel is never smoke-tested on an interpreter the suite skips."""
 
     assert _packaged_versions() <= _tested_versions()
+
+
+def test_narrowed_python_range_is_historical_and_points_to_current_support() -> None:
+    from arcgraph.interfaces.docs import render_docs
+
+    sections = render_docs("migration-notes", as_json=True)["sections"]
+    by_title = {section["title"]: section for section in sections}
+    old = " ".join(by_title["Supported Python Versions Narrowed"]["items"])
+    current = " ".join(by_title["Supported Python Versions Widened"]["items"])
+    assert "historical restriction" in old
+    assert "Supported Python Versions Widened" in old
+    assert "is now" not in old and "now fails" not in old
+    assert _pyproject()["project"]["requires-python"] in current

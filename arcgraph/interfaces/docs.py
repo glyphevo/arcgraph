@@ -1155,9 +1155,9 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             {
                 "title": "Supported Python Versions Narrowed",
                 "items": [
-                    "`requires-python` is now `>=3.11,<3.13`. It was `>=3.11`, which pip accepted on 3.13 and later on the strength of a declaration no CI lane exercised; the test and package matrices run 3.11 and 3.12 only. Installing on 3.13 or later now fails at resolution time with a clear message instead of succeeding into untested behavior.",
-                    "The `Programming Language :: Python` classifiers already named 3.11 and 3.12 only, so this removes a disagreement between two declarations in the same file rather than dropping a version that was ever claimed consistently.",
-                    "No supported interpreter loses support and no runtime behavior changes. A 3.13+ user who was relying on the wider bound should either stay on an installed copy or ask for the matrix to be widened; the declaration and the matrix are now checked against each other, so widening one without the other fails the suite.",
+                    "In the 0.1.0 configuration, `requires-python` was narrowed from `>=3.11` to `>=3.11,<3.13`, matching the 3.11 and 3.12 test and package matrices at that time. The open upper bound had admitted later interpreters without a CI lane exercising them. This is a historical restriction; see Supported Python Versions Widened below for the current range and matrices.",
+                    "The `Programming Language :: Python` classifiers already named 3.11 and 3.12 only, so the narrowing removed a disagreement between two declarations in the same file rather than dropping a version that had been claimed consistently.",
+                    "That change affected dependency resolution rather than runtime behavior. The declaration and the matrix remain checked against each other, so widening one without the other fails the suite.",
                 ],
             },
             {
