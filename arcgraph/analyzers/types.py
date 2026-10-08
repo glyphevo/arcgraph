@@ -432,6 +432,11 @@ def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool
     decorators = node.properties.get("decorators", [])
     if not decorators:
         return True
+    if node.kind != "method" and any(
+        str(name).rsplit(".", 1)[-1] == "classmethod" for name in decorators
+    ):
+        # The descriptor is callable only after binding it through a class.
+        return False
     descriptor_names = {"staticmethod", "classmethod"}
     bare = {name for name in decorators if name in descriptor_names}
     qualified = set()
@@ -483,6 +488,13 @@ def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool
             if name in qualified and binding.get("kind") != "re_export":
                 if name in imports and imports[name][0] != owner.id:
                     continue
+                if owner.kind not in {"module", "class"} and (
+                    (binding.get("line") or 0) >= (node.start_line or 0)
+                    or not binding.get("generator_descriptor_import_direct")
+                ):
+                    # A later local import makes the name local but unavailable
+                    # when this decorator is evaluated. Do not fall back outward.
+                    return False
                 if (
                     binding.get("kind") != "import_alias"
                     or (binding.get("target_qualname") or binding.get("value"))

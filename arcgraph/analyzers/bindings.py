@@ -215,6 +215,7 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             )
 
     def visit_function_body(self, body: list[ast.stmt]) -> None:
+        self.direct_statements = {id(stmt) for stmt in body}
         for stmt in body:
             self.visit(stmt)
 
@@ -702,6 +703,16 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             "method_definition",
         }:
             record["scope_direct"] = id(node) in self.direct_statements
+        if (
+            self.scope_kind in {"function", "method"}
+            and kind == "import_alias"
+            and value == "builtins"
+        ):
+            # Only the generator descriptor proof consumes this fact; do not
+            # widen scope_direct's existing module/class consumers.
+            record["generator_descriptor_import_direct"] = (
+                id(node) in self.direct_statements
+            )
         if kind == "method_definition":
             record["decorators"] = [
                 self.analyzer.unparse(d) for d in node.decorator_list

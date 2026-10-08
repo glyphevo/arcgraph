@@ -301,3 +301,53 @@ def test_descriptor_ignores_type_checking_binding_before_class_method(tmp_path):
     source = "from typing import TYPE_CHECKING\nclass Box:\n    if TYPE_CHECKING:\n        staticmethod = lambda fn: lambda: 1\n    @staticmethod\n    def made():\n        yield 1\ndef use(): return Box.made().send(None)\n"
     targets = _targets(tmp_path, {"user": source}, v2=True)
     assert "extsym:types.GeneratorType.send" in targets, targets
+
+
+@pytest.mark.parametrize("async_", [False, True])
+@pytest.mark.parametrize("outer_import", [False, True])
+@pytest.mark.parametrize("late", [False, True])
+def test_descriptor_import_must_be_available_when_nested_function_is_defined(
+    tmp_path, async_, outer_import, late
+):
+    prefix = "import builtins\n" if outer_import else ""
+    keyword = "async " if async_ else ""
+    member = "aclose" if async_ else "send"
+    arguments = "" if async_ else "None"
+    owner = "AsyncGeneratorType" if async_ else "GeneratorType"
+    source = (
+        prefix
+        + "def use():\n"
+        + ("" if late else "    import builtins\n")
+        + "    @builtins.staticmethod\n"
+        + f"    {keyword}def made():\n        yield 1\n"
+        + ("    import builtins\n" if late else "")
+        + f"    return made().{member}({arguments})\n"
+    )
+    targets = _targets(tmp_path, {"user": source}, v2=True)
+    assert (f"extsym:types.{owner}.{member}" in targets) is (not late), targets
+
+
+@pytest.mark.parametrize("qualified", [False, True])
+def test_classmethod_generator_outside_a_class_is_not_directly_callable(
+    tmp_path, qualified
+):
+    prefix = "import builtins\n" if qualified else ""
+    decorator = "builtins.classmethod" if qualified else "classmethod"
+    source = (
+        prefix
+        + f"@{decorator}\ndef made(): yield 1\ndef use(): return made().send(None)\n"
+    )
+    targets = _targets(tmp_path, {"user": source}, v2=True)
+    assert "extsym:types.GeneratorType.send" not in targets, targets
+
+
+@pytest.mark.parametrize("outer_import", [False, True])
+def test_conditional_local_import_does_not_prove_a_descriptor_module(
+    tmp_path, outer_import
+):
+    source = (
+        ("import builtins\n" if outer_import else "")
+        + "def use():\n    if False:\n        import builtins\n    @builtins.staticmethod\n    def made():\n        yield 1\n    return made().send(None)\n"
+    )
+    targets = _targets(tmp_path, {"user": source}, v2=True)
+    assert "extsym:types.GeneratorType.send" not in targets, targets
