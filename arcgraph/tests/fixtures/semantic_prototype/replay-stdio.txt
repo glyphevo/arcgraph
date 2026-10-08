@@ -1,0 +1,46 @@
+# Standard-library peer replaying a sanitized pyright 1.1.414 recording.
+import json,sys,time
+from pathlib import Path
+mode=sys.argv[1];root=Path.cwd().as_uri()
+def read():
+ length=None
+ while True:
+  line=sys.stdin.buffer.readline()
+  if not line:raise EOFError()
+  if line==b'\r\n':break
+  if line.lower().startswith(b'content-length:'):length=int(line.split(b':',1)[1])
+ return json.loads(sys.stdin.buffer.read(length))
+def send(message):
+ body=json.dumps(message).encode();sys.stdout.buffer.write(f'Content-Length: {len(body)}\r\n\r\n'.encode()+body);sys.stdout.buffer.flush()
+if mode=='replay':
+ rows=json.loads((Path(__file__).parent/'recorded-lsp.json').read_text().replace('file:///FROZEN',root))
+ for row in rows:
+  if row['direction']=='send':
+   item=read()
+   # Peer parameters checked by unit Replay; here also exercise real framing.
+   if item!=row['message']:raise ValueError(str((item,row['message'])))
+  else:send(row['message'])
+else:
+ item=read()
+ if mode=='error':send({'jsonrpc':'2.0','id':item['id'],'error':{'code':-32603,'message':'recorded error'}})
+ elif mode=='config':
+  send({'jsonrpc':'2.0','id':99,'method':'workspace/configuration','params':{'items':[{'section':'python.analysis'},{'section':'missing.value'}]}})
+  response=read();assert response['result']==[{'x':1},{}]
+  send({'jsonrpc':'2.0','id':100,'method':'client/registerCapability','params':{}});assert read()['result'] is None
+  send({'jsonrpc':'2.0','method':'window/logMessage','params':{'message':'notification'}})
+  send({'jsonrpc':'2.0','id':12345,'result':'late'})
+  send({'jsonrpc':'2.0','id':item['id'],'result':'ok'})
+ elif mode=='bad_length':sys.stdout.buffer.write(b'Content-Length: -1\r\n\r\n');sys.stdout.buffer.flush()
+ elif mode=='missing_length':sys.stdout.buffer.write(b'Content-Type: application/json\r\n\r\n');sys.stdout.buffer.flush()
+ elif mode=='truncated':sys.stdout.buffer.write(b'Content-Length: 100\r\n\r\n{}');sys.stdout.buffer.flush();sys.exit()
+ elif mode=='malformed':sys.stdout.buffer.write(b'Content-Length: 2\r\n\r\nxx');sys.stdout.buffer.flush()
+ elif mode=='eof':sys.exit()
+ elif mode in ('timeout','stubborn'):
+  if mode=='stubborn':
+   import signal
+   signal.signal(signal.SIGTERM,signal.SIG_IGN)
+  time.sleep(30)
+ # Respond to shutdown, apart from intentionally unresponsive variants.
+ try:
+  shutdown=read();send({'jsonrpc':'2.0','id':shutdown['id'],'result':None});read()
+ except EOFError:pass

@@ -1,0 +1,702 @@
+[
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "processId": null,
+        "rootUri": "file:///FROZEN",
+        "workspaceFolders": [
+          {
+            "uri": "file:///FROZEN",
+            "name": "frozen"
+          }
+        ],
+        "capabilities": {
+          "general": {
+            "positionEncodings": [
+              "utf-8",
+              "utf-16"
+            ]
+          },
+          "textDocument": {
+            "callHierarchy": {
+              "dynamicRegistration": false
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Pyright language server 1.1.414 starting"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Server root directory: file:///ISOLATED/npm/node_modules/pyright/dist"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Starting service instance \"frozen\""
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "capabilities": {
+          "textDocumentSync": 2,
+          "definitionProvider": {
+            "workDoneProgress": true
+          },
+          "declarationProvider": {
+            "workDoneProgress": true
+          },
+          "typeDefinitionProvider": {
+            "workDoneProgress": true
+          },
+          "referencesProvider": {
+            "workDoneProgress": true
+          },
+          "documentSymbolProvider": {
+            "workDoneProgress": true
+          },
+          "workspaceSymbolProvider": {
+            "workDoneProgress": true
+          },
+          "hoverProvider": {
+            "workDoneProgress": true
+          },
+          "documentHighlightProvider": {
+            "workDoneProgress": true
+          },
+          "renameProvider": {
+            "prepareProvider": true,
+            "workDoneProgress": true
+          },
+          "completionProvider": {
+            "triggerCharacters": [
+              ".",
+              "[",
+              "\"",
+              "'"
+            ],
+            "resolveProvider": true,
+            "workDoneProgress": true,
+            "completionItem": {
+              "labelDetailsSupport": true
+            }
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ",",
+              ")"
+            ],
+            "workDoneProgress": true
+          },
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix",
+              "source.organizeImports"
+            ],
+            "workDoneProgress": true
+          },
+          "executeCommandProvider": {
+            "commands": [],
+            "workDoneProgress": true
+          },
+          "callHierarchyProvider": true,
+          "workspace": {
+            "workspaceFolders": {
+              "supported": true,
+              "changeNotifications": true
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialized",
+      "params": {}
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///FROZEN/demo.py",
+          "languageId": "python",
+          "version": 1,
+          "text": "from functools import lru_cache\ndef f(): pass\n@lru_cache()\ndef cached(): return 1\ndef g():\n    é = \"😀\"; f(); f(); cached()\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "textDocument/prepareCallHierarchy",
+      "params": {
+        "textDocument": {
+          "uri": "file:///FROZEN/demo.py"
+        },
+        "position": {
+          "line": 1,
+          "character": 4
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "No include entries specified; assuming /ISOLATED/fixture"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Auto-excluding **/node_modules"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Auto-excluding **/__pycache__"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Auto-excluding **/.*"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Auto-excluding **/__editable__.*"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Assuming Python version 3.9.6.final.0"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": [
+        {
+          "name": "f",
+          "kind": 12,
+          "detail": "(demo.py)",
+          "uri": "file:///FROZEN/demo.py",
+          "range": {
+            "start": {
+              "line": 1,
+              "character": 4
+            },
+            "end": {
+              "line": 1,
+              "character": 5
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 1,
+              "character": 4
+            },
+            "end": {
+              "line": 1,
+              "character": 5
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "callHierarchy/outgoingCalls",
+      "params": {
+        "item": {
+          "name": "f",
+          "kind": 12,
+          "detail": "(demo.py)",
+          "uri": "file:///FROZEN/demo.py",
+          "range": {
+            "start": {
+              "line": 1,
+              "character": 4
+            },
+            "end": {
+              "line": 1,
+              "character": 5
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 1,
+              "character": 4
+            },
+            "end": {
+              "line": 1,
+              "character": 5
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "window/logMessage",
+      "params": {
+        "type": 3,
+        "message": "Found 1 source file"
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "uri": "file:///FROZEN/demo.py",
+        "version": 1,
+        "diagnostics": []
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": null
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "textDocument/prepareCallHierarchy",
+      "params": {
+        "textDocument": {
+          "uri": "file:///FROZEN/demo.py"
+        },
+        "position": {
+          "line": 3,
+          "character": 4
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": [
+        {
+          "name": "cached",
+          "kind": 12,
+          "detail": "(demo.py)",
+          "uri": "file:///FROZEN/demo.py",
+          "range": {
+            "start": {
+              "line": 3,
+              "character": 4
+            },
+            "end": {
+              "line": 3,
+              "character": 10
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 3,
+              "character": 4
+            },
+            "end": {
+              "line": 3,
+              "character": 10
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "callHierarchy/outgoingCalls",
+      "params": {
+        "item": {
+          "name": "cached",
+          "kind": 12,
+          "detail": "(demo.py)",
+          "uri": "file:///FROZEN/demo.py",
+          "range": {
+            "start": {
+              "line": 3,
+              "character": 4
+            },
+            "end": {
+              "line": 3,
+              "character": 10
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 3,
+              "character": 4
+            },
+            "end": {
+              "line": 3,
+              "character": 10
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": [
+        {
+          "to": {
+            "name": "lru_cache",
+            "kind": 12,
+            "detail": "(functools.pyi) · Standard library",
+            "uri": "file:///ISOLATED/npm/node_modules/pyright/dist/typeshed-fallback/stdlib/functools.pyi",
+            "range": {
+              "start": {
+                "line": 84,
+                "character": 4
+              },
+              "end": {
+                "line": 84,
+                "character": 13
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 84,
+                "character": 4
+              },
+              "end": {
+                "line": 84,
+                "character": 13
+              }
+            }
+          },
+          "fromRanges": [
+            {
+              "start": {
+                "line": 2,
+                "character": 1
+              },
+              "end": {
+                "line": 2,
+                "character": 10
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "textDocument/prepareCallHierarchy",
+      "params": {
+        "textDocument": {
+          "uri": "file:///FROZEN/demo.py"
+        },
+        "position": {
+          "line": 4,
+          "character": 4
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "result": [
+        {
+          "name": "g",
+          "kind": 12,
+          "detail": "(demo.py)",
+          "uri": "file:///FROZEN/demo.py",
+          "range": {
+            "start": {
+              "line": 4,
+              "character": 4
+            },
+            "end": {
+              "line": 4,
+              "character": 5
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 4,
+              "character": 4
+            },
+            "end": {
+              "line": 4,
+              "character": 5
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "callHierarchy/outgoingCalls",
+      "params": {
+        "item": {
+          "name": "g",
+          "kind": 12,
+          "detail": "(demo.py)",
+          "uri": "file:///FROZEN/demo.py",
+          "range": {
+            "start": {
+              "line": 4,
+              "character": 4
+            },
+            "end": {
+              "line": 4,
+              "character": 5
+            }
+          },
+          "selectionRange": {
+            "start": {
+              "line": 4,
+              "character": 4
+            },
+            "end": {
+              "line": 4,
+              "character": 5
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "result": [
+        {
+          "to": {
+            "name": "f",
+            "kind": 12,
+            "detail": "(demo.py) · Workspace",
+            "uri": "file:///FROZEN/demo.py",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 4
+              },
+              "end": {
+                "line": 1,
+                "character": 5
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 1,
+                "character": 4
+              },
+              "end": {
+                "line": 1,
+                "character": 5
+              }
+            }
+          },
+          "fromRanges": [
+            {
+              "start": {
+                "line": 5,
+                "character": 14
+              },
+              "end": {
+                "line": 5,
+                "character": 15
+              }
+            },
+            {
+              "start": {
+                "line": 5,
+                "character": 19
+              },
+              "end": {
+                "line": 5,
+                "character": 20
+              }
+            }
+          ]
+        },
+        {
+          "to": {
+            "name": "cached",
+            "kind": 12,
+            "detail": "(demo.py) · Workspace",
+            "uri": "file:///FROZEN/demo.py",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 4
+              },
+              "end": {
+                "line": 3,
+                "character": 10
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 3,
+                "character": 4
+              },
+              "end": {
+                "line": 3,
+                "character": 10
+              }
+            }
+          },
+          "fromRanges": [
+            {
+              "start": {
+                "line": 5,
+                "character": 24
+              },
+              "end": {
+                "line": 5,
+                "character": 30
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "shutdown",
+      "params": null
+    }
+  },
+  {
+    "direction": "receive",
+    "message": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "result": null
+    }
+  },
+  {
+    "direction": "send",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "exit",
+      "params": null
+    }
+  }
+]

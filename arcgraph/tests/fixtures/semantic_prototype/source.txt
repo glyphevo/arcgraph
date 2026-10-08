@@ -1,0 +1,6 @@
+from functools import lru_cache
+def f(): pass
+@lru_cache()
+def cached(): return 1
+def g():
+    é = "😀"; f(); f(); cached()
