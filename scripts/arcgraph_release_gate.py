@@ -12,6 +12,15 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+# Direct and imported entry points must use one shared policy module identity.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.arcgraph_wheel_policy import (
+    source_only_package_files,
+    validate_wheel_policy,
+)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STALE_WARNING_MARKERS = (
     "target_stale",
@@ -344,10 +353,23 @@ def validate_wheel_contents(
     *,
     tracked_package_files: list[str] | None = None,
 ) -> list[str]:
-    errors: list[str] = []
+    """Check required assets and reviewed omissions against Git membership.
+
+    Without tracked_package_files, completeness and untracked runtime files cannot
+    be checked. Names alone do not verify bytes, RECORD, duplicate members or file
+    types; package readiness smoke supplies those stronger archive checks. The
+    caller must bind the source configuration and manifest to the artifact tree.
+    """
+    errors = validate_wheel_policy(REPO_ROOT)
     with zipfile.ZipFile(wheel_path) as wheel:
         names = wheel.namelist()
     packaged = set(names)
+    source_only = sorted(source_only_package_files(names))
+    if source_only:
+        errors.append(
+            "ArcGraph wheel includes source-only package files: "
+            + ", ".join(source_only[:10])
+        )
     packaged_tests = [
         name
         for name in names
@@ -363,7 +385,9 @@ def validate_wheel_contents(
                 f"ArcGraph wheel is missing required package file {required_file}"
             )
     if tracked_package_files is not None:
-        expected = set(tracked_package_files)
+        expected = set(tracked_package_files) - source_only_package_files(
+            tracked_package_files
+        )
         packaged_runtime = {
             name
             for name in names
@@ -372,7 +396,9 @@ def validate_wheel_contents(
             and not name.startswith(WHEEL_TEST_PREFIX)
         }
         missing_tracked = sorted(expected - packaged_runtime)
-        unexpected_runtime = sorted(packaged_runtime - expected - GENERATED_WHEEL_FILES)
+        unexpected_runtime = sorted(
+            packaged_runtime - expected - GENERATED_WHEEL_FILES - set(source_only)
+        )
         if missing_tracked:
             errors.append(
                 "ArcGraph wheel is missing tracked package files: "

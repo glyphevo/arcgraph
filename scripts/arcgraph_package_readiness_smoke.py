@@ -28,6 +28,15 @@ from email.parser import Parser
 from pathlib import Path
 from typing import Any
 
+# Direct and imported entry points must use one shared policy module identity.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.arcgraph_wheel_policy import (
+    source_only_package_files,
+    validate_wheel_policy,
+)
+
 try:
     from scripts.arcgraph_trial_contract import (
         EXPECTED_DEFAULT_TOOL_NAMES,
@@ -1569,6 +1578,14 @@ def _validate_package_contents(
     expected_version: str | None = None,
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
+    """Validate archive safety, identity and reviewed wheel membership.
+
+    Only a supplied tracked_package_files manifest enables wheel completeness and
+    configuration cross-checks; production smoke always supplies it. Without
+    tracked_files, untracked sdist members cannot be rejected. Provenance must be
+    bound to the artifact's source tree by the caller. This is a content check, not
+    an installed CLI/MCP compatibility test or a reproducible-build proof.
+    """
     wheel_entries = _read_wheel_members(wheel)
     wheel_names = [name for name, _, _ in wheel_entries]
     # The archive file names bind the two roots: <name>-<version>.dist-info in
@@ -1636,6 +1653,9 @@ def _validate_package_contents(
         or name == "scripts/tests"
     ]
     errors: list[str] = []
+    source_only = sorted(source_only_package_files(wheel_names))
+    if source_only:
+        errors.append(f"wheel_includes_source_only_files={source_only[:10]}")
     if required_missing:
         errors.append(f"wheel_missing_required_files={required_missing}")
     if wheel_forbidden:
@@ -1649,7 +1669,10 @@ def _validate_package_contents(
     missing_tracked: list[str] = []
     unexpected_runtime: list[str] = []
     if tracked_package_files is not None:
-        expected = set(tracked_package_files)
+        errors.extend(validate_wheel_policy(repo_root or REPO_ROOT))
+        expected = set(tracked_package_files) - source_only_package_files(
+            tracked_package_files
+        )
         packaged_runtime = {
             name
             for name in wheel_names
@@ -1658,7 +1681,9 @@ def _validate_package_contents(
             and not name.startswith("arcgraph/tests/")
         }
         missing_tracked = sorted(expected - packaged_runtime)
-        unexpected_runtime = sorted(packaged_runtime - expected - GENERATED_WHEEL_FILES)
+        unexpected_runtime = sorted(
+            packaged_runtime - expected - GENERATED_WHEEL_FILES - set(source_only)
+        )
         if missing_tracked:
             errors.append(f"wheel_missing_tracked_files={missing_tracked[:10]}")
         if unexpected_runtime:
@@ -1702,6 +1727,7 @@ def _validate_package_contents(
         "wheel_forbidden_entries": wheel_forbidden[:20],
         "sdist_forbidden_entries": sdist_forbidden[:20],
         "wheel_missing_tracked_files": missing_tracked[:20],
+        "wheel_source_only_files": source_only[:20],
         "wheel_files_absent_from_git": unexpected_runtime[:20],
         "sdist_files_absent_from_git": unexpected_sdist[:20],
         "artifact_identity_mismatches": identity_problems[:20],
