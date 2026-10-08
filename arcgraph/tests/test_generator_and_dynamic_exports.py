@@ -209,6 +209,16 @@ EXPORT_BASE = "def helper():\n    return 1\ndef other():\n    return 2\n"
 EXPORT_CASES = [
     ("literal", "__all__ = ['helper', 'other']\n", True),
     ("tuple", "__all__ = ('helper', 'other')\n", True),
+    (
+        "index_read",
+        "__all__ = ['helper', 'other']\nitems = {}\nitems[__all__[0]] = 1\n",
+        True,
+    ),
+    (
+        "attribute_read",
+        "__all__ = ['helper', 'other']\nitems = {}\nitems[__all__.__class__] = 1\n",
+        True,
+    ),
     ("augmented_only", "__all__ += ['helper']\n", False),
     ("empty", "__all__ = []\n", False),
     (

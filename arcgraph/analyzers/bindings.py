@@ -576,7 +576,9 @@ class _BindingScopeVisitor(ast.NodeVisitor):
     ) -> None:
         if not self.static_only:
             for part in ast.walk(target):
-                if isinstance(part, (ast.Subscript, ast.Attribute)):
+                if isinstance(part, (ast.Subscript, ast.Attribute)) and isinstance(
+                    part.ctx, (ast.Store, ast.Del)
+                ):
                     root = part.value
                     while isinstance(root, (ast.Subscript, ast.Attribute)):
                         root = root.value
