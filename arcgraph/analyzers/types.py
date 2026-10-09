@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
-from arcgraph.analyzers.calls.lexical import LexicalScopes
+from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.exports import exported_class
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
@@ -403,8 +403,8 @@ def _entered_settles(stmt: ast.stmt, block: list[ast.stmt], name: str) -> bool |
 
 
 def _generator_return_type(node: Node, nodes: list[Node]) -> "_ResolvedType | None":
-    """What calling a generator function returns, where its annotation does
-    not say: a generator, or an async generator for an async def. Unknown
+    """What calling a generator body returns, independently of its annotation:
+    a generator, or an async generator for an async def. Unknown
     decorators can replace that return value, including when copying annotations."""
 
     if not node.properties.get("generator"):
@@ -422,22 +422,33 @@ def _generator_return_type(node: Node, nodes: list[Node]) -> "_ResolvedType | No
     )
 
 
-def _generator_decorators_preserve_return(node: Node, nodes: list[Node]) -> bool:
+def _generator_decorators_preserve_return(
+    node: Node,
+    nodes: list[Node],
+    *,
+    decorators: list[str] | None = None,
+    allow_property: bool = False,
+) -> bool:
     """Only unshadowed builtin descriptors preserve a decorated generator's
     return. Check the definition's enclosing scopes, not its parameters/body.
     Qualified descriptors need a visible import of the standard builtins module,
     with no observed descriptor write or module escape before decoration.
     """
 
-    decorators = node.properties.get("decorators", [])
+    decorators = (
+        node.properties.get("decorators", []) if decorators is None else decorators
+    )
     if not decorators:
         return True
     if node.kind != "method" and any(
-        str(name).rsplit(".", 1)[-1] == "classmethod" for name in decorators
+        str(name).rsplit(".", 1)[-1] in {"classmethod", "property"}
+        for name in decorators
     ):
         # The descriptor is callable only after binding it through a class.
         return False
     descriptor_names = {"staticmethod", "classmethod"}
+    if allow_property:
+        descriptor_names.add("property")
     bare = {name for name in decorators if name in descriptor_names}
     qualified = set()
     for name in decorators:
@@ -659,41 +670,28 @@ class TypeRefAnalyzer:
         analysis: TypeRefAnalysis,
     ) -> None:
         returns = node.properties.get("returns")
-        generated = _generator_return_type(node, context.nodes)
-        if (
-            node.properties.get("generator")
-            and node.properties.get("decorators")
-            and generated is None
-        ):
-            return
-        if generated is not None and not (isinstance(returns, str) and returns):
-            analysis.type_refs_by_scope.setdefault(node.id, []).append(
-                self._type_ref_record(
-                    context,
-                    scope_id=node.id,
-                    scope_kind=node.kind,
-                    name="return",
-                    subject_kind="return",
-                    strategy="generator_function",
-                    confidence="confirmed",
-                    source_expression=generated.expression,
-                    resolved=generated,
-                    line=node.start_line,
-                    end_line=node.end_line,
-                    column=None,
-                )
-            )
-            return
-        if not isinstance(returns, str) or not returns:
-            return
-        resolved = context.resolve_annotation(returns, use_imports=True)
+        resolved = context.callable_return_type(node)
+        declared_only = resolved is None
+        if declared_only:
+            if (
+                node.kind not in {"function", "method"}
+                or not isinstance(returns, str)
+                or not returns
+            ):
+                return
+            # Keep what the source declares visible to queries. It is not
+            # evidence of the value returned after an unknown decoration.
+            resolved = context.resolve_annotation(returns, use_imports=True)
+        generated = bool(node.properties.get("generator")) and not declared_only
+        if generated:
+            returns = resolved.expression
         type_ref = self._type_ref_record(
             context,
             scope_id=node.id,
             scope_kind=node.kind,
             name="return",
-            subject_kind="return",
-            strategy="return_annotation",
+            subject_kind="declared_return" if declared_only else "return",
+            strategy="generator_function" if generated else "return_annotation",
             confidence="confirmed" if resolved.type_id else "unresolved",
             source_expression=returns,
             resolved=resolved,
@@ -1109,7 +1107,15 @@ class TypeRefAnalyzer:
             "builtin:frozenset",
         }:
             item = type_args[0]
-        elif origin in {"Iterable", "Iterator", "Sequence"}:
+        elif origin in {
+            "Iterable",
+            "Iterator",
+            "Sequence",
+            "Generator",
+            "AsyncGenerator",
+            "AsyncIterator",
+            "AsyncIterable",
+        }:
             item = type_args[0]
         elif type_id == "builtin:dict":
             item = type_args[0]
@@ -1240,9 +1246,11 @@ class _TypeContext:
             tree
         )
         self.module_names = module_names
-        self.lexical = LexicalScopes(
-            [node for node in nodes if node.path == file_record.path], {}
-        )
+        self._nodes_by_path: dict[str | None, list[Node]] = {}
+        for scope in nodes:
+            self._nodes_by_path.setdefault(scope.path, []).append(scope)
+        self.lexical = LexicalScopes(self._nodes_by_path.get(file_record.path, []), {})
+        self._decorator_scopes = {file_record.path: self.lexical}
         self.aliases = self._import_aliases(tree.body)
         self.classes_by_id = {node.id: node for node in nodes if node.kind == "class"}
         self.export_nodes = {
@@ -1945,27 +1953,130 @@ class _TypeContext:
         short = name.rsplit(".", 1)[-1]
         return short not in _BUILTIN_TYPES and short not in _TYPING_ORIGINS
 
+    def callable_return_type(self, node: Node) -> _ResolvedType | None:
+        """One return rule for type records and inferred factory bindings.
+
+        The body's generator shape determines its runtime object. A compatible
+        protocol annotation can still describe yielded elements, never replace
+        that object with an annotated concrete class.
+        """
+        returns = node.properties.get("returns")
+        generated = _generator_return_type(node, self._nodes_by_path.get(node.path, []))
+        if node.properties.get("generator"):
+            if generated is None:
+                return None
+            if isinstance(returns, str) and returns:
+                annotated = self.resolve_annotation(
+                    returns, use_imports=node.path == self.file_record.path
+                )
+                if annotated.origin in {
+                    "Generator",
+                    "Iterator",
+                    "Iterable",
+                    "AsyncGenerator",
+                    "AsyncIterator",
+                    "AsyncIterable",
+                } and not (annotated.type_id or "").startswith("class:"):
+                    generated = replace(
+                        generated,
+                        origin=annotated.origin,
+                        type_args=annotated.type_args,
+                    )
+            return generated
+        if not isinstance(returns, str) or not returns:
+            return None
+        if not self._annotation_decorators_preserve_return(node):
+            return None
+        return self.resolve_annotation(
+            returns, use_imports=node.path == self.file_record.path
+        )
+
+    def _annotation_decorators_preserve_return(self, node: Node) -> bool:
+        """Small allowlist with identity evidence, not decorator suffix guesses.
+
+        Only builtin descriptors/property and direct functools cache imports
+        are proved. Qualified module expressions and arbitrary registration or
+        identity decorators are deliberately unknown. This does not prove the
+        absence of reflective monkeypatching in external modules.
+        """
+        decorators = node.properties.get("decorators", [])
+        scope_nodes = self._nodes_by_path.get(node.path, [])
+        if not decorators or _generator_decorators_preserve_return(node, scope_nodes):
+            return True
+        if node.path not in self._decorator_scopes:
+            self._decorator_scopes[node.path] = LexicalScopes(scope_nodes, {})
+        lexical = self._decorator_scopes[node.path]
+        owners = lexical.chain(node)[1:]
+        if node.kind == "method" and node.qualname:
+            parent = lexical.nodes.get(class_id(node.qualname.rsplit(".", 1)[0]))
+            if parent is None:
+                return False
+            owners = lexical.chain(parent)
+        for decorator in decorators:
+            if decorator in {"staticmethod", "classmethod", "property"}:
+                if decorator == "property" and len(decorators) != 1:
+                    return False
+                if not _generator_decorators_preserve_return(
+                    node, scope_nodes, decorators=[decorator], allow_property=True
+                ):
+                    return False
+                continue
+            expression = self.parse_expression(str(decorator))
+            callee = expression.func if isinstance(expression, ast.Call) else expression
+            if not owners or not isinstance(callee, ast.Name):
+                return False
+            if any("*" in lexical.bindings.get(owner.id, {}) for owner in owners):
+                return False
+            found = lexical.lookup(owners[0], callee.id)
+            if not found or not lexical.stable(*found):
+                return False
+            binding = found[1][0]
+            target = import_binding_target(binding)
+            if (
+                binding.get("kind") != "import_alias"
+                or (binding.get("line") or 0) >= (node.start_line or 0)
+                or binding.get("may_not_run")
+                or target
+                not in {
+                    "functools.cache",
+                    "functools.lru_cache",
+                    "functools.cached_property",
+                }
+                or (
+                    target == "functools.cached_property"
+                    and (node.kind != "method" or len(decorators) != 1)
+                )
+            ):
+                return False
+            if isinstance(expression, ast.Call):
+                # lru_cache(callable) would cache a different function, then
+                # invoke it as the decorator; only literal configuration is safe.
+                if (
+                    target != "functools.lru_cache"
+                    or len(expression.args) > 1
+                    or any(
+                        k.arg not in {"maxsize", "typed"} for k in expression.keywords
+                    )
+                    or any(
+                        not isinstance(a, ast.Constant)
+                        or not isinstance(a.value, (int, bool, type(None)))
+                        for a in [
+                            *expression.args,
+                            *(k.value for k in expression.keywords),
+                        ]
+                    )
+                ):
+                    return False
+        return True
+
     def _build_return_type_maps(self) -> None:
         for node in self.nodes:
             if node.kind not in {"function", "method"} or not node.qualname:
                 continue
             returns = node.properties.get("returns")
-            generated = _generator_return_type(node, self.nodes)
-            if (
-                node.properties.get("generator")
-                and node.properties.get("decorators")
-                and generated is None
-            ):
+            resolved = self.callable_return_type(node)
+            if resolved is None:
                 continue
-            if generated is not None and not (isinstance(returns, str) and returns):
-                resolved = generated
-            elif not isinstance(returns, str) or not returns:
-                continue
-            else:
-                resolved = self.resolve_annotation(
-                    returns,
-                    use_imports=node.path == self.file_record.path,
-                )
             if (
                 not resolved.type_id
                 and union_alternatives(

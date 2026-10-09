@@ -319,7 +319,10 @@ class _CallResolutionContext:
             for item in type_refs:
                 if not isinstance(item, dict):
                     continue
-                if item.get("comprehension_binding"):
+                if (
+                    item.get("comprehension_binding")
+                    or item.get("subject_kind") == "declared_return"
+                ):
                     continue
                 name = item.get("name")
                 if isinstance(name, str) and name:
