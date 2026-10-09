@@ -13,6 +13,8 @@ def _targets(tmp_path: Path, body: str) -> set[str]:
     source = (
         "class Matcher:\n    def find(self, row): return row\n"
         "class Other:\n    def find(self, row): return row\n"
+        "    def __enter__(self): return self\n"
+        "    def __exit__(self, *args): pass\n"
         "class User:\n"
         "    def __init__(self): self.matcher = Matcher()\n"
         "    def run(self, flag, row):\n" + body
@@ -132,3 +134,16 @@ def test_proven_attribute_write_and_assignment_rhs(tmp_path, body, expected):
 )
 def test_method_local_statement_order_is_unchanged(tmp_path, body, expected):
     assert _targets(tmp_path, body) == {f"method:pkg.user.{expected}.find"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "        for self.matcher in [Other()]:\n            self.matcher.find(row)\n",
+        "        with Other() as self.matcher:\n            self.matcher.find(row)\n",
+    ],
+)
+def test_attribute_header_binding_does_not_wait_for_whole_statement(tmp_path, body):
+    # The runtime value comes from iteration/context entry, not __init__.
+    # Its element/enter type is unknown here; do not guess the entry receiver.
+    assert "method:pkg.user.Matcher.find" not in _targets(tmp_path, body)

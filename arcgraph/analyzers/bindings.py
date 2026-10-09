@@ -729,11 +729,13 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self._set_optional(record, "annotation", annotation)
         if value_region:
             record["value_region"] = value_region
-        if kind in {
-            "assignment",
-            "annotated_assignment",
-            "instance_attribute",
-        } and isinstance(getattr(node, "end_col_offset", None), int):
+        if (
+            kind in {"assignment", "annotated_assignment"}
+            or (
+                kind == "instance_attribute"
+                and isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign))
+            )
+        ) and isinstance(getattr(node, "end_col_offset", None), int):
             # Where the statement ends: a call later on its line, as in
             # c = Other(); c.send(), sees the new value, while one inside it,
             # as in x = x.strip(), still sees the old.
