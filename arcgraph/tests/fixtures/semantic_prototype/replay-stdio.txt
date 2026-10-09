@@ -13,7 +13,7 @@ def read():
 def send(message):
  body=json.dumps(message).encode();sys.stdout.buffer.write(f'Content-Length: {len(body)}\r\n\r\n'.encode()+body);sys.stdout.buffer.flush()
 if mode=='replay':
- rows=json.loads((Path(__file__).parent/'recorded-lsp.json').read_text().replace('file:///FROZEN',root))
+ rows=json.loads((Path(__file__).parent/'recorded-lsp.json').read_text(encoding='utf-8').replace('file:///FROZEN',root))
  for row in rows:
   if row['direction']=='send':
    item=read()

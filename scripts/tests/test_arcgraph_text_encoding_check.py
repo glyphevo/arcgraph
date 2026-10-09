@@ -153,6 +153,24 @@ def test_fixtures_and_untracked_files_are_not_scanned(tmp_path: Path) -> None:
     assert CHECK.check(root, {}) == {"findings": [], "stale_allowlist": []}
 
 
+def test_executed_non_py_fixture_is_checked(tmp_path: Path) -> None:
+    path = "arcgraph/tests/fixtures/semantic_prototype/replay-stdio.txt"
+    root = _repo(
+        tmp_path,
+        {path: "from pathlib import Path\nPath('recorded-lsp.json').read_text()\n"},
+    )
+
+    [finding] = CHECK.check(root, {})["findings"]
+
+    assert (finding["path"], finding["line"], finding["rule"]) == (path, 2, "read_text")
+    (root / path).write_text(
+        "from pathlib import Path\nPath('recorded-lsp.json').read_text(encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    assert path in CHECK.tracked_python_files(root)
+    assert CHECK.check(root, {}) == {"findings": [], "stale_allowlist": []}
+
+
 def test_main_exits_nonzero_on_findings(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

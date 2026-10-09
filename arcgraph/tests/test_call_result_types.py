@@ -15,6 +15,7 @@ import importlib
 import inspect
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -694,6 +695,10 @@ VERSION_DEPENDENT_STDLIB_NAMES = {
     "typing.Union": ("function", "function", "function", "class"),
 }
 SUPPORTED_MINOR_VERSIONS = ((3, 11), (3, 12), (3, 13), (3, 14))
+# CPython gh-113238 / gh-130499: the public re-export was added in 3.12.10.
+# _common.Anchor already existed in 3.12.0. The product's cross-version name
+# table classifies known callables; it does not promise a name exists at runtime.
+STDLIB_NAME_INTRODUCED = {"importlib.resources.Anchor": (3, 12, 10)}
 
 
 def _stdlib_kind(qualname: str) -> str:
@@ -718,10 +723,63 @@ def test_version_dependent_stdlib_names():
         qualname: kinds[index]
         for qualname, kinds in VERSION_DEPENDENT_STDLIB_NAMES.items()
     }
+    for qualname, introduced in STDLIB_NAME_INTRODUCED.items():
+        if sys.version_info[:3] < introduced:
+            expected[qualname] = "absent"
     assert actual == expected
     for qualname, kinds in VERSION_DEPENDENT_STDLIB_NAMES.items():
         # Only a name whose kind does differ needs the exemption.
         assert len(set(kinds) - {"absent"}) > 1, qualname
+
+
+@pytest.mark.parametrize(
+    "version,anchor_kind",
+    [
+        ((3, 12, 0), "absent"),
+        ((3, 12, 3), "absent"),
+        ((3, 12, 9), "absent"),
+        ((3, 12, 10), "function"),
+        ((3, 12, 13), "function"),
+        ((3, 13, 0), "function"),
+        ((3, 14, 0), "value"),
+    ],
+)
+def test_stdlib_kind_check_accounts_for_patch_releases(
+    monkeypatch, version, anchor_kind
+):
+    # Model the runtime separately from the expected-kind calculation. In 3.12
+    # _common.Anchor exists from .0; its public re-export only exists from .10.
+    index = SUPPORTED_MINOR_VERSIONS.index(version[:2])
+    runtime = {
+        name: kinds[index] for name, kinds in VERSION_DEPENDENT_STDLIB_NAMES.items()
+    }
+    runtime["importlib.resources.Anchor"] = anchor_kind
+    monkeypatch.setitem(globals(), "sys", SimpleNamespace(version_info=version))
+    monkeypatch.setitem(globals(), "_stdlib_kind", runtime.__getitem__)
+
+    test_version_dependent_stdlib_names()
+
+
+@pytest.mark.parametrize(
+    "version,missing",
+    [
+        ((3, 12, 9), "importlib.resources._common.Anchor"),
+        ((3, 12, 10), "importlib.resources.Anchor"),
+    ],
+)
+def test_stdlib_kind_check_still_rejects_unexpected_absence(
+    monkeypatch, version, missing
+):
+    runtime = {name: kinds[1] for name, kinds in VERSION_DEPENDENT_STDLIB_NAMES.items()}
+    runtime["importlib.resources.Anchor"] = (
+        "absent" if version < (3, 12, 10) else "function"
+    )
+    runtime[missing] = "absent"
+    monkeypatch.setitem(globals(), "sys", SimpleNamespace(version_info=version))
+    monkeypatch.setitem(globals(), "_stdlib_kind", runtime.__getitem__)
+
+    with pytest.raises(AssertionError):
+        test_version_dependent_stdlib_names()
 
 
 def test_capitalised_stdlib_functions():

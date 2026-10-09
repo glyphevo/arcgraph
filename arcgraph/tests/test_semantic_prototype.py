@@ -561,14 +561,34 @@ def test_wrap_current_graph_preserves_repeated_and_none_call_roles(tmp_path):
     assert not (root / "output").exists()
 
 
-def test_stdio_recorded_replay_exercises_configuration_and_shutdown(tmp_path):
+@pytest.mark.parametrize("locale_encoding", [None, "cp1252"])
+def test_stdio_recorded_replay_exercises_configuration_and_shutdown(
+    tmp_path, locale_encoding
+):
     import os
     import sys
     from arcgraph.semantic_prototype.lsp import Client
 
     snapshot, root, data = view(tmp_path)
+    command = [sys.executable, str(FIXTURE / "replay-stdio.txt"), "replay"]
+    if locale_encoding:
+        # CPython's locale on macOS cannot select Windows cp1252. Model its
+        # default text encoding in the child, leaving explicit encodings alone,
+        # then execute the actual peer and recording with normal LSP framing.
+        bootstrap = """
+import io, runpy, sys
+assert not sys.flags.utf8_mode
+original = io.text_encoding
+io.text_encoding = lambda encoding, stacklevel=2: (
+    'cp1252' if encoding in (None, 'locale') else original(encoding, stacklevel)
+)
+assert io.text_encoding(None) == 'cp1252'
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+        command = [sys.executable, "-X", "utf8=0", "-c", bootstrap, *command[1:]]
     with Client(
-        [sys.executable, str(FIXTURE / "replay-stdio.txt"), "replay"],
+        command,
         root,
         dict(os.environ),
         {},

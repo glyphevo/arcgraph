@@ -8,6 +8,11 @@ sets PYTHONUTF8=1, so its tests cannot catch this; this static check can.
 The check is syntactic. It reports a call when it can see text mode and no
 encoding; a call it cannot classify (a dynamic mode, ``**kwargs``) is reported
 too and must be fixed or listed in ``ALLOWED`` with its reason.
+
+Tracked Python fixtures executed by tests are listed in ``EXECUTED_FIXTURES``
+even when their extension is not .py. Other indexer sample fixtures are data.
+New executed fixtures must be added to that list; this check cannot discover
+dynamic execution, generated sources or Python embedded in strings/documents.
 """
 
 from __future__ import annotations
@@ -22,8 +27,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Sample sources the indexer reads as data; tests never execute them.
+# Indexer sample sources are data, apart from explicitly listed test programs.
 EXCLUDED_PREFIXES = ("arcgraph/tests/fixtures/",)
+EXECUTED_FIXTURES = ("arcgraph/tests/fixtures/semantic_prototype/replay-stdio.txt",)
 
 # (path, call source with whitespace collapsed) -> why the call is safe.
 ALLOWED: dict[tuple[str, str], str] = {}
@@ -194,13 +200,16 @@ def scan_source(path: str, source: str) -> list[Finding]:
 
 def tracked_python_files(root: Path) -> list[str]:
     completed = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", "--", "*.py"],
+        ["git", "-C", str(root), "ls-files", "-z", "--", "*.py", *EXECUTED_FIXTURES],
         capture_output=True,
         check=True,
     )
     paths = completed.stdout.decode("utf-8").split("\0")
     return sorted(
-        path for path in paths if path and not path.startswith(EXCLUDED_PREFIXES)
+        path
+        for path in paths
+        if path
+        and (path in EXECUTED_FIXTURES or not path.startswith(EXCLUDED_PREFIXES))
     )
 
 
