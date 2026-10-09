@@ -152,6 +152,17 @@ class _CallResolutionContext:
         latest: dict[str, Any] = max(
             bindings, key=lambda b: (b.get("line", 0), b.get("column", 0))
         )
+        if latest.get("kind") == "instance_attribute" and latest.get("may_not_run"):
+            # Outside the assigning branch, neither its new value nor the
+            # entry value is certain. Keep the receiver unknown rather than
+            # letting a last textual write become a definite runtime value.
+            block = latest.get("block")
+            _, line, column = self.callsite_position
+            if not block or not (block[0], block[1]) <= (line, column) <= (
+                block[2],
+                block[3],
+            ):
+                return unknown_union_result(name)
         binding_id = latest.get("binding_id")
         if len(refs) < 2 and not any(r.get("binding_id") == binding_id for r in refs):
             # With one typed binding, its type is not the value called when

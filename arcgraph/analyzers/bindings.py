@@ -216,6 +216,7 @@ class _BindingScopeVisitor(ast.NodeVisitor):
 
     def visit_function_body(self, body: list[ast.stmt]) -> None:
         self.direct_statements = {id(stmt) for stmt in body}
+        self.flow = module_flow(body)
         for stmt in body:
             self.visit(stmt)
 
@@ -728,9 +729,11 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self._set_optional(record, "annotation", annotation)
         if value_region:
             record["value_region"] = value_region
-        if kind in {"assignment", "annotated_assignment"} and isinstance(
-            getattr(node, "end_col_offset", None), int
-        ):
+        if kind in {
+            "assignment",
+            "annotated_assignment",
+            "instance_attribute",
+        } and isinstance(getattr(node, "end_col_offset", None), int):
             # Where the statement ends: a call later on its line, as in
             # c = Other(); c.send(), sees the new value, while one inside it,
             # as in x = x.strip(), still sees the old.
@@ -739,7 +742,7 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             record["unpack_path"] = unpack_path
         if static_only or self.static_only:
             record["static_only"] = True
-        if self.scope_kind == "module":
+        if self.scope_kind == "module" or kind == "instance_attribute":
             self._record_module_flow(record, node, kind, name)
         self._set_optional(record, "imported_name", imported_name)
         self._set_optional(record, "owner", owner)
