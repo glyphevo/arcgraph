@@ -23,12 +23,17 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
         parsed_files: dict[str, ast.Module],
         nodes: list[Node],
         module_names: set[str],
+        return_decorator_cache: dict[str, bool] | None = None,
     ) -> None:
+        if return_decorator_cache is None:
+            return_decorator_cache = {}
         catalog = FixtureCatalog(files, parsed_files, module_names, nodes)
         by_id = {n.id: n for n in nodes}
         provider_paths = {f.file.path for f in catalog.fixtures}
         contexts = {
-            f.path: _TypeContext(f, parsed_files[f.path], nodes, module_names)
+            f.path: _TypeContext(
+                f, parsed_files[f.path], nodes, module_names, return_decorator_cache
+            )
             for f in files
             if f.path in provider_paths
         }
@@ -84,7 +89,7 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
                         continue
                     if file.path not in contexts:
                         contexts[file.path] = _TypeContext(
-                            file, tree, nodes, module_names
+                            file, tree, nodes, module_names, return_decorator_cache
                         )
                     ref = self._type_ref_record(
                         contexts[file.path],

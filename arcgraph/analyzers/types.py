@@ -634,6 +634,17 @@ class TypeRefAnalysis:
 class TypeRefAnalyzer:
     """Collect V2.2 TypeRef summaries without changing call resolution."""
 
+    def prepare_return_analysis(self, nodes: list[Node]) -> dict[str, bool]:
+        """Start a type pass after binding collection has completed.
+
+        Only decorator identity evidence is shared. Annotation resolution still
+        depends on each file's imports. Standalone analyze calls remain uncached.
+        A new preparation discards all evidence from the previous binding pass.
+        """
+        self._prepared_nodes = nodes
+        self._return_decorator_cache: dict[str, bool] = {}
+        return self._return_decorator_cache
+
     def analyze(
         self,
         file_record: FileRecord,
@@ -641,7 +652,12 @@ class TypeRefAnalyzer:
         nodes: list[Node],
         module_names: set[str],
     ) -> TypeRefAnalysis:
-        context = _TypeContext(file_record, tree, nodes, module_names)
+        cache = (
+            self._return_decorator_cache
+            if getattr(self, "_prepared_nodes", None) is nodes
+            else None
+        )
+        context = _TypeContext(file_record, tree, nodes, module_names, cache)
         analysis = TypeRefAnalysis()
         context.attach_type_traits()
 
@@ -1238,7 +1254,11 @@ class _TypeContext:
         tree: ast.Module,
         nodes: list[Node],
         module_names: set[str],
+        return_decorator_cache: dict[str, bool] | None = None,
     ) -> None:
+        self._return_decorator_cache = (
+            return_decorator_cache if return_decorator_cache is not None else {}
+        )
         self.file_record = file_record
         self.tree = tree
         self.nodes = nodes
@@ -1985,7 +2005,11 @@ class _TypeContext:
             return generated
         if not isinstance(returns, str) or not returns:
             return None
-        if not self._annotation_decorators_preserve_return(node):
+        if node.id not in self._return_decorator_cache:
+            self._return_decorator_cache[node.id] = (
+                self._annotation_decorators_preserve_return(node)
+            )
+        if not self._return_decorator_cache[node.id]:
             return None
         return self.resolve_annotation(
             returns, use_imports=node.path == self.file_record.path
@@ -2074,6 +2098,10 @@ class _TypeContext:
             if node.kind not in {"function", "method"} or not node.qualname:
                 continue
             returns = node.properties.get("returns")
+            if not node.properties.get("generator") and not (
+                isinstance(returns, str) and returns
+            ):
+                continue
             resolved = self.callable_return_type(node)
             if resolved is None:
                 continue

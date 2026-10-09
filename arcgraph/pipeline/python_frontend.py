@@ -170,6 +170,7 @@ class PythonGraphAnalyzer:
             if call_context_nodes is not None
             else nodes
         )
+        return_decorator_cache = type_ref_analyzer.prepare_return_analysis(type_context)
         for file_record in files:
             tree = parsed_files.get(file_record.path)
             if tree is None:
@@ -182,7 +183,9 @@ class PythonGraphAnalyzer:
             isinstance(adapter, PytestAdapter)
             for adapter in self.adapter_registry.adapters
         ):
-            PytestTypeAnalyzer().attach(files, parsed_files, type_context, module_names)
+            PytestTypeAnalyzer().attach(
+                files, parsed_files, type_context, module_names, return_decorator_cache
+            )
         phase_timings["scope_type"] = time.monotonic() - t0
 
         # --- Phase 4: Call resolution ---
