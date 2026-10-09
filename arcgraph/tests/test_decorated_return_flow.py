@@ -81,7 +81,7 @@ def test_generator_body_determines_runtime_object_before_annotation(
             "@lru_cache(another)\n",
             False,
         ),
-        ("import functools\n", "@functools.cache\n", False),
+        ("import functools\n", "@functools.cache\n", True),
         (
             "from functools import cache\ndef wrap(fn): return lambda: 42\n",
             "@cache\n@wrap\n",

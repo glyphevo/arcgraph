@@ -521,7 +521,11 @@ def _generator_decorators_preserve_return(
 
 
 def _generator_descriptor_module_unchanged(
-    node: Node, scopes: list[Node], roots: set[str]
+    node: Node,
+    scopes: list[Node],
+    roots: set[str],
+    *,
+    attributes: set[str] | None = None,
 ) -> bool:
     """Visible writes and escapes invalidate the qualified descriptor proof.
     This is not a model of arbitrary reflection or cross-module monkeypatching.
@@ -529,6 +533,8 @@ def _generator_descriptor_module_unchanged(
 
     if not roots:
         return True
+    if attributes is None:
+        attributes = {"staticmethod", "classmethod"}
     for scope in scopes:
 
         def before_decoration(record: dict[str, Any]) -> bool:
@@ -537,7 +543,11 @@ def _generator_descriptor_module_unchanged(
             ) < (node.start_line or 0)
 
         for write in scope.properties.get("generator_descriptor_writes", []):
-            if write.get("receiver") in roots and before_decoration(write):
+            if (
+                write.get("receiver") in roots
+                and write.get("attribute") in attributes
+                and before_decoration(write)
+            ):
                 return False
         expressions = [
             (call.get("call_expression"), call)
@@ -2018,10 +2028,10 @@ class _TypeContext:
     def _annotation_decorators_preserve_return(self, node: Node) -> bool:
         """Small allowlist with identity evidence, not decorator suffix guesses.
 
-        Only builtin descriptors/property and direct functools cache imports
-        are proved. Qualified module expressions and arbitrary registration or
-        identity decorators are deliberately unknown. This does not prove the
-        absence of reflective monkeypatching in external modules.
+        Builtin descriptors/property and functools caches are proved from direct
+        member imports or a single attribute of a stable stdlib module import.
+        Dynamic aliases/configuration and arbitrary identity decorators remain
+        unknown. Reflective or cross-module monkeypatching is not modeled.
         """
         decorators = node.properties.get("decorators", [])
         scope_nodes = self._nodes_by_path.get(node.path, [])
@@ -2047,15 +2057,37 @@ class _TypeContext:
                 continue
             expression = self.parse_expression(str(decorator))
             callee = expression.func if isinstance(expression, ast.Call) else expression
-            if not owners or not isinstance(callee, ast.Name):
+            name = (
+                callee.id
+                if isinstance(callee, ast.Name)
+                else (
+                    callee.value.id
+                    if isinstance(callee, ast.Attribute)
+                    and isinstance(callee.value, ast.Name)
+                    else None
+                )
+            )
+            if not owners or name is None:
                 return False
             if any("*" in lexical.bindings.get(owner.id, {}) for owner in owners):
                 return False
-            found = lexical.lookup(owners[0], callee.id)
+            found = lexical.lookup(owners[0], name)
             if not found or not lexical.stable(*found):
                 return False
             binding = found[1][0]
             target = import_binding_target(binding)
+            if isinstance(callee, ast.Attribute):
+                if (
+                    target != "functools"
+                    or binding.get("value") != "functools"
+                    or "functools" in self.module_names
+                    or (node.path, name) in lexical.global_writes
+                    or not _generator_descriptor_module_unchanged(
+                        node, scope_nodes, {name}, attributes={callee.attr}
+                    )
+                ):
+                    return False
+                target = f"functools.{callee.attr}"
             if (
                 binding.get("kind") != "import_alias"
                 or (binding.get("line") or 0) >= (node.start_line or 0)

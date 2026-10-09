@@ -590,7 +590,14 @@ class _BindingScopeVisitor(ast.NodeVisitor):
                     if (
                         isinstance(part, ast.Attribute)
                         and isinstance(part.value, ast.Name)
-                        and part.attr in {"staticmethod", "classmethod"}
+                        and part.attr
+                        in {
+                            "staticmethod",
+                            "classmethod",
+                            "cache",
+                            "lru_cache",
+                            "cached_property",
+                        }
                     ):
                         self.analysis.generator_descriptor_writes.setdefault(
                             self.scope_id, []
