@@ -1216,12 +1216,16 @@ def staged_arguments(args, output=None):
     ]
 
 
+@pytest.mark.parametrize("argv_source", ["explicit", "process"])
 def test_pipeline_default_replaces_heavy_parent_before_starting_transport(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, argv_source
 ):
     import os
 
     args, _, _ = staged_case(tmp_path)
+    args.pyright_version = "recorded; shell metacharacters remain data"
+    arguments = staged_arguments(args)
+    monkeypatch.setattr(sys, "argv", ["pipeline.py", *arguments])
     seen = []
 
     def execute(executable, argv, environment):
@@ -1233,9 +1237,13 @@ def test_pipeline_default_replaces_heavy_parent_before_starting_transport(
         pipeline, "Client", lambda *a, **kw: pytest.fail("heavy parent started LSP")
     )
     with pytest.raises(RuntimeError, match="exec boundary"):
-        pipeline.main(staged_arguments(args))
-    assert Path(seen[0][1][1]).name == "staged.py"
-    assert seen[0][1][2:] == staged_arguments(args)
+        pipeline.main(arguments if argv_source == "explicit" else None)
+    assert seen[0][0] == sys.executable
+    assert seen[0][1][:2] == [
+        sys.executable,
+        str(Path(pipeline.__file__).with_name("staged.py")),
+    ]
+    assert seen[0][1][2:] == arguments
     assert not (args.output / "lsp.jsonl").exists()
 
 

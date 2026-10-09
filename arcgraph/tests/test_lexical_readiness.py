@@ -96,7 +96,8 @@ def test_captured_local_class_constructor_keeps_definition_identity_only():
 
 
 @pytest.mark.parametrize(
-    "name", ["FileExistsError", "ModuleNotFoundError", "BrokenPipeError"]
+    "name",
+    ["FileExistsError", "ModuleNotFoundError", "BrokenPipeError", "WindowsError"],
 )
 def test_builtin_exceptions_resolve_and_local_shadow_stays_unknown(name):
     nodes = _analyzed_nodes(
@@ -270,3 +271,10 @@ def test_legacy_mode_alone_matches_a_method_by_its_name(enable_v2):
     # Legacy mode, kept for indexes built in it, still matches the one add of
     # the project; with receiver resolution, its name alone links nothing.
     assert ("method:pkg.calls.Accumulator.add" in linked) is not enable_v2
+
+
+def test_windows_error_builtin_alias_is_covered_on_every_host(monkeypatch):
+    # Model the actual Windows builtin on POSIX too; shadowing is tested above.
+    monkeypatch.setattr(builtins, "WindowsError", OSError, raising=False)
+    assert builtins.WindowsError is OSError
+    test_builtin_calls_cover_every_public_builtin()

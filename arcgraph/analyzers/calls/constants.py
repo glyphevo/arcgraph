@@ -51,6 +51,7 @@ DYNAMIC_CALLS = {
 # copyright, credits and license helpers that site installs, plus __import__.
 # test_builtin_calls_cover_every_public_builtin checks the running interpreter
 # against this list, so a hand-kept subset cannot fall behind again.
+# WindowsError is Windows-only and aliases OSError, as IOError does everywhere.
 BUILTIN_CALLS = {
     "ArithmeticError",
     "AssertionError",
@@ -121,6 +122,7 @@ BUILTIN_CALLS = {
     "UserWarning",
     "ValueError",
     "Warning",
+    "WindowsError",
     "ZeroDivisionError",
     "__import__",
     "abs",

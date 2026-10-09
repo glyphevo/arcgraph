@@ -176,7 +176,9 @@ def main(argv=None):
 
         # Replace this interpreter too: retaining its imported graph schemas
         # while the transport runs would spend memory without doing work.
-        os.execve(
+        # Trusted current Python executes our sibling staged.py; CLI arguments
+        # remain separate argv entries (no shell or user-selected executable).
+        os.execve(  # nosec B606
             sys.executable,
             [
                 sys.executable,

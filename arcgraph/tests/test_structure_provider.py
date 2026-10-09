@@ -317,12 +317,26 @@ def test_unavailable_is_incomplete_without_lower_version_fallback(
     assert provider.admit_structure(result, snapshot)[0] is False
 
 
-def test_recorded_target_314_produces_new_syntax_with_host_311(tmp_path, monkeypatch):
+@pytest.mark.parametrize("native_newline", ["\n", "\r\n"])
+def test_recorded_target_314_produces_new_syntax_with_host_311(
+    tmp_path, monkeypatch, native_newline
+):
+    # Exercise Windows' default text translation even on a POSIX test host.
+    write_text = Path.write_text
+
+    def native_write(path, data, *args, **kwargs):
+        kwargs.setdefault("newline", native_newline)
+        return write_text(path, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", native_write)
     names = ["py313-type-defaults", "py314-template-annotations", "future-annotations"]
     source = tmp_path / "source"
     source.mkdir()
     for name in names:
-        (source / (name + ".py")).write_text(CASES[name]["source"], encoding="utf-8")
+        # This recording includes raw source hashes, so materialize its LF bytes.
+        (source / (name + ".py")).write_text(
+            CASES[name]["source"], encoding="utf-8", newline="\n"
+        )
     root = tmp_path / "frozen"
     snapshot = capture(
         source,

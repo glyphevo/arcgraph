@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 from pydantic import ValidationError
@@ -928,3 +928,68 @@ def test_wrap_chain_calls_with_shared_start_uses_expression_and_all_facts(tmp_pa
         "lexical_binding",
         "name_guess",
     }
+
+
+@pytest.mark.parametrize(
+    "root,uri,expected",
+    [
+        (PureWindowsPath("C:/frozen"), "file:///C:/frozen/demo.py", "demo.py"),
+        (PureWindowsPath("C:/frozen"), "file://localhost/C:/frozen/demo.py", "demo.py"),
+        (PureWindowsPath("C:/frozen"), "file:///c:/FROZEN/demo.py", "demo.py"),
+        (
+            PureWindowsPath("C:/frozen"),
+            "file:///C:/frozen/%C3%A9%20%23%25.py",
+            "é #%.py",
+        ),
+        (
+            PureWindowsPath("//server/share/frozen"),
+            "file://server/share/frozen/demo.py",
+            "demo.py",
+        ),
+        (
+            PureWindowsPath("//server/share/frozen"),
+            "file:////server/share/frozen/demo.py",
+            "demo.py",
+        ),
+        (PurePosixPath("/frozen"), "file:///frozen/%C3%A9%20%23%25.py", "é #%.py"),
+        (PurePosixPath("/frozen"), "file://localhost/frozen/demo.py", "demo.py"),
+        (PureWindowsPath("C:/frozen"), "file:///D:/frozen/demo.py", None),
+        (PureWindowsPath("C:/frozen"), "file:///C:/frozen/../outside.py", None),
+        (PureWindowsPath("C:/frozen"), "file:C:demo.py", None),
+        (PureWindowsPath("C:/frozen"), "file:///C:/frozen/demo.py?x=1", None),
+        (PureWindowsPath("C:/frozen"), "file:///C:/frozen/demo.py#other", None),
+        (PureWindowsPath("C:/frozen"), "file://server/share/demo.py", None),
+        (PurePosixPath("/frozen"), "file://server/frozen/demo.py", None),
+        (PurePosixPath("/frozen"), "https://localhost/frozen/demo.py", None),
+        (PurePosixPath("/frozen"), "file:demo.py", None),
+    ],
+)
+def test_file_uri_mapping_uses_snapshot_path_flavour_on_every_host(root, uri, expected):
+    records = object.__new__(Records)
+    records.root = root
+    assert records.path(uri) == expected
+
+
+@pytest.mark.parametrize(
+    "root",
+    [
+        PureWindowsPath("C:/frozen"),
+        PureWindowsPath("//server/share/frozen"),
+        PurePosixPath("/frozen"),
+    ],
+)
+def test_file_uri_roundtrip_keeps_percent_unicode_and_space(root):
+    records = object.__new__(Records)
+    records.root = root
+    assert records.path((root / "é #%.py").as_uri()) == "é #%.py"
+
+
+def test_file_uri_mapping_resolves_native_symlinks_before_containment(tmp_path):
+    root = tmp_path / "frozen"
+    root.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_bytes(b"pass\n")
+    (root / "escape.py").symlink_to(outside)
+    records = object.__new__(Records)
+    records.root = root.resolve()
+    assert records.path((root / "escape.py").as_uri()) is None
