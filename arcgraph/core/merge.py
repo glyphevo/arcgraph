@@ -165,6 +165,7 @@ class EvidenceMergeEngine:
                 or rank > previous_rank
                 or (
                     rank == previous_rank
+                    and node != existing
                     and json.dumps(node.model_dump(mode="json"), sort_keys=True)
                     < json.dumps(existing.model_dump(mode="json"), sort_keys=True)
                 )

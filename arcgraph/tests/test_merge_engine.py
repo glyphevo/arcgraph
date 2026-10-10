@@ -654,3 +654,21 @@ def test_equal_rank_tie_break_does_not_replace_a_concrete_definition():
     )
     assert EvidenceMergeEngine.dedupe_nodes([concrete, placeholder]) == [concrete]
     assert EvidenceMergeEngine.dedupe_nodes([placeholder, concrete]) == [concrete]
+
+
+def test_identical_node_duplicates_do_not_repeat_canonical_serialization(monkeypatch):
+    calls = 0
+    original = Node.model_dump
+
+    def count(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(self, *args, **kwargs)
+
+    node = Node(
+        id="extsym:pathlib.Path.write_bytes", kind="external_symbol", name="write_bytes"
+    )
+    copies = [node.model_copy(deep=True) for _ in range(12)]
+    monkeypatch.setattr(Node, "model_dump", count)
+    assert EvidenceMergeEngine.dedupe_nodes(copies) == [node]
+    assert calls == 0
