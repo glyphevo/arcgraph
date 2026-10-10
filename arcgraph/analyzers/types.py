@@ -710,7 +710,7 @@ class TypeRefAnalyzer:
         self._prepared_nodes = nodes
         self._property_fields = _simple_property_fields(nodes, annotation_trees or {})
         self._nominal_guard_classes = _nominal_guard_classes(
-            nodes, annotation_trees or {}
+            nodes, annotation_trees or {}, self._callable_contracts
         )
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache
@@ -792,14 +792,38 @@ class TypeRefAnalyzer:
                 if not isinstance(stmt, (ast.If, ast.While)):
                     continue
                 test = stmt.test
+                guard_body = stmt.body
+                check = test
+                if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+                    check = next(
+                        (
+                            p
+                            for p in test.values
+                            if isinstance(p, ast.Call)
+                            and isinstance(p.func, ast.Name)
+                            and p.func.id == "isinstance"
+                        ),
+                        test,
+                    )
+                elif isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                    if (
+                        isinstance(stmt, ast.If)
+                        and not stmt.orelse
+                        and _ends_in_exit(stmt.body)
+                    ):
+                        check = test.operand
+                        guard_body = statements[index + 1 :]
+                    else:
+                        check = None
                 entries = []
                 if (
-                    isinstance(test, ast.Call)
-                    and isinstance(test.func, ast.Name)
-                    and test.func.id == "isinstance"
-                    and len(test.args) == 2
-                    and not test.keywords
-                    and isinstance(test.args[0], ast.Name)
+                    isinstance(check, ast.Call)
+                    and isinstance(check.func, ast.Name)
+                    and check.func.id == "isinstance"
+                    and len(check.args) == 2
+                    and not check.keywords
+                    and isinstance(check.args[0], ast.Name)
+                    and not _binds_name(test, check.args[0].id)
                     and context.lexical.lookup(node, "isinstance") is None
                     and not any(
                         "*" in context.lexical.bindings.get(scope.id, {})
@@ -807,8 +831,8 @@ class TypeRefAnalyzer:
                     )
                     and (node.path, "isinstance") not in context.lexical.global_writes
                 ):
-                    name = test.args[0].id
-                    concrete = context.callable_contracts.concrete(test.args[1], node)
+                    name = check.args[0].id
+                    concrete = context.callable_contracts.concrete(check.args[1], node)
                     if concrete:
                         type_id = (
                             f"builtin:{concrete}"
@@ -820,9 +844,45 @@ class TypeRefAnalyzer:
                             )
                         )
                         value = {"type_id": type_id}
+                        if (
+                            type_id.startswith("class:")
+                            and type_id not in context.nominal_guard_classes
+                        ):
+                            continue
                         if type_id in context.nominal_guard_classes:
                             value["nominal_type"] = True
-                        entries.append((name, stmt.body, value))
+                            found = context.lexical.lookup(node, name)
+                            annotation = (
+                                found[1][0].get("annotation") if found else None
+                            )
+                            original = (
+                                context.resolve_annotation(annotation, use_imports=True)
+                                if isinstance(annotation, str)
+                                else None
+                            )
+                            members = (
+                                union_alternatives(
+                                    {
+                                        "origin": original.origin,
+                                        "type_args": list(original.type_args),
+                                    }
+                                )
+                                if original
+                                else []
+                            )
+                            value["disjoint_types"] = [
+                                m["type_id"]
+                                for m in members or []
+                                if m.get("type_id") in context.nominal_guard_classes
+                                and m["type_id"] != type_id
+                                and not context.classes_by_id[
+                                    m["type_id"]
+                                ].properties.get("bases")
+                                and not context.classes_by_id[type_id].properties.get(
+                                    "bases"
+                                )
+                            ]
+                        entries.append((name, guard_body, value))
                 else:
                     # Reuse the nullable-binding policy for short-circuit tests
                     # and exits; the fact ends at this statement block's end.
@@ -1482,21 +1542,38 @@ class TypeRefAnalyzer:
             record[key] = value
 
 
-def _nominal_guard_classes(nodes, trees):
+def _nominal_guard_classes(nodes, trees, resolver=None):
     """Plain project classes have no inherited/custom instance-check hook."""
     classes = {(n.path, n.start_line): n for n in nodes if n.kind == "class"}
     result = set()
+    pending = []
+    resolver = resolver or CallableContracts(nodes)
     for path, tree in trees.items():
         for stmt in ast.walk(tree):
             if (
                 isinstance(stmt, ast.ClassDef)
-                and not stmt.bases
                 and not stmt.keywords
                 and not stmt.decorator_list
             ):
                 node = classes.get((path, stmt.lineno))
                 if node is not None and not node.properties.get("ambiguous_definition"):
-                    result.add(node.id)
+                    if not stmt.bases:
+                        result.add(node.id)
+                    else:
+                        pending.append((node, stmt))
+    while pending:
+        added = []
+        for node, stmt in pending:
+            parents = [resolver.concrete(base, node) for base in stmt.bases]
+            if all(
+                p == "object" or p is not None and class_id(p) in result
+                for p in parents
+            ):
+                result.add(node.id)
+                added.append((node, stmt))
+        if not added:
+            break
+        pending = [entry for entry in pending if entry not in added]
     return result
 
 
@@ -1565,7 +1642,9 @@ class _TypeContext:
         self.nominal_guard_classes = (
             nominal_guard_classes
             if nominal_guard_classes is not None
-            else _nominal_guard_classes(nodes, {file_record.path: tree})
+            else _nominal_guard_classes(
+                nodes, {file_record.path: tree}, callable_contracts
+            )
         )
         self.parameter_defaults: dict[int, dict[str, str]] = self._parameter_defaults(
             tree

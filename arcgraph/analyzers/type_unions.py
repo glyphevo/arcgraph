@@ -147,6 +147,10 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
             tuple(entry["check"]) < (b.get("line", 0), b.get("column", 0)) <= position
             for b in bindings
         ):
+            if entry.get("type_id") and ref:
+                # The check was invalidated. Keep the current value as type
+                # evidence so a failed method lookup cannot fall back by name.
+                return {**ref, "typed_value_evidence": True}
             return None
         ref = ref or {}
         if entry.get("exclude_none"):
@@ -166,6 +170,26 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                 ]
                 # Do not approximate subclass matching or select between two
                 # instantiations such as list[A] and list[B].
+                runtime_target = _RUNTIME_CLASSES.get(target)
+                if (
+                    not matches
+                    and runtime_target
+                    and any(
+                        m.get("type_id") in {"typing:Any", "extsym:typing.Any"}
+                        or (
+                            m.get("type_id") in _RUNTIME_CLASSES
+                            and issubclass(
+                                runtime_target, _RUNTIME_CLASSES[m["type_id"]]
+                            )
+                        )
+                        for m in members
+                    )
+                ):
+                    ref = {
+                        "type_id": target,
+                        "type_expression": target.partition(":")[2],
+                    }
+                    matches = [ref]
                 if len(matches) != 1:
                     return unknown_union_result(name)
                 for member in members:
@@ -181,6 +205,13 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                         ):
                             return unknown_union_result(name)
                     elif other_id != "builtin:None":
+                        if other_id in entry.get("disjoint_types", []):
+                            continue
+                        if not matches[0].get("type_args") and other_id in {
+                            "typing:Any",
+                            "extsym:typing.Any",
+                        }:
+                            continue
                         if (
                             other
                             and entry.get("nominal_type")
