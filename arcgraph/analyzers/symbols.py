@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from arcgraph.analyzers.python_scopes import nested_functions, yields
+from arcgraph.analyzers.overloads import overload_declarations
 from arcgraph.core.expression_kinds import call_expression_kind
 from arcgraph.core.ids import class_id, function_id, method_id, module_id
 from arcgraph.core.schemas import Edge, Evidence, FileRecord, Node
@@ -41,6 +42,9 @@ class SymbolAnalyzer:
 
     def analyze(self, file_record: FileRecord, tree: ast.Module) -> SymbolAnalysis:
         analysis = SymbolAnalysis()
+        self._overload_declarations, self._replaced_overloads = overload_declarations(
+            tree
+        )
         analysis.module_callsites = list(self._module_body_callsites(tree))
 
         for stmt in tree.body:
@@ -124,8 +128,12 @@ class SymbolAnalyzer:
         *,
         parent: Node | None = None,
     ) -> None:
+        if id(stmt) in self._replaced_overloads:
+            return
         qualname = f"{parent.qualname if parent else file_record.module}.{stmt.name}"
         props = self._function_properties(stmt)
+        if id(stmt) in self._overload_declarations:
+            props["overload_stub"] = True
         if parent is not None:
             props.update(lexical_parent=parent.id, module=file_record.module)
         node = Node(
@@ -160,8 +168,12 @@ class SymbolAnalyzer:
         *,
         is_abstract_method: bool = False,
     ) -> None:
+        if id(stmt) in self._replaced_overloads:
+            return
         qualname = f"{class_qualname}.{stmt.name}"
         props = {**self._function_properties(stmt), "class": class_name}
+        if id(stmt) in self._overload_declarations:
+            props["overload_stub"] = True
         if is_abstract_method:
             props["is_abstract_method"] = True
         node = Node(

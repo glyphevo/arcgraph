@@ -13,6 +13,7 @@ from arcgraph.analyzers.python_scopes import (
     module_flow,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
+from arcgraph.analyzers.overloads import overload_declarations
 from arcgraph.core.ids import binding_id, class_id, function_id, method_id, module_id
 from arcgraph.core.schemas import Evidence, FileRecord, Node
 
@@ -22,6 +23,7 @@ _WithNode = ast.With | ast.AsyncWith
 
 @dataclass
 class BindingAnalysis:
+    replaced_overloads: set[int] = field(default_factory=set)
     export_mutations_by_scope: set[str] = field(default_factory=set)
     generator_descriptor_writes: dict[str, list[dict[str, Any]]] = field(
         default_factory=dict
@@ -67,7 +69,7 @@ class BindingAnalyzer:
         tree: ast.Module,
         module_names: set[str],
     ) -> BindingAnalysis:
-        analysis = BindingAnalysis()
+        analysis = BindingAnalysis(replaced_overloads=overload_declarations(tree)[1])
         _BindingScopeVisitor(
             self,
             analysis=analysis,
@@ -129,6 +131,8 @@ class BindingAnalyzer:
         *,
         class_name: str | None = None,
     ) -> None:
+        if id(stmt) in analysis.replaced_overloads:
+            return
         visitor = _BindingScopeVisitor(
             self,
             analysis=analysis,
@@ -485,6 +489,8 @@ class _BindingScopeVisitor(ast.NodeVisitor):
     def _record_function_definition(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> None:
+        if id(node) in self.analysis.replaced_overloads:
+            return
         target: str | None = None
         target_qualname: str | None = None
         kind = "function_definition"

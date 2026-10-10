@@ -163,6 +163,10 @@ class CallAnalyzer:
                     int(callsite.get("column") or 0),
                 )
                 resolved = self._resolve_callsite(source, identified_callsite, context)
+                if resolved is not None and resolved.target.properties.get(
+                    "overload_stub"
+                ):
+                    resolved = None
                 if resolved is None and self.enable_v2:
                     resolved = self._semantic_callsite_target(
                         source, identified_callsite, context
