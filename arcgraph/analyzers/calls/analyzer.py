@@ -9,6 +9,7 @@ from collections import defaultdict
 from typing import Any
 
 from arcgraph.analyzers.exports import exported_class
+from arcgraph.analyzers.operators import OPERATOR_METHODS
 from arcgraph.analyzers.calls.constants import (
     ARGPARSE_METHODS,
     BUILTIN_CALLS,
@@ -85,6 +86,7 @@ from arcgraph.analyzers.type_unions import (
     single_value_type,
     tuple_element_type,
     union_alternatives,
+    type_identity,
     unknown_union_result,
 )
 from arcgraph.core.ids import (
@@ -1135,6 +1137,28 @@ class CallAnalyzer:
                 guessed=resolved.strategy in _NAME_GUESS_STRATEGIES,
             )
 
+        if isinstance(node, ast.BinOp):
+            left = self._receiver_type_ref_node(source, node.left, context)
+            right = self._receiver_type_ref_node(source, node.right, context)
+            if str(self._type_id(left) or "").startswith("class:"):
+                method = OPERATOR_METHODS.get(type(node.op))
+                member = self._method_target_from_type(left, method, context)
+                returned = (
+                    context.return_type_by_target.get(member.id) if member else None
+                )
+                if (
+                    left
+                    and right
+                    and type_identity(left) == type_identity(right)
+                    and returned
+                    and not member.properties.get("async")
+                ):
+                    return {
+                        **returned,
+                        "strategy": "operator_return_annotation",
+                        "typed_value_evidence": True,
+                    }
+                return unknown_union_result(self._unparse(node))
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
 
             def resolve(operand: ast.expr) -> dict[str, Any] | None:

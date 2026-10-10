@@ -9,6 +9,7 @@ from typing import Any, Callable
 from arcgraph.analyzers.callable_types import CallableContracts, collect_contracts
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.exports import exported_class
+from arcgraph.analyzers.operators import OPERATOR_METHODS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
     ASYNC_GENERATOR_TYPE_ID,
@@ -1589,7 +1590,39 @@ class _TypeContext:
                 and self._may_be_path_segment(node.left, scope_node, local_types)
             ):
                 return self._path_value_type(right, node, strategy="path_join")
-            return None
+        if isinstance(node, ast.BinOp):
+            left = self.resolve_scoped_value(node.left, scope_node, local_types)
+            right = self.resolve_scoped_value(node.right, scope_node, local_types)
+            type_id = str((left or {}).get("type_id") or "")
+            if type_id.startswith("class:"):
+                method = OPERATOR_METHODS.get(type(node.op))
+                owner = self.classes_by_id.get(type_id)
+                member = next(
+                    (
+                        n
+                        for n in self._nodes_by_path.get(
+                            owner.path if owner else None, []
+                        )
+                        if n.qualname == f"{type_id[6:]}.{method}"
+                        and n.kind == "method"
+                    ),
+                    None,
+                )
+                returned = self.return_types_by_method.get((type_id[6:], method))
+                if (
+                    left
+                    and right
+                    and type_identity(left) == type_identity(right)
+                    and returned
+                    and member
+                    and not member.properties.get("async")
+                ):
+                    return self._value_type_record(
+                        returned,
+                        strategy="operator_return_annotation",
+                        source_expression=self._unparse(node),
+                    )
+                return unknown_union_result(self._unparse(node))
         return self.resolve_value(node, local_types)
 
     def none_excluded_before(
