@@ -181,6 +181,14 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                         ):
                             return unknown_union_result(name)
                     elif other_id != "builtin:None":
+                        if (
+                            other
+                            and entry.get("nominal_type")
+                            and not matches[0].get("type_args")
+                        ):
+                            # A pre-existing standard class cannot derive from
+                            # this plain project class. No generic args to hide.
+                            continue
                         # Unknown inheritance or instance-check hooks cannot
                         # prove this alternative disjoint from the target.
                         return unknown_union_result(name)

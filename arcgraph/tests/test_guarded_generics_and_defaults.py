@@ -206,13 +206,14 @@ def test_optional_same_class_default_propagates(tmp_path, fallback, assigned):
     ) == {"method:pkg.user.Headers.items"}
 
 
-def test_constructor_nullable_default_is_a_concrete_field(tmp_path):
+@pytest.mark.parametrize("annotation", ["object", "Upload | str"])
+def test_constructor_nullable_default_is_a_concrete_field(tmp_path, annotation):
     calls = _calls(
         tmp_path,
         HEADER_CLASSES + "class Upload:\n"
         "    def __init__(self, headers: Headers | None = None):\n"
         "        self.headers = headers or Headers()\n"
-        "def use(value: object):\n"
+        f"def use(value: {annotation}):\n"
         "    if isinstance(value, Upload):\n        value.headers.items()\n",
     )
     assert calls.get("value.headers.items()") == {"method:pkg.user.Headers.items"}
@@ -258,3 +259,45 @@ def test_optional_default_does_not_confuse_container_argument_types(tmp_path):
         "    result=x or other\n    result[0].exists()\n",
     )
     assert "result[0].exists()" not in calls
+
+
+@pytest.mark.parametrize("form", ["metaclass", "base", "decorator"])
+def test_project_guard_does_not_assume_custom_instance_checks_are_nominal(
+    tmp_path, form
+):
+    prefix = "class Meta(type):\n    def __instancecheck__(cls, value): return isinstance(value, str)\n"
+    if form == "metaclass":
+        declaration = "class Upload(metaclass=Meta):"
+    elif form == "base":
+        prefix += "class Base(metaclass=Meta): pass\n"
+        declaration = "class Upload(Base):"
+    else:
+        prefix += "def replace(cls): return str\n@replace\n"
+        declaration = "class Upload:"
+    calls = _calls(
+        tmp_path,
+        prefix + declaration + "\n    def touch(self): pass\n"
+        "def use(value: Upload | str):\n"
+        "    if isinstance(value, Upload):\n        value.touch()\n",
+    )
+    assert "value.touch()" not in calls
+
+
+@pytest.mark.parametrize("form", ["field", "inherited", "property"])
+def test_constructor_default_field_keeps_loop_receiver_guard(tmp_path, form):
+    init = "    def __init__(self, headers: Headers | None = None):\n        self.headers = headers or Headers()\n"
+    declaration = "class Upload:\n" + init
+    if form == "inherited":
+        declaration = "class Base:\n" + init + "class Upload(Base): pass\n"
+    elif form == "property":
+        declaration = "class Upload:\n" + init.replace("self.headers", "self._headers")
+        declaration += (
+            "    @property\n    def headers(self) -> Headers: return self._headers\n"
+        )
+    calls = _calls(
+        tmp_path,
+        HEADER_CLASSES + declaration + "def use(values: list[object]):\n"
+        "    for value in values:\n"
+        "        if isinstance(value, Upload):\n            value.headers.items()\n",
+    )
+    assert calls.get("value.headers.items()") == {"method:pkg.user.Headers.items"}

@@ -709,6 +709,9 @@ class TypeRefAnalyzer:
                 )
         self._prepared_nodes = nodes
         self._property_fields = _simple_property_fields(nodes, annotation_trees or {})
+        self._nominal_guard_classes = _nominal_guard_classes(
+            nodes, annotation_trees or {}
+        )
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache
 
@@ -736,6 +739,11 @@ class TypeRefAnalyzer:
                 else None
             ),
             getattr(self, "_property_fields", None) if cache is not None else None,
+            (
+                getattr(self, "_nominal_guard_classes", None)
+                if cache is not None
+                else None
+            ),
         )
         analysis = TypeRefAnalysis()
         context.attach_type_traits()
@@ -811,7 +819,10 @@ class TypeRefAnalyzer:
                                 else f"extsym:{concrete}"
                             )
                         )
-                        entries.append((name, stmt.body, {"type_id": type_id}))
+                        value = {"type_id": type_id}
+                        if type_id in context.nominal_guard_classes:
+                            value["nominal_type"] = True
+                        entries.append((name, stmt.body, value))
                 else:
                     # Reuse the nullable-binding policy for short-circuit tests
                     # and exits; the fact ends at this statement block's end.
@@ -1459,6 +1470,24 @@ class TypeRefAnalyzer:
             record[key] = value
 
 
+def _nominal_guard_classes(nodes, trees):
+    """Plain project classes have no inherited/custom instance-check hook."""
+    classes = {(n.path, n.start_line): n for n in nodes if n.kind == "class"}
+    result = set()
+    for path, tree in trees.items():
+        for stmt in ast.walk(tree):
+            if (
+                isinstance(stmt, ast.ClassDef)
+                and not stmt.bases
+                and not stmt.keywords
+                and not stmt.decorator_list
+            ):
+                node = classes.get((path, stmt.lineno))
+                if node is not None and not node.properties.get("ambiguous_definition"):
+                    result.add(node.id)
+    return result
+
+
 def _simple_property_fields(
     nodes: list[Node], trees: dict[str, ast.Module]
 ) -> dict[str, str]:
@@ -1507,6 +1536,7 @@ class _TypeContext:
         return_decorator_cache: dict[str, bool] | None = None,
         callable_contracts: CallableContracts | None = None,
         property_fields: dict[str, str] | None = None,
+        nominal_guard_classes: set[str] | None = None,
     ) -> None:
         self._return_decorator_cache = (
             return_decorator_cache if return_decorator_cache is not None else {}
@@ -1520,6 +1550,11 @@ class _TypeContext:
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         self.nodes = nodes
+        self.nominal_guard_classes = (
+            nominal_guard_classes
+            if nominal_guard_classes is not None
+            else _nominal_guard_classes(nodes, {file_record.path: tree})
+        )
         self.parameter_defaults: dict[int, dict[str, str]] = self._parameter_defaults(
             tree
         )

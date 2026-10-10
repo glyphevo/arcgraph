@@ -1058,7 +1058,7 @@ class CallAnalyzer:
                 if field is not None and not (
                     own_member and own_member.properties.get("async")
                 ):
-                    return field
+                    return self._guarded_attribute_ref(receiver_type, field)
                 owner = context.by_id.get(receiver_type_id)
                 order = (
                     self._method_resolution_order(owner, context, ()) if owner else None
@@ -1078,13 +1078,15 @@ class CallAnalyzer:
                         ) and not member.properties.get("async"):
                             returned = context.return_type_by_target.get(member.id)
                             if returned is not None:
-                                return returned
+                                return self._guarded_attribute_ref(
+                                    receiver_type, returned
+                                )
                         break
                     field = context.class_instance_attrs.get(entry.qualname, {}).get(
                         node.attr
                     )
                     if field is not None:
-                        return field
+                        return self._guarded_attribute_ref(receiver_type, field)
                     if any(
                         b.get("name") == node.attr
                         for b in entry.properties.get("bindings", [])
@@ -1381,6 +1383,18 @@ class CallAnalyzer:
             if isinstance(receiver.get(key), str):
                 derived[key] = receiver[key]
         return derived
+
+    @staticmethod
+    def _guarded_attribute_ref(receiver, value):
+        """Keep a bounded root guard when reading a known project attribute."""
+        if not receiver.get("narrowed_receiver"):
+            return value
+        return {
+            **value,
+            "narrowed_receiver": True,
+            "typed_value_evidence": True,
+            "isinstance_receiver": bool(receiver.get("isinstance_receiver")),
+        }
 
     @staticmethod
     def _subscript_value_type_ref(
