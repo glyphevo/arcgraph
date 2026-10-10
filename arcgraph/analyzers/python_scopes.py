@@ -162,6 +162,12 @@ def _block_span(block: list[ast.stmt]) -> list[int]:
 def _target_names(target: ast.AST) -> set[str]:
     if isinstance(target, ast.Name):
         return {target.id}
+    if (
+        isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id in {"self", "cls"}
+    ):
+        return {ast.unparse(target)}
     if isinstance(target, ast.Starred):
         return _target_names(target.value)
     if isinstance(target, (ast.Tuple, ast.List)):

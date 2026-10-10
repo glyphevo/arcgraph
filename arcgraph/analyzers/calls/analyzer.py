@@ -1006,7 +1006,13 @@ class CallAnalyzer:
             scoped_root = context.comprehension_type_ref(source, root) if root else None
             if (
                 scoped_root is None
-                and full_name in scope_refs
+                and (
+                    full_name in scope_refs
+                    or any(
+                        b.get("kind") == "instance_attribute" and b.get("may_not_run")
+                        for b in context._bindings_in_effect(source, full_name)
+                    )
+                )
                 and not context.not_yet_bound(source, full_name)
             ):
                 return context.type_ref_at(source, full_name)

@@ -9,7 +9,11 @@ from typing import Any
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.calls.constants import TARGET_KINDS
 from arcgraph.core.schemas import Confidence, Edge, Node
-from arcgraph.analyzers.type_unions import union_alternatives, unknown_union_result
+from arcgraph.analyzers.type_unions import (
+    type_identity,
+    union_alternatives,
+    unknown_union_result,
+)
 
 
 @dataclass
@@ -135,14 +139,70 @@ class _CallResolutionContext:
             for b in recorded_bindings
         )
 
+    def _conditional_attribute_type(self, source, name, bindings, refs):
+        """All reachable writes back to a definite write or the entry value.
+
+        Distinct types stay an ambiguous union, as local annotated unions do.
+        Unknown writes are alternatives, never silently removed.
+        """
+        by_binding = {r.get("binding_id"): r for r in refs}
+        candidates = []
+        settled = False
+        span = None
+        _, line, column = self.callsite_position
+        for binding in sorted(
+            bindings, key=lambda b: (b.get("line", 0), b.get("column", 0)), reverse=True
+        ):
+            point = (binding.get("line", 0), binding.get("column", 0))
+            if span and point < (span[0], span[1]):
+                settled = True
+                break
+            candidates.append(
+                by_binding.get(binding.get("binding_id"))
+                or unknown_union_result(name)["type_args"][0]
+            )
+            block = binding.get("block")
+            if (
+                not binding.get("may_not_run")
+                or block
+                and (block[0], block[1]) <= (line, column) <= (block[2], block[3])
+            ):
+                settled = True
+                break
+            boundary = binding.get("settles_with")
+            if boundary and (line, column) > (boundary[2], boundary[3]):
+                span = boundary
+        if not settled and span is None:
+            owner = (source.qualname or "").rsplit(".", 1)[0]
+            entry = self.class_instance_attrs.get(owner, {}).get(name.partition(".")[2])
+            candidates.append(entry or unknown_union_result(name)["type_args"][0])
+        if (
+            candidates
+            and candidates[0].get("type_id")
+            and all(
+                type_identity(r) == type_identity(candidates[0]) for r in candidates
+            )
+        ):
+            return {**candidates[0], "strategy": "conditional_attribute_join"}
+        return {
+            "origin": "Union",
+            "type_expression": name,
+            "type_args": candidates,
+            "resolution_status": "unresolved",
+            "strategy": "conditional_attribute_join",
+        }
+
     def type_ref_at(self, source: Node, name: str) -> dict[str, Any] | None:
         fallback = self.scope_type_refs.get(source.id, {}).get(name)
         if not self.callsite_position or self.callsite_position[0] != source.id:
             return fallback
         refs = self._typed_binding_refs(source, name)
-        if not refs:
-            return fallback
         bindings = self._bindings_in_effect(source, name)
+        if not refs and not any(
+            b.get("kind") == "instance_attribute" and b.get("may_not_run")
+            for b in bindings
+        ):
+            return fallback
         if not bindings:
             if not self.not_yet_bound(source, name):
                 # Bound on the call's own line by a statement whose end is not
@@ -162,7 +222,7 @@ class _CallResolutionContext:
                 block[2],
                 block[3],
             ):
-                return unknown_union_result(name)
+                return self._conditional_attribute_type(source, name, bindings, refs)
         binding_id = latest.get("binding_id")
         if len(refs) < 2 and not any(r.get("binding_id") == binding_id for r in refs):
             # With one typed binding, its type is not the value called when
