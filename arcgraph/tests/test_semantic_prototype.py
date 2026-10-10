@@ -956,6 +956,7 @@ def test_wrap_chain_calls_with_shared_start_uses_expression_and_all_facts(tmp_pa
         (PureWindowsPath("C:/frozen"), "file:///C:/frozen/demo.py", "demo.py"),
         (PureWindowsPath("C:/frozen"), "file://localhost/C:/frozen/demo.py", "demo.py"),
         (PureWindowsPath("C:/frozen"), "file:///c:/FROZEN/demo.py", "demo.py"),
+        (PureWindowsPath("C:/frozen"), "file:///c%3A/FROZEN/demo.py", "demo.py"),
         (
             PureWindowsPath("C:/frozen"),
             "file:///C:/frozen/%C3%A9%20%23%25.py",
@@ -1013,3 +1014,9 @@ def test_file_uri_mapping_resolves_native_symlinks_before_containment(tmp_path):
     records = object.__new__(Records)
     records.root = root.resolve()
     assert records.path((root / "escape.py").as_uri()) is None
+
+
+def test_encoded_lowercase_drive_uri_maps_recorded_pyright_path():
+    records = object.__new__(Records)
+    records.root = PureWindowsPath("C:/frozen")
+    assert records.path("file:///c%3A/FROZEN/demo.py") == "demo.py"

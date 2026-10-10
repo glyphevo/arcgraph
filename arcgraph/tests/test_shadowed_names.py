@@ -663,3 +663,36 @@ def test_a_call_before_a_binding_on_its_line_is_not_read_by_it(same_line):
     assert "method:lab.Other.build" not in {
         target for target, _ in same_line.get("inside_its_assignment", set())
     }
+
+
+def test_legacy_same_line_binding_without_end_retains_order_uncertainty():
+    from types import SimpleNamespace
+
+    from arcgraph.analyzers.calls.context import _CallResolutionContext
+    from arcgraph.core.schemas import Node
+
+    source = Node(id="fn:lab.use", kind="function", name="use", path="lab.py")
+    binding = {
+        "name": "value",
+        "kind": "assignment",
+        "binding_id": "legacy",
+        "line": 10,
+        "column": 30,
+    }
+    source.properties["bindings"] = [binding]
+    ref = {"subject_kind": "binding", "name": "value", "binding_id": "legacy"}
+    fallback = {"type_id": "class:lab.Box"}
+    context = SimpleNamespace(
+        callsite_position=(source.id, 10, 5),
+        scope_type_refs={source.id: {"value": fallback}},
+        _typed_binding_refs=lambda node, name: [ref],
+        _bindings_in_effect=lambda node, name: [],
+    )
+    context.not_yet_bound = lambda node, name: _CallResolutionContext.not_yet_bound(
+        context, node, name
+    )
+    assert not context.not_yet_bound(source, "value")
+    assert _CallResolutionContext.type_ref_at(context, source, "value") == fallback
+    context.callsite_position = (source.id, 9, 5)
+    assert context.not_yet_bound(source, "value")
+    assert "type_id" not in _CallResolutionContext.type_ref_at(context, source, "value")
