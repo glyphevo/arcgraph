@@ -149,9 +149,18 @@ class _CallResolutionContext:
         Unknown writes are alternatives, never silently removed.
         """
         by_binding = {r.get("binding_id"): r for r in refs}
+        declared = next(
+            (
+                by_binding.get(b.get("binding_id"))
+                for b in source.properties.get("bindings", [])
+                if b.get("name") == name and b.get("annotation") and "." not in name
+            ),
+            None,
+        )
         candidates = []
         settled = False
         span = None
+        skipped_types = set()
         _, line, column = self.callsite_position
         for binding in sorted(
             bindings, key=lambda b: (b.get("line", 0), b.get("column", 0)), reverse=True
@@ -160,14 +169,21 @@ class _CallResolutionContext:
             if span and point < (span[0], span[1]):
                 settled = True
                 break
-            candidates.append(
-                by_binding.get(binding.get("binding_id"))
-                or (
+            candidate = by_binding.get(binding.get("binding_id"))
+            if candidate is None:
+                candidate = (
                     {"type_id": "builtin:None", "type_expression": "None"}
                     if binding.get("value") == "None"
-                    else unknown_union_result(name)["type_args"][0]
+                    else declared or unknown_union_result(name)["type_args"][0]
                 )
-            )
+            members = union_alternatives(candidate)
+            if skipped_types and members is not None:
+                remaining = [
+                    m for m in members if m.get("type_id") not in skipped_types
+                ]
+                if remaining:
+                    candidate = {"origin": "Union", "type_args": remaining}
+            candidates.append(candidate)
             block = binding.get("block")
             if (
                 not binding.get("may_not_run")
@@ -179,6 +195,16 @@ class _CallResolutionContext:
             boundary = binding.get("settles_with")
             if boundary and (line, column) > (boundary[2], boundary[3]):
                 span = boundary
+            for guard in source.properties.get("receiver_narrowings", []):
+                if (
+                    guard["name"] == name
+                    and guard.get("exact_check")
+                    and guard.get("type_id")
+                    and guard["range"] == [*point, *binding.get("statement_end", ())]
+                ):
+                    # A single write is the whole positive isinstance body.
+                    # The skipped path therefore excludes the checked type.
+                    skipped_types.add(guard["type_id"])
         if not settled and span is None:
             owner = (source.qualname or "").rsplit(".", 1)[0]
             entry = self.class_instance_attrs.get(owner, {}).get(name.partition(".")[2])
@@ -192,6 +218,14 @@ class _CallResolutionContext:
         ):
             return {**candidates[0], "strategy": "conditional_attribute_join"}
         members = [m for ref in candidates for m in (union_alternatives(ref) or [ref])]
+        if not any(
+            m.get("type_id")
+            and m["type_id"] not in {"typing:Any", "extsym:typing.Any", "builtin:None"}
+            for m in members
+        ):
+            # There was no known value to invalidate or dispatch over. Keep
+            # the prior declared/unknown model, including legacy heuristics.
+            return self.scope_type_refs.get(source.id, {}).get(name)
         values = [m for m in members if m.get("type_id") != "builtin:None"]
         if values and all(
             m.get("type_id") and m["type_id"] == values[0]["type_id"] for m in values

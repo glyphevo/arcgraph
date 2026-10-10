@@ -918,6 +918,7 @@ class TypeRefAnalyzer:
                         {
                             "name": name,
                             **value,
+                            "exact_check": isinstance(test, ast.Call),
                             "loop_writes": [
                                 [
                                     loop.lineno,

@@ -144,7 +144,9 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
         ):
             return None
         if any(
-            tuple(entry["check"]) < (b.get("line", 0), b.get("column", 0)) <= position
+            tuple(entry["check"])
+            < tuple(b.get("statement_end") or (b.get("line", 0), b.get("column", 0)))
+            <= position
             for b in bindings
         ):
             if entry.get("type_id") and ref:
