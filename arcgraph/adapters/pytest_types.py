@@ -6,6 +6,7 @@ import ast
 
 from arcgraph.adapters.common import call_name, iter_symbol_defs, symbol_id_for_def
 from arcgraph.adapters.pytest_fixtures import FixtureCatalog, FixtureFact
+from arcgraph.analyzers.callable_types import CallableContracts
 from arcgraph.analyzers.calls.lexical import LexicalScopes
 from arcgraph.analyzers.types import (
     TypeRefAnalysis,
@@ -27,12 +28,18 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
     ) -> None:
         if return_decorator_cache is None:
             return_decorator_cache = {}
+        callable_contracts = CallableContracts(nodes, module_names)
         catalog = FixtureCatalog(files, parsed_files, module_names, nodes)
         by_id = {n.id: n for n in nodes}
         provider_paths = {f.file.path for f in catalog.fixtures}
         contexts = {
             f.path: _TypeContext(
-                f, parsed_files[f.path], nodes, module_names, return_decorator_cache
+                f,
+                parsed_files[f.path],
+                nodes,
+                module_names,
+                return_decorator_cache,
+                callable_contracts,
             )
             for f in files
             if f.path in provider_paths
@@ -89,7 +96,12 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
                         continue
                     if file.path not in contexts:
                         contexts[file.path] = _TypeContext(
-                            file, tree, nodes, module_names, return_decorator_cache
+                            file,
+                            tree,
+                            nodes,
+                            module_names,
+                            return_decorator_cache,
+                            callable_contracts,
                         )
                     ref = self._type_ref_record(
                         contexts[file.path],

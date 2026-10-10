@@ -170,7 +170,9 @@ class PythonGraphAnalyzer:
             if call_context_nodes is not None
             else nodes
         )
-        return_decorator_cache = type_ref_analyzer.prepare_return_analysis(type_context)
+        return_decorator_cache = type_ref_analyzer.prepare_return_analysis(
+            type_context, parsed_files
+        )
         for file_record in files:
             tree = parsed_files.get(file_record.path)
             if tree is None:

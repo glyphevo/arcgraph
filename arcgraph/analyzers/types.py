@@ -6,6 +6,7 @@ import ast
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
+from arcgraph.analyzers.callable_types import CallableContracts, collect_contracts
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.exports import exported_class
 from arcgraph.analyzers.external_types import (
@@ -589,6 +590,7 @@ class _ResolvedType:
     origin: str | None = None
     type_args: tuple[dict[str, Any], ...] = ()
     status: str = "unresolved"
+    callable_result: dict[str, Any] | None = None
 
 
 @dataclass
@@ -644,13 +646,21 @@ class TypeRefAnalysis:
 class TypeRefAnalyzer:
     """Collect V2.2 TypeRef summaries without changing call resolution."""
 
-    def prepare_return_analysis(self, nodes: list[Node]) -> dict[str, bool]:
+    def prepare_return_analysis(
+        self, nodes: list[Node], annotation_trees: dict[str, ast.Module] | None = None
+    ) -> dict[str, bool]:
         """Start a type pass after binding collection has completed.
 
-        Only decorator identity evidence is shared. Annotation resolution still
-        depends on each file's imports. Standalone analyze calls remain uncached.
+        Decorator proofs and callable contracts are shared. Annotation resolution
+        still depends on each source's bindings. Standalone analyze calls use
+        their own context.
         A new preparation discards all evidence from the previous binding pass.
         """
+        for module in nodes:
+            tree = (annotation_trees or {}).get(module.path)
+            if module.kind == "module" and tree is not None:
+                collect_contracts(module, tree, nodes)
+        self._callable_contracts = CallableContracts(nodes)
         self._prepared_nodes = nodes
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache
@@ -667,7 +677,18 @@ class TypeRefAnalyzer:
             if getattr(self, "_prepared_nodes", None) is nodes
             else None
         )
-        context = _TypeContext(file_record, tree, nodes, module_names, cache)
+        context = _TypeContext(
+            file_record,
+            tree,
+            nodes,
+            module_names,
+            cache,
+            (
+                self._callable_contracts
+                if getattr(self, "_prepared_nodes", None) is nodes
+                else None
+            ),
+        )
         analysis = TypeRefAnalysis()
         context.attach_type_traits()
 
@@ -855,7 +876,9 @@ class TypeRefAnalyzer:
 
         annotation = binding.get("annotation")
         if isinstance(annotation, str) and annotation:
-            resolved = context.resolve_annotation(annotation, use_imports=True)
+            resolved = context.callable_annotation(
+                annotation, node
+            ) or context.resolve_annotation(annotation, use_imports=True)
             return self._type_ref_record(
                 context,
                 scope_id=node.id,
@@ -1031,6 +1054,7 @@ class TypeRefAnalyzer:
                     if isinstance(source.get("type_args"), list)
                     else ()
                 ),
+                callable_result=source.get("callable_result"),
                 status=(
                     "resolved"
                     if isinstance(source.get("type_id"), str)
@@ -1214,6 +1238,7 @@ class TypeRefAnalyzer:
         self._set_optional(record, "type_id", resolved.type_id)
         self._set_optional(record, "symbol_id", resolved.symbol_id)
         self._set_optional(record, "origin", resolved.origin)
+        self._set_optional(record, "callable_result", resolved.callable_result)
         if resolved.type_args:
             record["type_args"] = list(resolved.type_args)
         self._set_optional(
@@ -1265,6 +1290,7 @@ class _TypeContext:
         nodes: list[Node],
         module_names: set[str],
         return_decorator_cache: dict[str, bool] | None = None,
+        callable_contracts: CallableContracts | None = None,
     ) -> None:
         self._return_decorator_cache = (
             return_decorator_cache if return_decorator_cache is not None else {}
@@ -1294,6 +1320,10 @@ class _TypeContext:
         self.return_types_by_method: dict[tuple[str, str], _ResolvedType] = {}
         self.property_return_types_by_method: dict[tuple[str, str], _ResolvedType] = {}
         self.class_instance_attrs: dict[str, dict[str, dict[str, Any]]] = {}
+        self.callable_contracts = callable_contracts or CallableContracts(
+            nodes, module_names
+        )
+        self.callable_contracts.module_names = module_names
         self._build_return_type_maps()
 
     def current_scope_nodes(self) -> list[Node]:
@@ -1352,6 +1382,55 @@ class _TypeContext:
                 traits["abstract_base"] = True
             if traits:
                 node.properties["type_traits"] = traits
+
+    def callable_annotation(
+        self, expression: str, source: Node
+    ) -> _ResolvedType | None:
+        result = self.callable_contracts.result(expression, source)
+        if result is None:
+            return None
+        if result in _BUILTIN_TYPES:
+            resolved = self.resolve_annotation(result, use_imports=False)
+        elif class_id(result) in self.classes_by_id:
+            resolved = _ResolvedType(
+                expression=result,
+                type_id=class_id(result),
+                symbol_id=class_id(result),
+                status="resolved",
+            )
+        elif "." in result and not any(
+            result == m or result.startswith(m + ".") for m in self.module_names
+        ):
+            resolved = _ResolvedType(
+                expression=result,
+                type_id=f"extsym:{result}",
+                symbol_id=f"extsym:{result}",
+                status="resolved",
+            )
+        else:
+            return None
+        parsed = self.parse_expression(expression)
+        while isinstance(parsed, ast.Constant) and isinstance(parsed.value, str):
+            parsed = self.parse_expression(parsed.value)
+        qualified = (
+            self.callable_contracts.name(parsed, source) if parsed is not None else None
+        )
+        existing = self.classes_by_id.get(class_id(qualified)) if qualified else None
+        # Invocation evidence supplements a Protocol instance's identity. It
+        # must not hide the Protocol's other members by turning it into Callable.
+        base = _ResolvedType(
+            expression=expression,
+            type_id=existing.id if existing else "typing:Callable",
+            symbol_id=existing.id if existing else "typing:Callable",
+            origin=None if existing else "Callable",
+            status="resolved",
+        )
+        return replace(
+            base,
+            callable_result=self._value_type_record(
+                resolved, strategy="callable_contract", source_expression=expression
+            ),
+        )
 
     def resolve_annotation(
         self, expression: str, *, use_imports: bool
@@ -2021,7 +2100,7 @@ class _TypeContext:
             )
         if not self._return_decorator_cache[node.id]:
             return None
-        return self.resolve_annotation(
+        return self.callable_annotation(returns, node) or self.resolve_annotation(
             returns, use_imports=node.path == self.file_record.path
         )
 
@@ -2358,6 +2437,44 @@ class _TypeContext:
         *,
         scope_node: Node | None = None,
     ) -> dict[str, Any] | None:
+        invoked = (
+            local_types.get(node.func.id)
+            if isinstance(node.func, ast.Name)
+            else (
+                self.resolve_scoped_value(node.func, scope_node, local_types)
+                if scope_node is not None and isinstance(node.func, ast.Call)
+                else None
+            )
+        )
+        stable = True
+        if scope_node is not None and isinstance(node.func, ast.Name):
+            found = self.lexical.lookup(scope_node, node.func.id)
+            stable = bool(
+                found
+                and self.lexical.stable(*found)
+                and (found[0].path, node.func.id) not in self.lexical.global_writes
+            )
+            if invoked is None and stable:
+                owner, bindings, _ = found
+                annotation = bindings[0].get("annotation")
+                contract = (
+                    self.callable_annotation(annotation, owner)
+                    if isinstance(annotation, str)
+                    else None
+                )
+                if contract is not None:
+                    invoked = self._value_type_record(
+                        contract,
+                        strategy="callable_annotation",
+                        source_expression=node.func.id,
+                    )
+        if invoked and invoked.get("callable_result"):
+            if stable:
+                return self._value_type_record(
+                    self._resolved_type_from_record(invoked["callable_result"]),
+                    strategy="callable_result_annotation",
+                    source_expression=self._unparse(node),
+                )
         cast_type = self._resolve_cast_call(node)
         if cast_type is not None:
             return self._value_type_record(
@@ -2685,6 +2802,7 @@ class _TypeContext:
                 if isinstance(record.get("type_args"), list)
                 else ()
             ),
+            callable_result=record.get("callable_result"),
             status=(
                 str(record.get("resolution_status"))
                 if isinstance(record.get("resolution_status"), str)
@@ -2818,6 +2936,8 @@ class _TypeContext:
             record["origin"] = resolved.origin
         if resolved.type_args:
             record["type_args"] = list(resolved.type_args)
+        if resolved.callable_result is not None:
+            record["callable_result"] = resolved.callable_result
         return record
 
     def _resolve_type_node(
