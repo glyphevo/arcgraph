@@ -109,6 +109,10 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
             return None
         ref = ref or {}
         if entry.get("exclude_none"):
+            # Absence alone cannot prove a concrete type for Any or a None-only
+            # binding summary. Leave existing concrete guard paths available.
+            if union_alternatives(ref) is None:
+                continue
             ref = single_value_type(ref)
             if not ref.get("type_id"):
                 return None

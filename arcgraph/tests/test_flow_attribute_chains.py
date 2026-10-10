@@ -339,3 +339,34 @@ def test_outer_guard_is_invalid_inside_a_rebinding_loop(tmp_path):
         "from pathlib import Path\ndef use(p: object, xs: list[int]):\n    if isinstance(p, Path):\n        for x in xs:\n            p.parent.exists()\n            p = object()\n",
     )
     assert "p.parent.exists()" not in calls
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "if not isinstance(value, str) or not value:\n        return\n    value.rsplit('.', 1)",
+        "if value is None:\n        return\n    text=value.decode('utf-8') if isinstance(value, bytes) else str(value)",
+    ],
+)
+def test_none_exclusion_of_any_does_not_hide_existing_type_evidence(tmp_path, body):
+    calls = _calls(
+        tmp_path,
+        "from typing import Any\ndef use(payload: dict[str, Any]):\n    value=payload.get('value')\n    "
+        + body
+        + "\n",
+    )
+    expression = "value.rsplit('.', 1)" if "rsplit" in body else "value.decode('utf-8')"
+    expected = (
+        "extsym:builtins.str.rsplit"
+        if "rsplit" in body
+        else "extsym:builtins.bytes.decode"
+    )
+    assert calls.get(expression) == {expected}
+
+
+def test_none_branch_summary_does_not_hide_a_nullable_text_result(tmp_path):
+    calls = _calls(
+        tmp_path,
+        "def text() -> str | None: return 'a.b'\ndef use(flag: bool):\n    if flag: value=text()\n    else: value=None\n    if value:\n        value.rsplit('.', 1)\n",
+    )
+    assert calls.get("value.rsplit('.', 1)") == {"extsym:builtins.str.rsplit"}
