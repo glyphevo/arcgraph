@@ -162,66 +162,79 @@ class CallAnalyzer:
                     int(callsite.get("line") or 0),
                     int(callsite.get("column") or 0),
                 )
-                resolved = self._resolve_callsite(source, identified_callsite, context)
-                if resolved is not None and resolved.target.properties.get(
-                    "overload_stub"
-                ):
-                    resolved = None
-                if resolved is None and self.enable_v2:
-                    resolved = self._semantic_callsite_target(
+                candidates = (
+                    self._conditional_receiver_targets(
                         source, identified_callsite, context
                     )
-                if resolved is None:
-                    continue
-
-                raw_name = str(identified_callsite.get("name"))
-                edge_kind = self._edge_kind(source, identified_callsite, resolved)
-                if resolved.target.id.startswith(
-                    (
-                        "config:",
-                        "decl:",
-                        "extsym:",
-                        "local:",
-                        "protocol:",
-                        "unresolved:",
-                    )
-                ):
-                    generated_nodes.setdefault(resolved.target.id, resolved.target)
-                edges.append(
-                    Edge(
-                        source=source.id,
-                        target=resolved.target.id,
-                        kind=edge_kind,
-                        confidence=resolved.confidence,
-                        resolution={
-                            "status": resolved.resolution_status,
-                            "strategy": resolved.strategy,
-                            "candidate_count": resolved.candidate_count,
-                            "callsite_id": self._callsite_id(
-                                source, identified_callsite, raw_name
-                            ),
-                            "fallbacks": self._fallbacks(resolved.strategy),
-                        },
-                        evidence=[
-                            Evidence(
-                                kind=self._evidence_kind(source, callsite, edge_kind),
-                                path=source.path,
-                                start_line=self._int_or_none(
-                                    identified_callsite.get("line")
-                                ),
-                                column=self._int_or_none(
-                                    identified_callsite.get("column")
-                                ),
-                                detail=raw_name,
-                            )
-                        ],
-                        properties={
-                            "callsite": self._callsite_properties(
-                                source, identified_callsite, resolved, edge_kind
-                            )
-                        },
-                    )
+                    if self.enable_v2
+                    else None
                 )
+                if candidates is None:
+                    resolved = self._resolve_callsite(
+                        source, identified_callsite, context
+                    )
+                    if resolved is not None and resolved.target.properties.get(
+                        "overload_stub"
+                    ):
+                        resolved = None
+                    if resolved is None and self.enable_v2:
+                        resolved = self._semantic_callsite_target(
+                            source, identified_callsite, context
+                        )
+                    if resolved is None:
+                        continue
+                    candidates = [resolved]
+                for resolved in candidates:
+                    raw_name = str(identified_callsite.get("name"))
+                    edge_kind = self._edge_kind(source, identified_callsite, resolved)
+                    if resolved.target.id.startswith(
+                        (
+                            "config:",
+                            "decl:",
+                            "extsym:",
+                            "local:",
+                            "protocol:",
+                            "unresolved:",
+                        )
+                    ):
+                        generated_nodes.setdefault(resolved.target.id, resolved.target)
+                    edges.append(
+                        Edge(
+                            source=source.id,
+                            target=resolved.target.id,
+                            kind=edge_kind,
+                            confidence=resolved.confidence,
+                            resolution={
+                                "status": resolved.resolution_status,
+                                "strategy": resolved.strategy,
+                                "candidate_count": resolved.candidate_count,
+                                "callsite_id": self._callsite_id(
+                                    source, identified_callsite, raw_name
+                                ),
+                                "fallbacks": self._fallbacks(resolved.strategy),
+                            },
+                            evidence=[
+                                Evidence(
+                                    kind=self._evidence_kind(
+                                        source, callsite, edge_kind
+                                    ),
+                                    path=source.path,
+                                    start_line=self._int_or_none(
+                                        identified_callsite.get("line")
+                                    ),
+                                    column=self._int_or_none(
+                                        identified_callsite.get("column")
+                                    ),
+                                    detail=raw_name,
+                                )
+                            ],
+                            properties={
+                                "callsite": self._callsite_properties(
+                                    source, identified_callsite, resolved, edge_kind
+                                )
+                            },
+                        )
+                    )
 
         # --- Emit 'extends' edges for class inheritance hierarchy ---
         class_nodes = [node for node in (source_nodes or nodes) if node.kind == "class"]
@@ -359,6 +372,47 @@ class CallAnalyzer:
             nodes=sorted(generated_nodes.values(), key=lambda node: node.id),
             edges=sorted(edges, key=lambda edge: (edge.source, edge.target, edge.kind)),
         )
+
+    def _conditional_receiver_targets(
+        self,
+        source: Node,
+        callsite: dict[str, Any],
+        context: _CallResolutionContext,
+    ) -> list[_ResolvedCallTarget] | None:
+        receiver, method = callsite.get("receiver"), callsite.get("attribute")
+        if not isinstance(receiver, str) or not isinstance(method, str):
+            return None
+        ref = self._receiver_type_ref(source, receiver, context)
+        if not ref or ref.get("strategy") != "conditional_binding_join":
+            return None
+        members = union_alternatives(ref)
+        if not members or (source.id, receiver) in context.lexical.mutated:
+            return None
+        targets = {}
+        for member in members:
+            type_id = self._type_id(member)
+            if type_id is None or union_alternatives(member) is not None:
+                return None
+            target = self._method_target_from_type(member, method, context)
+            target = target or self._inherited_method_target(member, method, context)
+            target = target or self._builtin_method_target(member, method)
+            if target is None and method in EXTERNAL_METHODS_BY_TYPE.get(type_id, ()):
+                target = self._external_method_target(member, method)
+            if target is None:
+                return None
+            targets.setdefault(target.id, (target, type_id))
+        return [
+            _ResolvedCallTarget(
+                target=target,
+                strategy="conditional_receiver_candidates",
+                candidate_count=len(targets),
+                confidence="inferred",
+                receiver_expression=receiver,
+                receiver_type=type_id,
+                edge_kind="uses" if target.kind in EXTERNAL_TARGET_KINDS else None,
+            )
+            for target, type_id in targets.values()
+        ]
 
     def _resolve_callsite(
         self,
@@ -1009,6 +1063,9 @@ class CallAnalyzer:
             narrowed = context.narrowed_type_ref(source, node.id)
             if narrowed is not None:
                 return narrowed
+            positioned = context.type_ref_at(source, node.id)
+            if positioned and positioned.get("strategy") == "conditional_binding_join":
+                return positioned
             if source.id in context.lexical.strict:
                 return context.lexical.type_ref(source, node.id)
             return context.type_ref_at(source, node.id) or module_scope_refs.get(

@@ -768,7 +768,11 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             record["unpack_path"] = unpack_path
         if static_only or self.static_only:
             record["static_only"] = True
-        if self.scope_kind == "module" or kind == "instance_attribute":
+        if self.scope_kind == "module" or kind in {
+            "instance_attribute",
+            "assignment",
+            "annotated_assignment",
+        }:
             self._record_module_flow(record, node, kind, name)
         self._set_optional(record, "imported_name", imported_name)
         self._set_optional(record, "owner", owner)

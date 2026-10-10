@@ -143,7 +143,7 @@ class _CallResolutionContext:
     def _conditional_attribute_type(self, source, name, bindings, refs):
         """All reachable writes back to a definite write or the entry value.
 
-        Distinct types stay an ambiguous union, as local annotated unions do.
+        Distinct known writes form a dispatch candidate set.
         Unknown writes are alternatives, never silently removed.
         """
         by_binding = {r.get("binding_id"): r for r in refs}
@@ -160,7 +160,11 @@ class _CallResolutionContext:
                 break
             candidates.append(
                 by_binding.get(binding.get("binding_id"))
-                or unknown_union_result(name)["type_args"][0]
+                or (
+                    {"type_id": "builtin:None", "type_expression": "None"}
+                    if binding.get("value") == "None"
+                    else unknown_union_result(name)["type_args"][0]
+                )
             )
             block = binding.get("block")
             if (
@@ -185,12 +189,31 @@ class _CallResolutionContext:
             )
         ):
             return {**candidates[0], "strategy": "conditional_attribute_join"}
+        members = [m for ref in candidates for m in (union_alternatives(ref) or [ref])]
+        values = [m for m in members if m.get("type_id") != "builtin:None"]
+        if values and all(
+            m.get("type_id") and m["type_id"] == values[0]["type_id"] for m in values
+        ):
+            # Preserve the established nullable/generic field summary. This
+            # policy adds dispatch alternatives, not a new None flow model.
+            fallback = self.scope_type_refs.get(source.id, {}).get(name)
+            if fallback and fallback.get("type_id") == values[0]["type_id"]:
+                return {**fallback, "strategy": "conditional_attribute_join"}
+        nullable_summary = {}
+        if (
+            values
+            and any(m.get("type_id") == "builtin:None" for m in members)
+            and all(type_identity(m) == type_identity(values[0]) for m in values)
+            and values[0].get("type_id")
+        ):
+            nullable_summary = {"type_id": values[0]["type_id"]}
         return {
+            **nullable_summary,
             "origin": "Union",
             "type_expression": name,
             "type_args": candidates,
             "resolution_status": "unresolved",
-            "strategy": "conditional_attribute_join",
+            "strategy": "conditional_binding_join",
         }
 
     def type_ref_at(self, source: Node, name: str) -> dict[str, Any] | None:
@@ -213,9 +236,13 @@ class _CallResolutionContext:
         latest: dict[str, Any] = max(
             bindings, key=lambda b: (b.get("line", 0), b.get("column", 0))
         )
-        if latest.get("kind") == "instance_attribute" and latest.get("may_not_run"):
+        if latest.get("kind") in {
+            "instance_attribute",
+            "assignment",
+            "annotated_assignment",
+        } and latest.get("may_not_run"):
             # Outside the assigning branch, neither its new value nor the
-            # entry value is certain. Keep the receiver unknown rather than
+            # entry value is certain. Keep all possible writes rather than
             # letting a last textual write become a definite runtime value.
             block = latest.get("block")
             _, line, column = self.callsite_position

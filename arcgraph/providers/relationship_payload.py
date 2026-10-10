@@ -35,6 +35,9 @@ def compact_relations(raw: dict[str, Any], limit: int) -> dict[str, Any]:
                     "connection_basis": edge.get("properties", {}).get(
                         "connection_basis"
                     ),
+                    "candidate_count": edge.get("resolution", {}).get(
+                        "candidate_count"
+                    ),
                     "evidence": [
                         {
                             key: item[key]

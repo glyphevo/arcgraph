@@ -32,13 +32,24 @@ def test_exhaustive_attribute_branches_replace_entry_type(tmp_path):
     ) == {"method:pkg.user.Other.find"}
 
 
-def test_distinct_attribute_candidates_match_local_union_policy(tmp_path):
+def test_conditional_candidates_are_distinct_from_a_declared_union(tmp_path):
     source = "class Matcher:\n    def find(self): pass\nclass Other:\n    def find(self): pass\nclass User:\n    def __init__(self): self.matcher=Matcher()\n    def use(self, flag):\n        if flag: self.matcher=Other()\n        self.matcher.find()\ndef local(matcher: Matcher | Other): matcher.find()\n"
     (tmp_path / "sample.py").write_text(source, encoding="utf-8")
     graph = PythonGraphAnalyzer().analyze(
         FileScanner(tmp_path, [SourceRoot(".")]).scan()
     )
-    for owner in ["method:sample.User.use", "fn:sample.local"]:
+    attribute_edges = [
+        e
+        for e in graph.edges
+        if e.source == "method:sample.User.use"
+        and (e.properties.get("callsite") or {}).get("attribute") == "find"
+    ]
+    assert {e.target for e in attribute_edges} == {
+        "method:sample.Matcher.find",
+        "method:sample.Other.find",
+    }
+    assert all(e.resolution.candidate_count == 2 for e in attribute_edges)
+    for owner in ["fn:sample.local"]:
         edge = next(
             e
             for e in graph.edges

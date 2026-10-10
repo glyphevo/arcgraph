@@ -247,16 +247,23 @@ def test_derived_value_does_not_cross_sibling_block_or_unknown_write(tmp_path, b
     assert "n.endswith('x')" not in calls
 
 
-def test_missing_attribute_and_distinct_conditional_types_stay_rejected(tmp_path):
+def test_missing_attribute_stays_rejected_and_conditional_types_are_candidates(
+    tmp_path,
+):
     calls = _calls(
         tmp_path,
         "class Matcher:\n    def find(self, row): pass\nclass Other:\n    def find(self, row): pass\nclass Box:\n    def __init__(self): self.matcher=Matcher()\n    def method(self, flag):\n        if flag: self.matcher=Other()\n        self.matcher.find('x')\ndef use(b: Box): b.matcher.inner.find('x')\n",
     )
     assert "b.matcher.inner.find('x')" not in calls
-    assert not any(
-        e.source == "method:pkg.user.Box.method" and e.kind == "calls"
+    edges = [
+        e
         for e in GraphStoreReader.from_current(tmp_path / "out").read_edges()
-    )
+        if e.source == "method:pkg.user.Box.method" and e.target.endswith(".find")
+    ]
+    assert {e.target for e in edges} == {
+        "method:pkg.user.Matcher.find",
+        "method:pkg.user.Other.find",
+    }
 
 
 @pytest.mark.parametrize(

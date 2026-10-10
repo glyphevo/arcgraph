@@ -70,7 +70,10 @@ def _targets(tmp_path: Path, body: str) -> set[str]:
 )
 def test_optional_attribute_write_does_not_become_a_definite_receiver(tmp_path, block):
     targets = _targets(tmp_path, block + "        return self.matcher.find(row)\n")
-    assert targets == set(), targets
+    assert targets == {
+        "method:pkg.user.Matcher.find",
+        "method:pkg.user.Other.find",
+    }, targets
 
 
 def test_attribute_call_before_same_line_write_keeps_entry_receiver(tmp_path):
