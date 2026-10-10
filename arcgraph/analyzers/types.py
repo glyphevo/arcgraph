@@ -770,6 +770,7 @@ class TypeRefAnalyzer:
         if function is None:
             return
         narrowings = []
+        loops = None
         pending = [function.body]
         while pending:
             statements = pending.pop()
@@ -833,6 +834,12 @@ class TypeRefAnalyzer:
                     found = context.lexical.lookup(node, name)
                     if not body or not found or found[0].id != node.id:
                         continue
+                    if loops is None:
+                        loops = [
+                            part
+                            for part in ast.walk(function)
+                            if isinstance(part, (ast.For, ast.AsyncFor, ast.While))
+                        ]
                     narrowings.append(
                         {
                             "name": name,
@@ -844,9 +851,8 @@ class TypeRefAnalyzer:
                                     loop.end_lineno,
                                     loop.end_col_offset,
                                 ]
-                                for loop in ast.walk(function)
-                                if isinstance(loop, (ast.For, ast.AsyncFor, ast.While))
-                                and (loop.lineno, loop.col_offset)
+                                for loop in loops
+                                if (loop.lineno, loop.col_offset)
                                 > (test.end_lineno, test.end_col_offset)
                                 and _binds_name(loop, name)
                             ],

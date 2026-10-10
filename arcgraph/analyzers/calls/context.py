@@ -256,9 +256,15 @@ class _CallResolutionContext:
         """
         if not self.callsite_position or self.callsite_position[0] != source.id:
             return None
+        position = self.callsite_position[1:]
+        if not any(
+            entry["name"] == name
+            and tuple(entry["range"][:2]) <= position <= tuple(entry["range"][2:])
+            for entry in source.properties.get("receiver_narrowings", [])
+        ):
+            return None
         if (source.id, name) in self.lexical.mutated:
             return None
-        position = self.callsite_position[1:]
         bindings = self.lexical.bindings.get(source.id, {}).get(name, [])
         if any(b.get("kind") in {"global", "nonlocal"} for b in bindings):
             return None
