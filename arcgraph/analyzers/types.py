@@ -656,11 +656,13 @@ class TypeRefAnalyzer:
         their own context.
         A new preparation discards all evidence from the previous binding pass.
         """
+        self._callable_contracts = CallableContracts(nodes)
         for module in nodes:
             tree = (annotation_trees or {}).get(module.path)
             if module.kind == "module" and tree is not None:
-                collect_contracts(module, tree, nodes)
-        self._callable_contracts = CallableContracts(nodes)
+                collect_contracts(
+                    module, tree, nodes, resolver=self._callable_contracts
+                )
         self._prepared_nodes = nodes
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache

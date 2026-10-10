@@ -29,7 +29,13 @@ _BUILTINS = {
 }
 
 
-def collect_contracts(module: Node, tree: ast.Module, nodes: list[Node]) -> None:
+def collect_contracts(
+    module: Node,
+    tree: ast.Module,
+    nodes: list[Node],
+    *,
+    resolver: CallableContracts | None = None,
+) -> None:
     """Persist source summaries, including proven typing-only Protocols."""
     module.properties["callable_annotation_member_writes"] = sorted(
         {
@@ -38,7 +44,7 @@ def collect_contracts(module: Node, tree: ast.Module, nodes: list[Node]) -> None
             if isinstance(n, ast.Attribute) and isinstance(n.ctx, (ast.Store, ast.Del))
         }
     )
-    resolver = CallableContracts(nodes)
+    resolver = resolver or CallableContracts(nodes)
     contracts: dict[str, dict[str, Any]] = {}
     for stmt in tree.body:
         if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
@@ -119,6 +125,9 @@ class CallableContracts:
         self.modules = {n.path: n for n in nodes if n.kind == "module"}
         self.by_name = {n.qualname: n for n in self.modules.values()}
         self.nodes = nodes
+        self.nodes_by_path: dict[str | None, list[Node]] = {}
+        for node in nodes:
+            self.nodes_by_path.setdefault(node.path, []).append(node)
         self.module_names = module_names or set()
         self._scopes: dict[str | None, LexicalScopes] = {}
         self._results: dict[tuple[str | None, str, str], str | None] = {}
@@ -126,7 +135,7 @@ class CallableContracts:
     def scopes(self, source: Node) -> LexicalScopes:
         if source.path not in self._scopes:
             self._scopes[source.path] = LexicalScopes(
-                [n for n in self.nodes if n.path == source.path], {}
+                self.nodes_by_path.get(source.path, []), {}
             )
         return self._scopes[source.path]
 

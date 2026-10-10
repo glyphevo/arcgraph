@@ -439,3 +439,28 @@ def test_callable_result_uses_exact_provider_identity(tmp_path: Path):
         r.get("name") == "client" and r.get("type_id") == "extsym:external.TestClient"
         for r in node.properties.get("type_refs", [])
     )
+
+
+def test_callable_collection_shares_one_resolver(tmp_path, monkeypatch):
+    import arcgraph.analyzers.callable_types as contracts
+    from arcgraph.core.scanner import FileScanner, SourceRoot
+    from arcgraph.pipeline.python_frontend import PythonGraphAnalyzer
+
+    created = []
+    original = contracts.CallableContracts
+
+    class Counted(original):
+        def __init__(self, *args, **kwargs):
+            created.append(1)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(contracts, "CallableContracts", Counted)
+    monkeypatch.setattr("arcgraph.analyzers.types.CallableContracts", Counted)
+    for name in ["one", "two", "three"]:
+        (tmp_path / f"{name}.py").write_text(
+            "from typing import Callable\nFactory = Callable[..., int]\n",
+            encoding="utf-8",
+        )
+    PythonGraphAnalyzer().analyze(FileScanner(tmp_path, [SourceRoot(".")]).scan())
+    # One collection resolver for the project, independent of the file count.
+    assert len(created) == 1
