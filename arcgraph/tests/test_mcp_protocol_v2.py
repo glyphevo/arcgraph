@@ -154,6 +154,7 @@ EXPECTED_TOOL_PROPERTIES = {
         "entrypoint",
         "method",
         "path",
+        "profile",
         "max_depth",
         "max_results",
         "include_source",

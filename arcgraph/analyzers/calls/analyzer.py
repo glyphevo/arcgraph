@@ -3557,6 +3557,8 @@ class CallAnalyzer:
             "context": callsite.get("context"),
             "edge_kind": edge_kind,
             "resolution_strategy": resolved.strategy,
+            "confidence": resolved.confidence,
+            "resolution_status": resolved.resolution_status,
             "candidate_count": resolved.candidate_count,
             "stable_callsite_subject": callsite["_stable_callsite_subject"],
             "stable_callsite_occurrence": callsite["_stable_callsite_occurrence"],

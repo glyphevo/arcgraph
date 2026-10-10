@@ -471,7 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument(
             "--profile",
             default="review_default",
-            help=f"Confidence profile to use for direct {direction} evidence.",
+            help=f"Confidence profile for direct {direction} evidence; evidence_only excludes heuristics.",
         )
 
     init = subparsers.add_parser(
@@ -2144,7 +2144,9 @@ def handle_report_html(args: argparse.Namespace) -> dict[str, Any] | str:
     similar = engine.similar(query_target, max_results=args.max_results)
     architecture = engine.architecture()
     entrypoint_flow = (
-        engine.entrypoint_flow(args.target, max_results=args.max_results)
+        engine.entrypoint_flow(
+            args.target, max_results=args.max_results, profile=args.profile
+        )
         if _is_entrypoint_target(args.target)
         else None
     )

@@ -1560,6 +1560,11 @@ def _semantic_summary(semantic_stats: dict[str, Any]) -> dict[str, Any]:
         "resolved_callsite_total": metrics.get("resolved_callsite_total", 0),
         "unresolved_callsite_total": metrics.get("unresolved_callsite_total", 0),
         "resolution_rate": metrics.get("resolution_rate", 1.0),
+        "verified_resolution_rate": metrics.get("verified_resolution_rate"),
+        "verified_resolved_callsite_total": metrics.get(
+            "verified_resolved_callsite_total"
+        ),
+        "verified_resolution_scope": metrics.get("verified_resolution_scope"),
         "binding_summary": binding_summary,
         "type_summary": type_summary,
         "by_context": metrics.get("by_context", {}),

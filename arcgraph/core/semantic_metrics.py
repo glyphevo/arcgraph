@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arcgraph.core.expression_kinds import call_expression_kind
+from arcgraph.core.confidence_profiles import callsite_facts, heuristic_callsite
 from arcgraph.core.ids import (
     callsite_id,
     diagnostic_id,
@@ -136,6 +137,7 @@ def collect_semantic_metrics(
         resolved_callsite_ids(edges),
         edge_kind_counts=Counter(edge.kind for edge in edges),
         confidence_counts=Counter(edge.confidence for edge in edges),
+        verified_resolved=verified_callsite_ids(edges),
     )
 
 
@@ -145,6 +147,7 @@ def collect_semantic_metrics_from_resolved_callsites(
     *,
     edge_kind_counts: Mapping[str, int],
     confidence_counts: Mapping[str, int],
+    verified_resolved: set[str] | None = None,
 ) -> dict[str, Any]:
     callsites = collect_callsite_records(nodes)
     unresolved_records = [
@@ -171,6 +174,28 @@ def collect_semantic_metrics_from_resolved_callsites(
         for kind, total in sorted(expression_counts.items())
     }
     return {
+        **(
+            {
+                "verified_resolved_callsite_total": sum(
+                    record.callsite_id in verified_resolved for record in callsites
+                ),
+                "verified_resolution_rate": (
+                    round(
+                        sum(
+                            record.callsite_id in verified_resolved
+                            for record in callsites
+                        )
+                        / callsite_total,
+                        4,
+                    )
+                    if callsite_total
+                    else 1.0
+                ),
+                "verified_resolution_scope": "resolved callsites with confirmed, inferred or runtime-only evidence; excludes name heuristics, not a runtime guarantee",
+            }
+            if verified_resolved is not None
+            else {}
+        ),
         "callsite_total": callsite_total,
         "direct_call_total": expression_counts.get("direct", 0),
         "attribute_call_total": expression_counts.get("attribute", 0),
@@ -304,6 +329,38 @@ def resolved_callsite_ids(edges: Iterable[Edge]) -> set[str]:
                 )
             )
     return resolved
+
+
+def verified_callsite_ids(edges: Iterable[Edge]) -> set[str]:
+    """Exclude guesses per callsite, even inside a stronger merged edge."""
+    result: set[str] = set()
+    for edge in edges:
+        if edge.confidence not in {"confirmed", "inferred", "runtime-only"}:
+            continue
+        excluded = {
+            fact.get("callsite_id")
+            for fact in callsite_facts(edge.properties)
+            if heuristic_callsite(fact, edge.confidence, edge.resolution.model_dump())
+        }
+        result.update(resolved_callsite_ids([edge]) - excluded)
+    return result
+
+
+def verified_callsite_ids_from_edge_rows(rows: Iterable[Any]) -> set[str]:
+    result: set[str] = set()
+    for row in rows:
+        confidence = _row_value(row, "confidence")
+        if confidence not in {"confirmed", "inferred", "runtime-only"}:
+            continue
+        excluded = {
+            fact.get("callsite_id")
+            for fact in callsite_facts(_json_dict(_row_value(row, "properties_json")))
+            if heuristic_callsite(
+                fact, confidence, _json_dict(_row_value(row, "resolution_json"))
+            )
+        }
+        result.update(resolved_callsite_ids_from_edge_rows([row]) - excluded)
+    return result
 
 
 def resolved_callsite_ids_from_edge_rows(rows: Iterable[Any]) -> set[str]:

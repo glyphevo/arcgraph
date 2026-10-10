@@ -39,6 +39,7 @@ def compact_flow(payload: dict[str, Any]) -> dict[str, Any]:
         result["edges"].append(
             {
                 **_fields(edge, _EDGE_FIELDS),
+                "connection_basis": edge.get("properties", {}).get("connection_basis"),
                 "resolution": _fields(
                     edge.get("resolution", {}), ("status", "strategy")
                 ),

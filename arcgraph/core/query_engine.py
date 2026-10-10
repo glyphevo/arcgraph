@@ -16,6 +16,8 @@ from arcgraph.core.confidence_profiles import (
     effective_max_depth,
     get_profile,
     profile_summary,
+    callsite_facts,
+    heuristic_callsite,
 )
 from arcgraph.core.freshness import compute_freshness
 from arcgraph.core.graph_store import GraphStoreReader
@@ -34,6 +36,7 @@ from arcgraph.core.semantic_metrics import (
     CALLSITE_RESOLUTION_EDGE_KINDS,
     collect_semantic_metrics_from_resolved_callsites,
     resolved_callsite_ids_from_edge_rows,
+    verified_callsite_ids_from_edge_rows,
 )
 from arcgraph.core.schemas import SCHEMA_VERSION, Freshness
 from arcgraph.core.target_resolver import (
@@ -528,7 +531,7 @@ class QueryEngine:
             placeholders = ",".join("?" for _ in callsite_edge_kinds)
             resolved_edge_rows = conn.execute(
                 f"""
-                SELECT source, resolution_json, evidence_json
+                SELECT source, confidence, resolution_json, evidence_json, properties_json
                 FROM edges
                 WHERE kind IN ({placeholders})
                 """,
@@ -540,6 +543,7 @@ class QueryEngine:
             resolved_callsite_ids_from_edge_rows(resolved_edge_rows),
             edge_kind_counts=edge_kind_counts,
             confidence_counts=confidence_counts,
+            verified_resolved=verified_callsite_ids_from_edge_rows(resolved_edge_rows),
         )
         metrics["binding_summary"] = collect_binding_metrics(nodes)
         metrics["type_summary"] = collect_type_metrics(nodes)
@@ -1044,6 +1048,7 @@ class QueryEngine:
                 depth,
                 path_limits=path_limits,
                 allowed_confidences=profile_config.allowed_confidences,
+                profile_config=profile_config,
             )
             call_edges = self._filter_edges_by_kind(
                 raw_call_edges,
@@ -1451,8 +1456,14 @@ class QueryEngine:
         }
 
     def entrypoint_flow(
-        self, entrypoint: str, max_depth: int = 3, max_results: int = 50
+        self,
+        entrypoint: str,
+        max_depth: int = 3,
+        max_results: int = 50,
+        *,
+        profile: str = "review_default",
     ) -> dict[str, Any]:
+        profile_config = get_profile(profile)
         max_depth = max(0, min(max_depth, 6))
         max_results = max(1, min(max_results, 200))
         with self.store.connect() as conn:
@@ -1473,6 +1484,7 @@ class QueryEngine:
                 entrypoint_ids,
                 max_depth=max_depth,
                 max_results=max_results,
+                profile_config=profile_config,
             )
             node_ids = sorted(
                 {
@@ -2277,6 +2289,7 @@ class QueryEngine:
                 "kind": edge.get("kind"),
                 "confidence": edge.get("confidence"),
                 "semantic_role": edge.get("semantic_role"),
+                "connection_basis": edge.get("properties", {}).get("connection_basis"),
             }
             for edge in edges[:100]
         ]
@@ -2306,9 +2319,51 @@ class QueryEngine:
     ) -> list[dict[str, Any]]:
         """Filter edges by the profile's allowed confidence levels."""
         allowed = profile_config.allowed_confidences
-        return [
+        selected = [
             edge for edge in edges if edge.get("confidence", "confirmed") in allowed
         ]
+        if "heuristic" in allowed:
+            return selected
+        result = []
+        for edge in selected:
+            facts = callsite_facts(edge.get("properties", {}))
+            excluded = {
+                fact.get("callsite_id")
+                for fact in facts
+                if heuristic_callsite(fact, edge["confidence"], edge.get("resolution"))
+            }
+            if not excluded:
+                result.append(edge)
+                continue
+            retained = [
+                fact for fact in facts if fact.get("callsite_id") not in excluded
+            ]
+            if not retained:
+                continue
+            properties = {
+                **edge["properties"],
+                "callsite": retained[0],
+                "callsites": retained,
+                "connection_basis": (
+                    "runtime_evidence"
+                    if edge.get("confidence") == "runtime-only"
+                    else "static_evidence"
+                ),
+            }
+            evidence = [
+                item
+                for item in edge.get("evidence", [])
+                if callsite_id(
+                    edge["source"],
+                    item.get("path"),
+                    item.get("start_line"),
+                    item.get("column"),
+                    item.get("detail"),
+                )
+                not in excluded
+            ]
+            result.append({**edge, "properties": properties, "evidence": evidence})
+        return result
 
     def _resolve_target(
         self,
@@ -2358,6 +2413,7 @@ class QueryEngine:
         *,
         path_limits: PathQueryLimits = DEFAULT_PATH_QUERY_LIMITS,
         allowed_confidences: frozenset[str] | None = None,
+        profile_config: ConfidenceProfileConfig | None = None,
     ) -> tuple[list[dict[str, Any]], bool, list[str]]:
         """BFS reverse traversal with guardrails.
 
@@ -2412,6 +2468,11 @@ class QueryEngine:
             if sql_capped:
                 truncated = True
                 truncation_reasons.add("max_fan_in_or_edges")
+
+            if profile_config is not None:
+                edges = self._filter_edges_by_confidence(
+                    edges, profile_config=profile_config
+                )
 
             # Process edges: build next frontier BEFORE budget check so
             # we always know whether deeper exploration is possible.
@@ -2936,6 +2997,7 @@ class QueryEngine:
         *,
         max_depth: int,
         max_results: int,
+        profile_config: ConfidenceProfileConfig,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         # Keep one extra edge to distinguish an exactly-sized complete result
         # from a result cut short by the edge budget. Unknown remaining counts
@@ -2956,8 +3018,11 @@ class QueryEngine:
                 "completeness_scope": "indexed flow edge kinds only",
             }
 
-        for edge in self._edges_for_targets_kinds(
-            conn, sorted(frontier), ["enqueues", "consumes"]
+        for edge in self._filter_edges_by_confidence(
+            self._edges_for_targets_kinds(
+                conn, sorted(frontier), ["enqueues", "consumes"]
+            ),
+            profile_config=profile_config,
         ):
             seen.setdefault((edge["source"], edge["target"], edge["kind"]), edge)
             if len(seen) > max_results:
@@ -2968,8 +3033,11 @@ class QueryEngine:
         for _ in range(max_depth):
             if not frontier:
                 break
-            edges = self._edges_for_sources_kinds(
-                conn, sorted(frontier), ENTRYPOINT_FLOW_EDGE_KINDS
+            edges = self._filter_edges_by_confidence(
+                self._edges_for_sources_kinds(
+                    conn, sorted(frontier), ENTRYPOINT_FLOW_EDGE_KINDS
+                ),
+                profile_config=profile_config,
             )
             frontier = set()
             for edge in edges:
@@ -2984,8 +3052,11 @@ class QueryEngine:
         # that the depth boundary omitted work (leaf nodes are not truncation).
         if frontier and any(
             (edge["source"], edge["target"], edge["kind"]) not in seen
-            for edge in self._edges_for_sources_kinds(
-                conn, sorted(frontier), ENTRYPOINT_FLOW_EDGE_KINDS
+            for edge in self._filter_edges_by_confidence(
+                self._edges_for_sources_kinds(
+                    conn, sorted(frontier), ENTRYPOINT_FLOW_EDGE_KINDS
+                ),
+                profile_config=profile_config,
             )
         ):
             return finish("max_depth")
@@ -3059,16 +3130,39 @@ class QueryEngine:
 
     @staticmethod
     def _edge_row(row: Any) -> dict[str, Any]:
+        resolution = json.loads(row["resolution_json"])
+        properties = json.loads(row["properties_json"])
+        guesses = [
+            heuristic_callsite(fact, row["confidence"], resolution)
+            for fact in callsite_facts(properties)
+        ]
+        basis = (
+            "unresolved"
+            if resolution.get("status") != "resolved"
+            else (
+                "heuristic"
+                if row["confidence"] == "heuristic" or guesses and all(guesses)
+                else (
+                    "mixed_evidence"
+                    if any(guesses)
+                    else (
+                        "runtime_evidence"
+                        if row["confidence"] == "runtime-only"
+                        else "static_evidence"
+                    )
+                )
+            )
+        )
         return {
             "source": row["source"],
             "target": row["target"],
             "kind": row["kind"],
             "confidence": row["confidence"],
             "semantic_role": row["semantic_role"],
-            "resolution": json.loads(row["resolution_json"]),
+            "resolution": resolution,
             "confidence_sources": json.loads(row["confidence_sources_json"]),
             "evidence": json.loads(row["evidence_json"]),
-            "properties": json.loads(row["properties_json"]),
+            "properties": {**properties, "connection_basis": basis},
         }
 
     @staticmethod

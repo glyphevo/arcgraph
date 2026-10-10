@@ -101,7 +101,9 @@ class ContextProvider:
                 _add_read(recommended_reads, node, reason="target definition")
 
             if _is_entrypoint_target(target):
-                flow = self.entrypoint_flow(target, max_results=max_results)
+                flow = self.entrypoint_flow(
+                    target, max_results=max_results, profile=request.profile
+                )
                 entrypoint_flows.append(_compact_flow(flow, max_results))
                 for node in flow.get("entrypoints", []):
                     _add_node(entrypoints, node)
@@ -514,7 +516,12 @@ class ContextProvider:
         )
 
     def entrypoint_flow(
-        self, entrypoint: str, max_depth: int = 3, max_results: int = 50
+        self,
+        entrypoint: str,
+        max_depth: int = 3,
+        max_results: int = 50,
+        *,
+        profile: str = "review_default",
     ) -> dict[str, Any]:
         normalized = normalize_targets([entrypoint], label="entrypoint", max_targets=1)[
             0
@@ -522,7 +529,10 @@ class ContextProvider:
         return compact_flow(
             apply_target_payload_contract(
                 self.query_engine.entrypoint_flow(
-                    normalized, max_depth=max_depth, max_results=max_results
+                    normalized,
+                    max_depth=max_depth,
+                    max_results=max_results,
+                    profile=profile,
                 )
             )
         )
@@ -1076,6 +1086,7 @@ def _compact_explain_edges(
                 "target": edge.get("target"),
                 "kind": edge.get("kind"),
                 "confidence": edge.get("confidence"),
+                "connection_basis": edge.get("properties", {}).get("connection_basis"),
                 "semantic_role": edge.get("semantic_role"),
                 "resolution": edge.get("resolution", {}),
                 "confidence_sources": edge.get("confidence_sources", {}),

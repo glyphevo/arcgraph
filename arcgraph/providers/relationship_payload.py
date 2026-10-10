@@ -32,6 +32,9 @@ def compact_relations(raw: dict[str, Any], limit: int) -> dict[str, Any]:
                     if key in edge
                 }
                 | {
+                    "connection_basis": edge.get("properties", {}).get(
+                        "connection_basis"
+                    ),
                     "evidence": [
                         {
                             key: item[key]

@@ -373,6 +373,7 @@ class ArcGraphMCPToolGroup:
         max_depth: int = 3,
         max_results: int = 50,
         include_source: bool = False,
+        profile: str = "review_default",
     ) -> dict[str, Any]:
         repo = self._resolve_repo(repo_id)
         normalized = _entrypoint_query(entrypoint=entrypoint, method=method, path=path)
@@ -388,6 +389,7 @@ class ArcGraphMCPToolGroup:
                 normalized,
                 max_depth=max_depth,
                 max_results=self._cap_results(max_results),
+                profile=profile,
             )
         except (FileNotFoundError, SchemaVersionError, RuntimeError) as exc:
             return self._unavailable_for_repo(

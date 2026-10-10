@@ -50,6 +50,12 @@ CONFIDENCE_PROFILES: dict[str, ConfidenceProfileConfig] = {
         default_max_depth=2,  # shallower but more precise
         description="Only confirmed edges for strict analysis",
     ),
+    "evidence_only": ConfidenceProfileConfig(
+        allowed_confidences=frozenset({"confirmed", "inferred", "runtime-only"}),
+        include_unresolved=False,
+        default_max_depth=3,
+        description="Modeled or runtime evidence, excluding name heuristics; not runtime completeness",
+    ),
 }
 
 # Hard cap on depth regardless of profile or user request.
@@ -57,6 +63,43 @@ DEPTH_HARD_CAP: int = 10
 
 # Default profile name when none is specified.
 DEFAULT_PROFILE_NAME: str = "review_default"
+
+
+def callsite_facts(properties: dict[str, Any]) -> list[dict[str, Any]]:
+    values = properties.get("callsites")
+    if not isinstance(values, list):
+        values = [properties.get("callsite")]
+    return [value for value in values if isinstance(value, dict)]
+
+
+def heuristic_callsite(
+    fact: dict[str, Any], confidence: str, resolution: dict[str, Any] | None = None
+) -> bool:
+    """Use per-call confidence; recognize the three old name-guess strategies.
+
+    Older indexes without that metadata otherwise retain edge confidence.
+    Rebuilding supplies exact provenance for mixed edges from other strategies.
+    """
+    guess_strategies = {
+        "common_boundary_method",
+        "receiver_name_boundary_method",
+        "unique_method_fallback",
+    }
+    if (
+        resolution
+        and confidence in {"confirmed", "inferred", "runtime-only"}
+        and resolution.get("status") == "resolved"
+        and resolution.get("callsite_id") == fact.get("callsite_id")
+        and resolution.get("callsite_id")
+        and resolution.get("strategy") not in guess_strategies
+    ):
+        # A stronger producer resolved this exact callsite in the merged edge.
+        return False
+    if "confidence" in fact:
+        return fact["confidence"] == "heuristic"
+    return (
+        confidence == "heuristic" or fact.get("resolution_strategy") in guess_strategies
+    )
 
 
 def get_profile(name: str | None = None) -> ConfidenceProfileConfig:
