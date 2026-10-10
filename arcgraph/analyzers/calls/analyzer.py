@@ -3839,9 +3839,14 @@ class CallAnalyzer:
         point = (limit[1], limit[2]) if limit is not None else None
         values: list[tuple[str, str | None]] = []
         settled = False
+        missing_star_export = False
         settling: list[int] | None = None
         for event in reversed(events):
-            if settling is not None and at(event) < (settling[0], settling[1]):
+            if (
+                settling is not None
+                and not missing_star_export
+                and at(event) < (settling[0], settling[1])
+            ):
                 # Every binding in the statement that surely binds the name.
                 settled = True
                 break
@@ -3852,6 +3857,9 @@ class CallAnalyzer:
                 if value is None:
                     return None
                 if value == _NO_VALUE:
+                    # This branch preserves an older binding, if any. A star
+                    # in every branch does not promise every individual name.
+                    missing_star_export |= bool(event.get("settles_with"))
                     continue
             else:
                 value = self._binding_value(event, lexical)
@@ -3872,7 +3880,7 @@ class CallAnalyzer:
                 settling = span
         if not values:
             return _NO_VALUE
-        if not settled and settling is None:
+        if not settled and (settling is None or missing_star_export):
             # No binding surely ran: the name may be unbound there.
             values.append(_NO_VALUE)
         return values[0] if all(v == values[0] for v in values) else _OTHER_VALUE

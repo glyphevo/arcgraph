@@ -178,6 +178,31 @@ def _parts(test: ast.expr, op: type) -> list[ast.expr]:
     return [test]
 
 
+def _truth_when_none(test: ast.expr, name: str) -> bool | None:
+    """Truth under name=None; calls and writes remain unknown."""
+    if _walruses(test, name):
+        return None
+    if isinstance(test, ast.Constant):
+        return bool(test.value)
+    if _is_name(test, name):
+        return False
+    if _compared_with_none(test, name, (ast.Is, ast.Eq)) is not None:
+        return True
+    if _compared_with_none(test, name, (ast.IsNot, ast.NotEq)) is not None:
+        return False
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        value = _truth_when_none(test.operand, name)
+        return None if value is None else not value
+    if isinstance(test, ast.BoolOp):
+        values = [_truth_when_none(part, name) for part in test.values]
+        decisive = isinstance(test.op, ast.Or)
+        if decisive in values:
+            return decisive
+        if all(value is not None for value in values):
+            return not decisive
+    return None
+
+
 def _absent_operand(part: ast.expr, name: str) -> ast.expr | None:
     """The operand reading name if ``part`` holds whenever name is None: not
     name, or name is None or == None, None on either side."""
@@ -190,7 +215,14 @@ def _absent_operand(part: ast.expr, name: str) -> ast.expr | None:
         return part.operand
     # name == None holds whenever name is None, as name is None does; another
     # value it holds for only takes the same branch too.
-    return _compared_with_none(part, name, (ast.Is, ast.Eq))
+    direct = _compared_with_none(part, name, (ast.Is, ast.Eq))
+    if direct is not None:
+        return direct
+    if _truth_when_none(part, name) is True and any(
+        _is_name(n, name) for n in ast.walk(part)
+    ):
+        return part
+    return None
 
 
 def _present_operand(part: ast.expr, name: str) -> ast.expr | None:
@@ -199,7 +231,14 @@ def _present_operand(part: ast.expr, name: str) -> ast.expr | None:
 
     if _is_name(part, name):
         return part
-    return _compared_with_none(part, name, (ast.IsNot, ast.NotEq))
+    direct = _compared_with_none(part, name, (ast.IsNot, ast.NotEq))
+    if direct is not None:
+        return direct
+    if _truth_when_none(part, name) is False and any(
+        _is_name(n, name) for n in ast.walk(part)
+    ):
+        return part
+    return None
 
 
 def _constant_truth(part: ast.expr) -> bool | None:

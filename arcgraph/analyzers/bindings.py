@@ -737,7 +737,14 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         if value_region:
             record["value_region"] = value_region
         if (
-            kind in {"assignment", "annotated_assignment"}
+            kind
+            in {
+                "assignment",
+                "annotated_assignment",
+                "import_alias",
+                "type_checking_import_alias",
+                "star_import",
+            }
             or (
                 kind == "instance_attribute"
                 and isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign))

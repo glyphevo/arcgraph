@@ -87,6 +87,12 @@ def yields(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 def breaks_out(loop: ast.While | ast.For | ast.AsyncFor) -> bool:
     """Whether a break in ``loop``'s body ends that loop, not an inner one."""
 
+    if (
+        isinstance(loop, ast.While)
+        and isinstance(loop.test, ast.Constant)
+        and not loop.test.value
+    ):
+        return False
     pending: list[ast.AST] = list(loop.body)
     while pending:
         node = pending.pop()
@@ -204,9 +210,7 @@ def _bound_after(stmt: ast.stmt, bound: set[str]) -> set[str] | None:
         return bound | {stmt.name}
     if isinstance(stmt, (ast.Import, ast.ImportFrom)):
         return bound | {
-            alias.asname or alias.name.split(".")[0]
-            for alias in stmt.names
-            if alias.name != "*"
+            alias.asname or alias.name.split(".")[0] for alias in stmt.names
         }
     if isinstance(stmt, ast.Assign):
         return bound | {n for target in stmt.targets for n in _target_names(target)}
@@ -254,7 +258,11 @@ def _bound_after(stmt: ast.stmt, bound: set[str]) -> set[str] | None:
         last = stmt.cases[-1] if stmt.cases else None
         irrefutable = (
             last is not None
-            and last.guard is None
+            and (
+                last.guard is None
+                or isinstance(last.guard, ast.Constant)
+                and last.guard.value is True
+            )
             and isinstance(last.pattern, ast.MatchAs)
             and last.pattern.pattern is None
         )
