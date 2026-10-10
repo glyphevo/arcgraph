@@ -1636,6 +1636,7 @@ class _TypeContext:
         self.file_record = file_record
         self.tree = tree
         self.value_position = None
+        self._captured_path_values = {}
         self.functions = {
             fn.lineno: fn
             for fn in ast.walk(tree)
@@ -1876,6 +1877,41 @@ class _TypeContext:
                         ),
                         "typed_value_evidence": True,
                     }
+                binding = found[1][0]
+                value = binding.get("value")
+                if (
+                    found[0].kind == "module"
+                    and binding.get("kind") == "assignment"
+                    and isinstance(value, str)
+                ):
+                    key = binding.get("binding_id")
+                    if key not in self._captured_path_values:
+                        # Seed before recursion: aliases or cyclic globals must
+                        # not turn an unknown value into evidence. Path values
+                        # are immutable; other inferred globals stay unknown.
+                        self._captured_path_values[key] = None
+                        expression = self.parse_expression(value)
+                        inferred = (
+                            self.resolve_scoped_value(expression, found[0], {})
+                            if expression is not None
+                            and all(
+                                self.callable_contracts.name(call.func, found[0])
+                                is not None
+                                for call in ast.walk(expression)
+                                if isinstance(call, ast.Call)
+                                and isinstance(call.func, ast.Name)
+                            )
+                            else None
+                        )
+                        if inferred and inferred.get("type_id") in PATH_TYPE_IDS:
+                            self._captured_path_values[key] = inferred
+                    inferred = self._captured_path_values[key]
+                    if inferred:
+                        return {
+                            **inferred,
+                            "strategy": "captured_path_value",
+                            "typed_value_evidence": True,
+                        }
         if isinstance(node, ast.Name) and self.value_position is not None:
             ref = local_types.get(node.id)
             if ref and not ref.get("comprehension_binding"):
