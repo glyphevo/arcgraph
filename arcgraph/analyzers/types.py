@@ -1151,8 +1151,20 @@ class TypeRefAnalyzer:
             if joined is not None:
                 source = joined
         if source is None:
-            if binding.get("kind") != "comprehension_target":
+            inferred_write = (
+                binding.get("kind") == "assignment"
+                and name in local_types
+                and not any(
+                    item.get("name") == name and item.get("annotation")
+                    for item in node.properties.get("bindings", [])
+                    if isinstance(item, dict)
+                )
+            )
+            if binding.get("kind") != "comprehension_target" and not inferred_write:
                 return None
+            # This value was inferred from an earlier write. An unknown new
+            # value invalidates that evidence, including copies made later;
+            # an explicit declaration still follows its existing Any model.
             source = unknown_union_result(value)
 
         if binding.get("kind") == "with_as":
