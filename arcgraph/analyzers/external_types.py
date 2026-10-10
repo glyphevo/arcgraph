@@ -1048,7 +1048,11 @@ def mapping_value_type(
 
     if (
         not receiver
-        or receiver.get("type_id") != "builtin:dict"
+        or not (
+            receiver.get("type_id") == "builtin:dict"
+            or receiver.get("origin") == "documented_mapping"
+            and method == "get"
+        )
         or method not in {"get", "setdefault"}
     ):
         return None
@@ -1061,8 +1065,61 @@ def mapping_value_type(
     ):
         return None
     if default is not None and default.get("type_id") != value_type.get("type_id"):
+        if (
+            default.get("type_id") == "builtin:None"
+            and value_type.get("type_id") == "builtin:type"
+        ):
+            return {**value_type, "origin": "Optional", "type_args": [value_type]}
         return None
     return value_type
+
+
+def attribute_value_type(owner: str, name: str) -> dict[str, Any] | None:
+    """Small documented property contracts, independent of method-name guesses.
+
+    Headers expose the Mapping[str, str] interface; this names that interface,
+    not a concrete multidict implementation. ValidationInfo.data may be None
+    outside field validation, like existing optional receiver annotations.
+    """
+    result: dict[str, Any]
+    if (
+        name == "suffix"
+        and owner in PATH_TYPE_IDS
+        or (name == "name" and owner == "extsym:enum.Enum")
+    ):
+        result = {"type_id": "builtin:str"}
+    elif name == "headers" and owner in {
+        "extsym:fastapi.Request",
+        "extsym:starlette.requests.Request",
+        "extsym:httpx.Client",
+        "extsym:httpx2.Client",
+        "extsym:httpx.Response",
+        "extsym:httpx2.Response",
+    }:
+        result = {
+            "type_id": "extsym:collections.abc.Mapping",
+            "type_args": [{"type_id": "builtin:str"}, {"type_id": "builtin:str"}],
+            "origin": "documented_mapping",
+        }
+    elif name == "data" and owner in {
+        "extsym:pydantic.ValidationInfo",
+        "extsym:pydantic_core.core_schema.ValidationInfo",
+    }:
+        result = {"type_id": "builtin:dict"}
+    else:
+        return None
+    return {**result, "strategy": "documented_attribute", "typed_value_evidence": True}
+
+
+def constructed_value_type(ref: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Calling a stable type[T] value creates T; unknown or mixed T stays unknown."""
+    value = single_value_type(ref or {})
+    args = value.get("type_args", [])
+    if value.get("type_id") == "builtin:type" and len(args) == 1:
+        result = args[0]
+        if str(result.get("type_id", "")).startswith("class:"):
+            return {**result, "strategy": "class_factory_contract"}
+    return None
 
 
 # A slice of these is of their own type: text[2:] is a str, items[1:] a list.

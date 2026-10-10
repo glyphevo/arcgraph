@@ -73,6 +73,8 @@ from arcgraph.analyzers.external_types import (
     LOWERCASE_STDLIB_CLASSES,
     NEVER_TYPE_ID,
     PATH_TYPE_IDS,
+    attribute_value_type,
+    constructed_value_type,
     function_return_type,
     literal_type_name,
     mapping_default,
@@ -537,6 +539,10 @@ class CallAnalyzer:
             )
             if typed_target is not None:
                 return typed_target
+            if self._ambiguous_external_method(
+                source, receiver_expression, attribute, context
+            ):
+                return self._generated_dynamic_target(source, callsite, context)
             if self._known_type_lacks_method(
                 source, receiver_expression, attribute, context
             ):
@@ -1043,7 +1049,10 @@ class CallAnalyzer:
                 field = context.class_instance_attrs.get(class_qualname, {}).get(
                     node.attr
                 )
-                if field is not None:
+                own_member = context.methods_by_class.get((class_qualname, node.attr))
+                if field is not None and not (
+                    own_member and own_member.properties.get("async")
+                ):
                     return field
                 owner = context.by_id.get(receiver_type_id)
                 order = (
@@ -1051,6 +1060,11 @@ class CallAnalyzer:
                 )
                 for entry in order or []:
                     if isinstance(entry, str):
+                        documented = attribute_value_type("extsym:" + entry, node.attr)
+                        if documented is not None:
+                            return self._derived_type_ref(
+                                receiver_type, documented, "documented_attribute"
+                            )
                         break
                     member = context.methods_by_class.get((entry.qualname, node.attr))
                     if member:
@@ -1061,11 +1075,40 @@ class CallAnalyzer:
                             if returned is not None:
                                 return returned
                         break
+                    field = context.class_instance_attrs.get(entry.qualname, {}).get(
+                        node.attr
+                    )
+                    if field is not None:
+                        return field
                     if any(
                         b.get("name") == node.attr
                         for b in entry.properties.get("bindings", [])
                     ):
                         break
+                if (
+                    order is None
+                    and owner is not None
+                    and not any(
+                        b.get("name") == node.attr
+                        for b in owner.properties.get("bindings", [])
+                    )
+                ):
+                    choices = self._finite_external_bases(owner, context)
+                    values = [
+                        attribute_value_type("extsym:" + choice, node.attr)
+                        for choice in choices
+                    ]
+                    if values and all(
+                        value is not None and value == values[0] for value in values
+                    ):
+                        return self._derived_type_ref(
+                            receiver_type, values[0], "documented_attribute"
+                        )
+            documented = attribute_value_type(receiver_type_id or "", node.attr)
+            if documented is not None:
+                return self._derived_type_ref(
+                    receiver_type, documented, "documented_attribute"
+                )
             if node.attr == "parent":
                 parent = self._path_value_type_ref(receiver_type, "path_parent")
                 if parent is not None:
@@ -1093,6 +1136,13 @@ class CallAnalyzer:
             return self._subscript_value_type_ref(receiver_type)
 
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                found = context.lexical.lookup(source, node.func.id)
+                constructed = constructed_value_type(
+                    context.type_ref_at(source, node.func.id)
+                )
+                if constructed is not None and found and context.lexical.stable(*found):
+                    return constructed
             if isinstance(node.func, ast.Attribute):
                 receiver_ref = self._receiver_type_ref_node(
                     source, node.func.value, context
@@ -1473,6 +1523,10 @@ class CallAnalyzer:
                 source, receiver_expression, node.func.attr, context
             ):
                 return None
+            if self._ambiguous_external_method(
+                source, receiver_expression, node.func.attr, context
+            ):
+                return None
             receiver_name_target = self._receiver_name_boundary_method_target(
                 source,
                 receiver_expression,
@@ -1522,6 +1576,12 @@ class CallAnalyzer:
             "extsym:collections.abc.MutableMapping",
         }:
             return None
+        if value.get("origin") == "documented_mapping":
+            return self._external_symbol_node(
+                f"collections.abc.Mapping.{method}",
+                name=method,
+                source="typing_protocol_method",
+            )
         expression = self._parse_expression(str(value.get("type_expression", "")))
         if isinstance(expression, ast.Subscript):
             expression = expression.value
@@ -1573,35 +1633,17 @@ class CallAnalyzer:
                 b.get("name") == method for b in start.properties.get("bindings", [])
             ):
                 return None
-            bases = start.properties.get("bases", [])
-            module = context.lexical.modules.get(start.path)
-            if len(bases) != 1 or module is None or after is not None:
+            if after is not None:
                 return None
-            base = str(bases[0])
-            parts = base.split(".")
-            found = context.lexical.lookup(module, parts[0])
-            if not found or (module.path, parts[0]) in context.lexical.global_writes:
-                return None
-            choices = []
-            for binding in found[1]:
-                if binding.get("static_only"):
-                    continue
-                if binding.get("kind") != "import_alias":
-                    return None
-                owner = ".".join(
-                    [str(import_binding_target(binding) or ""), *parts[1:]]
-                )
-                if owner not in {"httpx.Client", "httpx2.Client"}:
-                    return None
-                if context.by_qualname.get(owner) is not None:
-                    return None
-                choices.append(owner)
-            if not choices or method not in GUESSED_METHODS_BY_OWNER.get(
+            choices = self._finite_external_bases(start, context)
+            # A stable value contract may be shared by distinct libraries, but
+            # their definition identities are not interchangeable.
+            if len(choices) != 1 or method not in GUESSED_METHODS_BY_OWNER.get(
                 "httpx.Client", ()
             ):
                 return None
             target = self._external_symbol_node(
-                f"{start.qualname}.{method}",
+                f"{choices[0]}.{method}",
                 name=method,
                 source="inherited_receiver_type",
             )
@@ -1646,6 +1688,45 @@ class CallAnalyzer:
             if any(b.get("name") == method for b in class_bindings):
                 return None
         return None
+
+    @staticmethod
+    def _finite_external_bases(
+        start: Node, context: _CallResolutionContext
+    ) -> list[str]:
+        """Known HTTPX alternatives, with no project member shadow or value binding."""
+        bases = start.properties.get("bases", [])
+        module = context.lexical.modules.get(start.path)
+        if len(bases) != 1 or module is None:
+            return []
+        parts = str(bases[0]).split(".")
+        found = context.lexical.lookup(module, parts[0])
+        if not found or (module.path, parts[0]) in context.lexical.global_writes:
+            return []
+        choices: set[str] = set()
+        for binding in found[1]:
+            if binding.get("static_only"):
+                continue
+            if binding.get("kind") != "import_alias":
+                return []
+            owner = ".".join([str(import_binding_target(binding) or ""), *parts[1:]])
+            if (
+                owner not in {"httpx.Client", "httpx2.Client"}
+                or context.by_qualname.get(owner) is not None
+            ):
+                return []
+            choices.add(owner)
+        return sorted(choices)
+
+    def _ambiguous_external_method(
+        self, source: Node, receiver: str, method: str, context: _CallResolutionContext
+    ) -> bool:
+        ref = self._receiver_type_ref(source, receiver, context)
+        owner = context.by_id.get(self._type_id(ref) or "")
+        return bool(
+            owner
+            and method in GUESSED_METHODS_BY_OWNER.get("httpx.Client", ())
+            and len(self._finite_external_bases(owner, context)) > 1
+        )
 
     def _method_resolution_order(
         self,
@@ -2206,6 +2287,14 @@ class CallAnalyzer:
     ) -> Node | None:
         type_id = self._type_id(type_ref)
         if not type_id or not type_id.startswith("extsym:"):
+            return None
+        if type_ref.get("origin") == "documented_mapping" and method_name not in {
+            "get",
+            "keys",
+            "items",
+            "values",
+            "__getitem__",
+        }:
             return None
         known = EXTERNAL_METHODS_BY_TYPE.get(type_id)
         if known is not None and method_name not in known:
@@ -3284,6 +3373,15 @@ class CallAnalyzer:
                 "stable_callsite_occurrence": callsite["_stable_callsite_occurrence"],
             },
         )
+        owner = context.by_id.get(self._type_id(receiver_type) or "")
+        choices = (
+            self._finite_external_bases(owner, context) if owner is not None else []
+        )
+        if len(choices) > 1:
+            target.properties["reason"] = "ambiguous_external_definition"
+            target.properties["definition_candidates"] = [
+                f"extsym:{choice}.{callsite.get('attribute')}" for choice in choices
+            ]
         if receiver_type and receiver_type.get("typed_value_evidence"):
             target.properties["reason"] = "known_value_method_unavailable"
         if receiver_type and receiver_type.get("untyped_comprehension"):

@@ -8,13 +8,15 @@ from typing import Any, Callable
 
 from arcgraph.analyzers.callable_types import CallableContracts, collect_contracts
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
-from arcgraph.analyzers.exports import exported_class
+from arcgraph.analyzers.exports import exported_class, runtime_exported_class
 from arcgraph.analyzers.operators import OPERATOR_METHODS
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
     ASYNC_GENERATOR_TYPE_ID,
     GENERATOR_TYPE_ID,
     PATH_TYPE_IDS,
+    attribute_value_type,
+    constructed_value_type,
     function_return_type,
     literal_type_name,
     mapping_default,
@@ -704,6 +706,7 @@ class TypeRefAnalyzer:
                     module, tree, nodes, resolver=self._callable_contracts
                 )
         self._prepared_nodes = nodes
+        self._property_fields = _simple_property_fields(nodes, annotation_trees or {})
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache
 
@@ -730,6 +733,7 @@ class TypeRefAnalyzer:
                 if getattr(self, "_prepared_nodes", None) is nodes
                 else None
             ),
+            getattr(self, "_property_fields", None) if cache is not None else None,
         )
         analysis = TypeRefAnalysis()
         context.attach_type_traits()
@@ -760,6 +764,10 @@ class TypeRefAnalyzer:
     ) -> None:
         returns = node.properties.get("returns")
         resolved = context.callable_return_type(node)
+        inferred = context.simple_property_type(node) if resolved is None else None
+        if inferred is not None:
+            resolved = context._resolved_type_from_record(inferred)
+            returns = resolved.expression
         declared_only = resolved is None
         if declared_only:
             if (
@@ -780,7 +788,11 @@ class TypeRefAnalyzer:
             scope_kind=node.kind,
             name="return",
             subject_kind="declared_return" if declared_only else "return",
-            strategy="generator_function" if generated else "return_annotation",
+            strategy=(
+                "property_field"
+                if inferred is not None
+                else "generator_function" if generated else "return_annotation"
+            ),
             confidence="confirmed" if resolved.type_id else "unresolved",
             source_expression=returns,
             resolved=resolved,
@@ -1324,6 +1336,44 @@ class TypeRefAnalyzer:
             record[key] = value
 
 
+def _simple_property_fields(
+    nodes: list[Node], trees: dict[str, ast.Module]
+) -> dict[str, str]:
+    """Index only property bodies consisting of ``return self.field``.
+
+    The annotation pass already has frozen ASTs. No file is reread and no
+    general function-body inference is attempted.
+    """
+    methods = {(n.path, n.start_line): n for n in nodes if n.kind == "method"}
+    fields: dict[str, str] = {}
+    for path, tree in trees.items():
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            member = methods.get((path, fn.lineno))
+            if member is None or not _TypeContext._is_property_method(member):
+                continue
+            body = fn.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                body = body[1:]
+            args = [*fn.args.posonlyargs, *fn.args.args]
+            if len(body) == 1 and isinstance(body[0], ast.Return):
+                value = body[0].value
+                if (
+                    args
+                    and isinstance(value, ast.Attribute)
+                    and isinstance(value.value, ast.Name)
+                    and value.value.id == args[0].arg
+                ):
+                    fields[member.id] = value.attr
+    return fields
+
+
 class _TypeContext:
     def __init__(
         self,
@@ -1333,6 +1383,7 @@ class _TypeContext:
         module_names: set[str],
         return_decorator_cache: dict[str, bool] | None = None,
         callable_contracts: CallableContracts | None = None,
+        property_fields: dict[str, str] | None = None,
     ) -> None:
         self._return_decorator_cache = (
             return_decorator_cache if return_decorator_cache is not None else {}
@@ -1362,16 +1413,45 @@ class _TypeContext:
         self.return_types_by_method: dict[tuple[str, str], _ResolvedType] = {}
         self.property_return_types_by_method: dict[tuple[str, str], _ResolvedType] = {}
         self.class_instance_attrs: dict[str, dict[str, dict[str, Any]]] = {}
+        self.property_fields = (
+            property_fields
+            if property_fields is not None
+            else _simple_property_fields(nodes, {file_record.path: tree})
+        )
         self.callable_contracts = callable_contracts or CallableContracts(
             nodes, module_names
         )
+        if not hasattr(self.callable_contracts, "property_methods"):
+            self.callable_contracts.property_methods = {
+                (n.qualname.rsplit(".", 1)[0], n.name): n
+                for n in nodes
+                if n.kind == "method" and n.qualname
+            }
+        self.methods_by_class = self.callable_contracts.property_methods
         self.callable_contracts.module_names = module_names
         self._build_return_type_maps()
 
     def current_scope_nodes(self) -> list[Node]:
         return [
             node
-            for node in sorted(self.nodes, key=lambda item: item.id)
+            # Fields must be collected before a getter reads them, including
+            # when its name sorts before __init__. Function return maps are
+            # already prepared independently of this binding traversal.
+            for node in sorted(
+                self._nodes_by_path.get(self.file_record.path, []),
+                key=lambda item: (
+                    (
+                        0
+                        if item.kind == "class"
+                        else (
+                            1
+                            if item.kind == "method" and item.name == "__init__"
+                            else 2
+                        )
+                    ),
+                    item.id,
+                ),
+            )
             if node.kind in _SCOPE_KINDS and node.path == self.file_record.path
         ]
 
@@ -1582,14 +1662,8 @@ class _TypeContext:
                 return self._path_value_type(receiver, node, strategy="path_parent")
             if isinstance(type_id, str) and type_id.startswith("class:"):
                 class_qualname = type_id.removeprefix("class:")
-                return self.class_instance_attrs.get(class_qualname, {}).get(
-                    node.attr
-                ) or self._property_type_ref(
-                    class_qualname,
-                    node.attr,
-                    source_expression=full_name,
-                )
-            return None
+                return self._attribute_type_ref(class_qualname, node.attr, ())
+            return attribute_value_type(type_id or "", node.attr)
         if isinstance(node, ast.Subscript):
             receiver = self.resolve_scoped_value(node.value, scope_node, local_types)
             if not receiver:
@@ -2549,6 +2623,9 @@ class _TypeContext:
                     strategy="callable_result_annotation",
                     source_expression=self._unparse(node),
                 )
+        constructed = constructed_value_type(invoked)
+        if stable and constructed is not None:
+            return constructed
         cast_type = self._resolve_cast_call(node)
         if cast_type is not None:
             return self._value_type_record(
@@ -2967,14 +3044,88 @@ class _TypeContext:
         *,
         source_expression: str,
     ) -> dict[str, Any] | None:
+        member = self.methods_by_class.get((class_qualname, attr_name))
+        if member is not None and member.properties.get("async"):
+            return None
         resolved = self.property_return_types_by_method.get((class_qualname, attr_name))
         if resolved is None:
-            return None
+            return self.simple_property_type(member) if member is not None else None
         return self._value_type_record(
             resolved,
             strategy="return_annotation",
             source_expression=source_expression,
         )
+
+    def simple_property_type(self, member: Node) -> dict[str, Any] | None:
+        """Only an undecorated-by-wrappers getter returning one known self field."""
+        field = self.property_fields.get(member.id)
+        if field is None or not self._annotation_decorators_preserve_return(member):
+            return None
+        owner = member.qualname.rsplit(".", 1)[0]
+        return self._class_field(owner, field)
+
+    def _class_field(self, qualname: str, name: str) -> dict[str, Any] | None:
+        field = self.class_instance_attrs.get(qualname, {}).get(name)
+        if field is not None:
+            return field
+        owner = self.classes_by_id.get("class:" + qualname)
+        constructor = self.methods_by_class.get((qualname, "__init__"))
+        # Other files' attached records remain live during the type pass.
+        # Index their owners once; do not recopy every project's field for
+        # every file or cache a value before its producer has analyzed it.
+        for scope, key in ((owner, name), (constructor, "self." + name)):
+            for ref in scope.properties.get("type_refs", []) if scope else []:
+                if ref.get("name") == key:
+                    return ref
+        return None
+
+    def _attribute_type_ref(
+        self, qualname: str, attr: str, seen: tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        if qualname in seen:
+            return None
+        field = self._class_field(qualname, attr)
+        if field is not None:
+            return field
+        member = self.methods_by_class.get((qualname, attr))
+        if member is not None:
+            return (
+                self._property_type_ref(qualname, attr, source_expression=attr)
+                if self._is_property_method(member)
+                else None
+            )
+        owner = self.classes_by_id.get("class:" + qualname)
+        if owner is None or any(
+            b.get("name") == attr for b in owner.properties.get("bindings", [])
+        ):
+            return None
+        bases = owner.properties.get("bases", [])
+        if len(bases) != 1:
+            return None
+        scopes = self._decorator_scopes.get(owner.path)
+        if scopes is None:
+            scopes = LexicalScopes(self._nodes_by_path.get(owner.path, []), {})
+            self._decorator_scopes[owner.path] = scopes
+        module = scopes.modules.get(owner.path)
+        parts = str(bases[0]).split(".")
+        found = scopes.lookup(module, parts[0]) if module else None
+        if not found or not scopes.stable(*found):
+            return None
+        binding = found[1][0]
+        if binding.get("kind") == "class_definition" and len(parts) == 1:
+            base = str(binding.get("target", ""))
+        elif binding.get("kind") == "import_alias":
+            name = ".".join([str(import_binding_target(binding) or ""), *parts[1:]])
+            base = exported_class(name, self.export_nodes) or (
+                "class:" + name
+                if "class:" + name in self.classes_by_id
+                else "extsym:" + name
+            )
+        else:
+            return None
+        if base.startswith("class:"):
+            return self._attribute_type_ref(base[6:], attr, (*seen, qualname))
+        return attribute_value_type(base, attr)
 
     @staticmethod
     def _is_property_method(node: Node) -> bool:
@@ -3105,6 +3256,51 @@ class _TypeContext:
             )
 
         origin_type = self._resolve_named_type(origin, use_imports=use_imports)
+        if origin == "type":
+            module = self.lexical.modules.get(self.file_record.path)
+            if (
+                module is None
+                or self.lexical.lookup(module, origin)
+                or any(
+                    b.get("kind") == "star_import"
+                    for b in module.properties.get("bindings", [])
+                )
+            ):
+                return _ResolvedType(expression=expression)
+            origin_type = _ResolvedType(
+                expression="type", type_id="builtin:type", status="resolved"
+            )
+            if len(args) == 1 and isinstance(node.slice, (ast.Name, ast.Attribute)):
+                name = self._name(node.slice)
+                found = self.lexical.lookup(module, name.split(".")[0])
+                if (
+                    found
+                    and self.lexical.stable(*found)
+                    and found[1][0].get("kind") in {"import_alias", "class_definition"}
+                ):
+                    if not hasattr(self.callable_contracts, "runtime_exports"):
+                        self.callable_contracts.runtime_exports = LexicalScopes(
+                            self.nodes, {}
+                        )
+                        self.callable_contracts.runtime_class_cache = {}
+                    qualified = self._resolve_alias(name, use_imports=True)
+                    cache = self.callable_contracts.runtime_class_cache
+                    if qualified not in cache:
+                        cache[qualified] = runtime_exported_class(
+                            qualified, self.callable_contracts.runtime_exports
+                        )
+                    target = cache[qualified]
+                else:
+                    target = None
+                args = (
+                    {
+                        "type_expression": args[0].get("type_expression"),
+                        "resolution_status": (
+                            "resolved" if target is not None else "unresolved"
+                        ),
+                        **({"type_id": target} if target is not None else {}),
+                    },
+                )
         return _ResolvedType(
             expression=expression,
             type_id=origin_type.type_id,

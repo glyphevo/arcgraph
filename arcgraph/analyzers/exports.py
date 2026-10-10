@@ -3,6 +3,38 @@
 from arcgraph.core.schemas import Node
 
 
+def runtime_exported_class(qualified: str, lexical) -> str | None:
+    """Reuse runtime star/export policy for a concrete class-factory argument.
+
+    Never pick a same-short-name class. Every import must reach the same
+    indexed definition, with mutations, export masks and cycles respected.
+    """
+    # Calls imports this module; runtime lookup avoids an import cycle and
+    # keeps __all__ policy in its existing single implementation.
+    from arcgraph.analyzers.calls.analyzer import CallAnalyzer
+
+    analyzer = CallAnalyzer()
+    seen: set[str] = set()
+    for _ in range(32):
+        if qualified in seen:
+            return None
+        seen.add(qualified)
+        module_name, _, name = qualified.rpartition(".")
+        module = lexical.nodes.get("mod:" + module_name)
+        if module is None:
+            return None
+        held = analyzer._module_name_value(module, name, lexical, None, frozenset())
+        if held is None:
+            return None
+        if held[0] == "def":
+            target = lexical.nodes.get(held[1])
+            return target.id if target is not None and target.kind == "class" else None
+        if held[0] != "import" or not held[1]:
+            return None
+        qualified = held[1]
+    return None
+
+
 def exported_class(qualified: str, nodes: dict[str, Node]) -> str | None:
     """Resolve a bounded chain of stable module bindings, including re-exports."""
     seen: set[str] = set()
