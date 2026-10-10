@@ -37,7 +37,7 @@ def test_callable_parameter_result(tmp_path: Path, annotation: str, imports: str
         v2=True,
     )
     assert "method:pkg.client.TestClient.websocket_connect" in targets
-    assert "extsym:httpx2.Client.get" not in targets
+    assert "extsym:httpx2.Client.get" in targets
 
 
 @pytest.mark.parametrize("kind", ["variable", "factory", "imported_alias", "inline"])
@@ -81,7 +81,7 @@ def test_protocol_call_annotation_contract(tmp_path: Path, typing_only: bool):
         v2=True,
     )
     assert "method:pkg.client.TestClient.websocket_connect" in targets
-    assert "extsym:httpx2.Client.get" not in targets
+    assert "extsym:httpx2.Client.get" in targets
 
 
 @pytest.mark.parametrize(

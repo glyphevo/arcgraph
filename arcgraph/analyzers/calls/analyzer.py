@@ -1533,7 +1533,44 @@ class CallAnalyzer:
             return None
         order = self._method_resolution_order(start, context, ())
         if order is None:
-            return None
+            if any(
+                b.get("name") == method for b in start.properties.get("bindings", [])
+            ):
+                return None
+            bases = start.properties.get("bases", [])
+            module = context.lexical.modules.get(start.path)
+            if len(bases) != 1 or module is None or after is not None:
+                return None
+            base = str(bases[0])
+            parts = base.split(".")
+            found = context.lexical.lookup(module, parts[0])
+            if not found or (module.path, parts[0]) in context.lexical.global_writes:
+                return None
+            choices = []
+            for binding in found[1]:
+                if binding.get("static_only"):
+                    continue
+                if binding.get("kind") != "import_alias":
+                    return None
+                owner = ".".join(
+                    [str(import_binding_target(binding) or ""), *parts[1:]]
+                )
+                if owner not in {"httpx.Client", "httpx2.Client"}:
+                    return None
+                if context.by_qualname.get(owner) is not None:
+                    return None
+                choices.append(owner)
+            if not choices or method not in GUESSED_METHODS_BY_OWNER.get(
+                "httpx.Client", ()
+            ):
+                return None
+            target = self._external_symbol_node(
+                f"{start.qualname}.{method}",
+                name=method,
+                source="inherited_receiver_type",
+            )
+            target.properties["base_candidates"] = sorted(set(choices))
+            return target
         begin = 0
         if after is not None:
             keys = [self._resolution_order_key(entry) for entry in order]
@@ -1542,12 +1579,20 @@ class CallAnalyzer:
             begin = keys.index(after) + 1
         for position, entry in enumerate(order[begin:], begin):
             if isinstance(entry, str):
-                if entry == "pydantic.BaseModel" and method in {
-                    "model_dump",
-                    "model_dump_json",
-                }:
+                if (
+                    method
+                    in GUESSED_METHODS_BY_OWNER.get(
+                        entry.replace("httpx2.", "httpx."), ()
+                    )
+                    or entry == "pydantic.BaseModel"
+                    and method
+                    in {
+                        "model_dump",
+                        "model_dump_json",
+                    }
+                ):
                     return self._external_symbol_node(
-                        f"pydantic.BaseModel.{method}",
+                        f"{entry}.{method}",
                         name=method,
                         source="inherited_receiver_type",
                     )
@@ -1679,7 +1724,7 @@ class CallAnalyzer:
             target = context.by_id.get(str(binding.get("target", "")))
         elif binding.get("kind") == "import_alias":
             qualified = ".".join(
-                [str(binding.get("target_qualname", "")), *base.split(".")[1:]]
+                [str(import_binding_target(binding) or ""), *base.split(".")[1:]]
             )
             target = context.by_id.get(
                 exported_class(qualified, context.lexical.nodes) or f"class:{qualified}"
