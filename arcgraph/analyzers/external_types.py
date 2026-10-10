@@ -1088,6 +1088,19 @@ def attribute_value_type(owner: str, name: str) -> dict[str, Any] | None:
         or (name == "name" and owner == "extsym:enum.Enum")
     ):
         result = {"type_id": "builtin:str"}
+    elif (
+        name == "name"
+        and owner
+        in {
+            "extsym:ast.ClassDef",
+            "extsym:ast.FunctionDef",
+            "extsym:ast.AsyncFunctionDef",
+        }
+        or name == "module"
+        and owner == "extsym:ast.ImportFrom"
+    ):
+        # CPython AST identifier fields; ImportFrom.module may also be None.
+        result = {"type_id": "builtin:str"}
     elif name == "headers" and owner in {
         "extsym:fastapi.Request",
         "extsym:starlette.requests.Request",

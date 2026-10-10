@@ -1600,6 +1600,20 @@ class _TypeContext:
         scope_node: Node,
         local_types: dict[str, dict[str, Any]],
     ) -> dict[str, Any] | None:
+        if isinstance(node, ast.Await):
+            operand = self.resolve_scoped_value(node.value, scope_node, local_types)
+            if operand and operand.get("type_id") in {
+                "extsym:collections.abc.Awaitable",
+                "extsym:typing.Awaitable",
+                "typing:Awaitable",
+            }:
+                arguments = operand.get("type_args", [])
+                result = single_value_type(arguments[0]) if len(arguments) == 1 else {}
+                if str(result.get("type_id", "")).startswith(("builtin:", "class:")):
+                    return {**result, "strategy": "awaitable_result"}
+                return unknown_union_result(self._unparse(node))
+            # Async function calls already describe their awaited return value.
+            return operand
         if (
             isinstance(node, ast.BoolOp)
             and isinstance(node.op, ast.Or)

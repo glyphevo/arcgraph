@@ -334,3 +334,43 @@ def test_factory_argument_must_still_name_its_declared_class(tmp_path, binding):
         v2=True,
     )
     assert "method:pkg.user.BaseMigrator.migrate" not in targets
+
+
+@pytest.mark.parametrize("concrete", [False, True])
+def test_awaited_field_is_result_not_awaitable(tmp_path, concrete):
+    argument = "Box" if concrete else "T"
+    targets = _targets(
+        tmp_path,
+        {
+            "user": "from collections.abc import Awaitable\nfrom typing import TypeVar\nT=TypeVar('T')\nclass Box:\n    def close(self): pass\nclass Wrapper:\n    def __init__(self, aw: Awaitable["
+            + argument
+            + "]): self.aw=aw\n    async def enter(self): self.entered=await self.aw\ndef use(w: Wrapper): w.entered.close()\n"
+        },
+        v2=True,
+    )
+    assert "extsym:collections.abc.Awaitable.close" not in targets
+    assert ("method:pkg.user.Box.close" in targets) == concrete
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expression", "target"),
+    [
+        ("ast.ClassDef", "node.name.lower()", "extsym:builtins.str.lower"),
+        (
+            "ast.ImportFrom",
+            "node.module.startswith('pkg')",
+            "extsym:builtins.str.startswith",
+        ),
+    ],
+)
+def test_known_ast_text_fields_are_not_unrelated_method_guesses(
+    tmp_path, annotation, expression, target
+):
+    targets = _targets(
+        tmp_path,
+        {
+            "user": f"import ast\ndef use(node: {annotation}):\n    return {expression}\n"
+        },
+        v2=True,
+    )
+    assert target in targets
