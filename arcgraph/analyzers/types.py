@@ -29,6 +29,7 @@ from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.analyzers.python_scopes import breaks_out
 from arcgraph.analyzers.type_unions import (
     contains_union,
+    nullable_default_type,
     single_value_type,
     guarded_value_type,
     tuple_element_type,
@@ -1782,6 +1783,10 @@ class _TypeContext:
                     "typed_value_evidence": True,
                 }
             if source:
+                returned = self.resolve_scoped_value(fallback, scope_node, local_types)
+                default = nullable_default_type(source, returned)
+                if default is not None:
+                    return default
                 return unknown_union_result(self._unparse(node))
         while isinstance(node, ast.Await):
             node = node.value
@@ -1827,7 +1832,10 @@ class _TypeContext:
                 return unknown_union_result(self._unparse(node))
             if isinstance(node.slice, ast.Slice):
                 return sliced_value_type(receiver)
-            return self._subscript_value_type_source(receiver)
+            value = self._subscript_value_type_source(receiver)
+            if value is None and receiver.get("isinstance_receiver"):
+                return unknown_union_result(self._unparse(node))
+            return value
         if isinstance(node, ast.Call):
             return self._resolve_call(node, local_types, scope_node=scope_node)
         if isinstance(node, ast.JoinedStr):
@@ -2917,6 +2925,8 @@ class _TypeContext:
                             strategy="provider_return_annotation",
                             source_expression=self._unparse(node),
                         )
+                if receiver.get("isinstance_receiver"):
+                    return unknown_union_result(self._unparse(node))
             return None
 
         if func_name:

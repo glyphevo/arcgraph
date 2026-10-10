@@ -2,7 +2,29 @@
 
 from __future__ import annotations
 
+import builtins
+import datetime
+import pathlib
 from typing import Any
+
+_RUNTIME_CLASSES = {
+    **{
+        f"builtin:{name}": value
+        for name, value in vars(builtins).items()
+        if isinstance(value, type)
+    },
+    **{
+        f"extsym:pathlib.{name}": value
+        for name, value in vars(pathlib).items()
+        if isinstance(value, type)
+    },
+    **{
+        f"extsym:datetime.{name}": value
+        for name, value in vars(datetime).items()
+        if isinstance(value, type)
+    },
+    "builtin:None": type(None),
+}
 
 
 def union_alternatives(ref: dict[str, Any] | None) -> list[dict[str, Any]] | None:
@@ -89,6 +111,25 @@ def tuple_element_type(ref: dict[str, Any]) -> dict[str, Any]:
     return unknown_union_result(str(ref.get("type_expression") or "tuple"))
 
 
+def nullable_default_type(source, fallback):
+    """T | None or T has type T, including the same generic arguments."""
+    members = union_alternatives(source)
+    if members is None or not any(
+        member.get("type_id") == "builtin:None" for member in members
+    ):
+        return None
+    value = single_value_type(source)
+    if (
+        union_alternatives(value) is not None
+        or not value.get("type_id")
+        or not fallback
+        or union_alternatives(fallback) is not None
+        or type_identity(value) != type_identity(fallback)
+    ):
+        return None
+    return {**value, "strategy": "nullable_default", "typed_value_evidence": True}
+
+
 def guarded_value_type(properties, name, position, ref, bindings, *, mutated=False):
     """Use only a bounded local guard with no intervening or captured write."""
     if mutated or any(b.get("kind") in {"global", "nonlocal"} for b in bindings):
@@ -116,17 +157,64 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
             ref = single_value_type(ref)
             if not ref.get("type_id"):
                 return None
+        else:
+            target = entry["type_id"]
+            members = union_alternatives(ref)
+            if members is not None:
+                matches = [
+                    member for member in members if member.get("type_id") == target
+                ]
+                # Do not approximate subclass matching or select between two
+                # instantiations such as list[A] and list[B].
+                if len(matches) != 1:
+                    return unknown_union_result(name)
+                for member in members:
+                    other_id = member.get("type_id")
+                    if other_id == target:
+                        continue
+                    other = _RUNTIME_CLASSES.get(other_id)
+                    runtime_target = _RUNTIME_CLASSES.get(target)
+                    if other and runtime_target:
+                        if issubclass(other, runtime_target) or (
+                            matches[0].get("type_args")
+                            and issubclass(runtime_target, other)
+                        ):
+                            return unknown_union_result(name)
+                    elif other_id != "builtin:None":
+                        # Unknown inheritance or instance-check hooks cannot
+                        # prove this alternative disjoint from the target.
+                        return unknown_union_result(name)
+                ref = {
+                    **{
+                        k: v
+                        for k, v in ref.items()
+                        if k
+                        not in {
+                            "type_id",
+                            "symbol_id",
+                            "origin",
+                            "type_args",
+                            "type_expression",
+                        }
+                    },
+                    **matches[0],
+                }
+            elif ref.get("type_id") != target:
+                ref = {
+                    **ref,
+                    "type_id": target,
+                    "origin": None,
+                    "type_args": [],
+                    "type_expression": target.partition(":")[2],
+                }
         type_id = entry.get("type_id", ref.get("type_id"))
         return {
             **ref,
             "type_id": type_id,
             "symbol_id": type_id,
-            "type_expression": type_id.partition(":")[2],
-            "origin": ref.get("origin") if entry.get("exclude_none") else None,
-            "type_args": (
-                ref.get("type_args", []) if entry.get("exclude_none") else []
-            ),
+            "type_expression": ref.get("type_expression", type_id.partition(":")[2]),
             "strategy": "receiver_guard",
+            "isinstance_receiver": not entry.get("exclude_none", False),
             "narrowed_receiver": True,
             "typed_value_evidence": True,
         }

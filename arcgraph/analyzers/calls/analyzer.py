@@ -85,6 +85,7 @@ from arcgraph.analyzers.external_types import (
     type_id_of_qualname,
 )
 from arcgraph.analyzers.type_unions import (
+    nullable_default_type,
     single_value_type,
     tuple_element_type,
     union_alternatives,
@@ -1137,7 +1138,27 @@ class CallAnalyzer:
                 return unknown_union_result(self._unparse(node))
             if isinstance(node.slice, ast.Slice):
                 return sliced_value_type(receiver_type)
-            return self._subscript_value_type_ref(receiver_type)
+            value = self._subscript_value_type_ref(receiver_type)
+            if (
+                value is None
+                and receiver_type
+                and receiver_type.get("isinstance_receiver")
+            ):
+                return unknown_union_result(self._unparse(node))
+            return value
+
+        if (
+            isinstance(node, ast.BoolOp)
+            and isinstance(node.op, ast.Or)
+            and len(node.values) == 2
+            and isinstance(node.values[0], ast.Name)
+            and node.values[0].id in source.properties.get("nullable_bindings", {})
+        ):
+            left = self._receiver_type_ref_node(source, node.values[0], context)
+            right = self._receiver_type_ref_node(source, node.values[1], context)
+            return nullable_default_type(left, right) or unknown_union_result(
+                self._unparse(node)
+            )
 
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
@@ -1354,6 +1375,8 @@ class CallAnalyzer:
             derived["typed_value_evidence"] = True
         if receiver.get("narrowed_receiver"):
             derived["narrowed_receiver"] = True
+        if receiver.get("isinstance_receiver"):
+            derived["isinstance_receiver"] = True
         for key in ("type_ref_id", "binding_id"):
             if isinstance(receiver.get(key), str):
                 derived[key] = receiver[key]
