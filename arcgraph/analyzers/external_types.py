@@ -1083,7 +1083,7 @@ def attribute_value_type(owner: str, name: str) -> dict[str, Any] | None:
     """
     result: dict[str, Any]
     if (
-        name == "suffix"
+        name in {"suffix", "name"}
         and owner in PATH_TYPE_IDS
         or (name == "name" and owner == "extsym:enum.Enum")
     ):

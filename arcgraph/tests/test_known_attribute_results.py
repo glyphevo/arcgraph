@@ -374,3 +374,20 @@ def test_known_ast_text_fields_are_not_unrelated_method_guesses(
         v2=True,
     )
     assert target in targets
+
+
+@pytest.mark.parametrize("assigned", [False, True])
+def test_path_name_is_text_without_method_name_fallback(tmp_path, assigned):
+    body = (
+        "    value=p.name\n    return value.lower()"
+        if assigned
+        else "    return p.name.lower()"
+    )
+    targets = _targets(
+        tmp_path,
+        {"user": "from pathlib import Path\ndef use(p: Path):\n" + body + "\n"},
+        v2=True,
+    )
+    assert "extsym:builtins.str.lower" in targets
+    if assigned:
+        _assert_binding_type(tmp_path, "value", "builtin:str")
