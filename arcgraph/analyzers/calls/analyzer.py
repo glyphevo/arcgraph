@@ -692,7 +692,8 @@ class CallAnalyzer:
             ref.get("typed_value_evidence")
         ) and context.value_ref_available(source, ref, int(callsite.get("line") or 0))
         return (
-            available_proof
+            bool(ref.get("narrowed_receiver"))
+            or available_proof
             or available_value
             or bool(ref.get("comprehension_binding"))
             or not context.lexical.blocked(
@@ -1000,6 +1001,9 @@ class CallAnalyzer:
             scoped = context.comprehension_type_ref(source, node.id)
             if scoped is not None:
                 return scoped
+            narrowed = context.narrowed_type_ref(source, node.id)
+            if narrowed is not None:
+                return narrowed
             if source.id in context.lexical.strict:
                 return context.lexical.type_ref(source, node.id)
             return context.type_ref_at(source, node.id) or module_scope_refs.get(
@@ -1348,6 +1352,8 @@ class CallAnalyzer:
         # is computed from that value alone.
         if receiver.get("typed_value_evidence"):
             derived["typed_value_evidence"] = True
+        if receiver.get("narrowed_receiver"):
+            derived["narrowed_receiver"] = True
         for key in ("type_ref_id", "binding_id"):
             if isinstance(receiver.get(key), str):
                 derived[key] = receiver[key]

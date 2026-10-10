@@ -11,6 +11,7 @@ from arcgraph.analyzers.calls.constants import TARGET_KINDS
 from arcgraph.core.schemas import Confidence, Edge, Node
 from arcgraph.analyzers.type_unions import (
     type_identity,
+    guarded_value_type,
     union_alternatives,
     unknown_union_result,
 )
@@ -247,6 +248,24 @@ class _CallResolutionContext:
             unknown_union_result(name),
         )
 
+    def narrowed_type_ref(self, source: Node, name: str) -> dict[str, Any] | None:
+        """A local guard holds only inside its body, until any subsequent write.
+
+        Writes in callbacks, global declarations and nonlocals invalidate it.
+        A conditional write is not assumed to be skipped.
+        """
+        if not self.callsite_position or self.callsite_position[0] != source.id:
+            return None
+        if (source.id, name) in self.lexical.mutated:
+            return None
+        position = self.callsite_position[1:]
+        bindings = self.lexical.bindings.get(source.id, {}).get(name, [])
+        if any(b.get("kind") in {"global", "nonlocal"} for b in bindings):
+            return None
+        return guarded_value_type(
+            source.properties, name, position, self.type_ref_at(source, name), bindings
+        )
+
     def comprehension_type_ref(self, source: Node, name: str) -> dict[str, Any] | None:
         if not source.properties.get("comprehension_type_input"):
             return None
@@ -308,6 +327,25 @@ class _CallResolutionContext:
             writes, key=lambda b: (b.get("line", 0), b.get("column", 0))
         ).get("binding_id") != binding.get("binding_id"):
             return False
+        block = binding.get("value_block")
+        if (
+            block
+            and self.callsite_position
+            and binding_in_effect(binding, self.callsite_position)
+        ):
+            position = self.callsite_position[1:]
+            root_ref = next(
+                (
+                    r
+                    for r in self._typed_binding_refs(source, name)
+                    if r.get("binding_id") == binding.get("binding_id")
+                ),
+                ref,
+            )
+            # A derived property must not hide its binding's nullable union.
+            return union_alternatives(root_ref) is None and tuple(
+                block[:2]
+            ) <= position <= tuple(block[2:])
         region = binding.get("value_region")
         if isinstance(region, list) and len(region) == 2:
             return region[0] <= line <= region[1]

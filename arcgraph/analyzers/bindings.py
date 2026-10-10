@@ -754,6 +754,10 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             # c = Other(); c.send(), sees the new value, while one inside it,
             # as in x = x.strip(), still sees the old.
             record["statement_end"] = [node.end_lineno, node.end_col_offset]
+        if kind in {"assignment", "annotated_assignment"}:
+            block = self.flow.blocks.get(id(node))
+            if block is not None:
+                record["value_block"] = block
         if unpack_path:
             record["unpack_path"] = unpack_path
         if static_only or self.static_only:

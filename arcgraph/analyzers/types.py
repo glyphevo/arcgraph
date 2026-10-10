@@ -30,6 +30,7 @@ from arcgraph.analyzers.python_scopes import breaks_out
 from arcgraph.analyzers.type_unions import (
     contains_union,
     single_value_type,
+    guarded_value_type,
     tuple_element_type,
     type_identity,
     union_alternatives,
@@ -752,9 +753,116 @@ class TypeRefAnalyzer:
             ) or context.uses_imported_call(node):
                 node.properties["imported_type_input"] = True
             self._record_return_type(node, context, analysis)
+            self._record_receiver_narrowings(node, context)
             self._record_binding_type_refs(node, context, analysis)
 
         return analysis
+
+    def _record_receiver_narrowings(self, node: Node, context: "_TypeContext") -> None:
+        """Positive isinstance and None-exclusion guards in a bounded body.
+
+        Only plain local names and one concrete class are supported. No tuple
+        tests, arbitrary predicates or captured refinements. A return/raise
+        after a None check also bounds the surviving statements.
+        """
+        node.properties.pop("receiver_narrowings", None)
+        function = context.functions.get(node.start_line)
+        if function is None:
+            return
+        narrowings = []
+        pending = [function.body]
+        while pending:
+            statements = pending.pop()
+            for index, stmt in enumerate(statements):
+                if isinstance(
+                    stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    continue
+                pending.extend(_statement_blocks(stmt))
+                if not isinstance(stmt, (ast.If, ast.While)):
+                    continue
+                test = stmt.test
+                entries = []
+                if (
+                    isinstance(test, ast.Call)
+                    and isinstance(test.func, ast.Name)
+                    and test.func.id == "isinstance"
+                    and len(test.args) == 2
+                    and not test.keywords
+                    and isinstance(test.args[0], ast.Name)
+                    and context.lexical.lookup(node, "isinstance") is None
+                    and not any(
+                        "*" in context.lexical.bindings.get(scope.id, {})
+                        for scope in context.lexical.chain(node)
+                    )
+                    and (node.path, "isinstance") not in context.lexical.global_writes
+                ):
+                    name = test.args[0].id
+                    concrete = context.callable_contracts.concrete(test.args[1], node)
+                    if concrete:
+                        type_id = (
+                            f"builtin:{concrete}"
+                            if concrete in _BUILTIN_TYPES
+                            else (
+                                class_id(concrete)
+                                if class_id(concrete) in context.classes_by_id
+                                else f"extsym:{concrete}"
+                            )
+                        )
+                        entries.append((name, stmt.body, {"type_id": type_id}))
+                else:
+                    # Reuse the nullable-binding policy for short-circuit tests
+                    # and exits; the fact ends at this statement block's end.
+                    names = {
+                        part.id for part in ast.walk(test) if isinstance(part, ast.Name)
+                    }
+                    for name in sorted(names):
+                        for body in [stmt.body, stmt.orelse]:
+                            if (
+                                _entered_settles(stmt, body, name) is True
+                                or isinstance(stmt, ast.While)
+                                and body is stmt.body
+                                and _true_only_when_present(test, name)
+                            ):
+                                entries.append((name, body, {"exclude_none": True}))
+                        if _statement_excludes_none(stmt, name):
+                            entries.append(
+                                (name, statements[index + 1 :], {"exclude_none": True})
+                            )
+                for name, body, value in entries:
+                    found = context.lexical.lookup(node, name)
+                    if not body or not found or found[0].id != node.id:
+                        continue
+                    narrowings.append(
+                        {
+                            "name": name,
+                            **value,
+                            "loop_writes": [
+                                [
+                                    loop.lineno,
+                                    loop.col_offset,
+                                    loop.end_lineno,
+                                    loop.end_col_offset,
+                                ]
+                                for loop in ast.walk(function)
+                                if isinstance(loop, (ast.For, ast.AsyncFor, ast.While))
+                                and (loop.lineno, loop.col_offset)
+                                > (test.end_lineno, test.end_col_offset)
+                                and _binds_name(loop, name)
+                            ],
+                            "check": [test.end_lineno, test.end_col_offset],
+                            "range": [
+                                body[0].lineno,
+                                body[0].col_offset,
+                                body[-1].end_lineno,
+                                body[-1].end_col_offset,
+                            ],
+                        }
+                    )
+        if narrowings:
+            node.properties["receiver_narrowings"] = sorted(
+                narrowings, key=lambda entry: entry["check"]
+            )
 
     def _record_return_type(
         self,
@@ -852,7 +960,11 @@ class TypeRefAnalyzer:
                         **unknown_union_result(name),
                         "comprehension_binding": True,
                     }
-            type_ref = self._binding_type_ref(binding, node, context, value_types)
+            context.value_position = (binding.get("line", 0), binding.get("column", 0))
+            try:
+                type_ref = self._binding_type_ref(binding, node, context, value_types)
+            finally:
+                context.value_position = None
             if is_comprehension and type_ref is not None:
                 type_ref["comprehension_binding"] = True
                 type_ref["typed_value_evidence"] = True
@@ -983,6 +1095,10 @@ class TypeRefAnalyzer:
         parsed = context.parse_expression(value)
         if parsed is None:
             return None
+        if isinstance(parsed, ast.Name):
+            # Plain copies already use none_excluded_before, including loop
+            # rebinding; share guards only for the derived value path here.
+            context.value_position = None
 
         source = (
             unknown_union_result(value)
@@ -1390,6 +1506,12 @@ class _TypeContext:
         )
         self.file_record = file_record
         self.tree = tree
+        self.value_position = None
+        self.functions = {
+            fn.lineno: fn
+            for fn in ast.walk(tree)
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
         self.nodes = nodes
         self.parameter_defaults: dict[int, dict[str, str]] = self._parameter_defaults(
             tree
@@ -1600,6 +1722,19 @@ class _TypeContext:
         scope_node: Node,
         local_types: dict[str, dict[str, Any]],
     ) -> dict[str, Any] | None:
+        if isinstance(node, ast.Name) and self.value_position is not None:
+            ref = local_types.get(node.id)
+            if ref and not ref.get("comprehension_binding"):
+                narrowed = guarded_value_type(
+                    scope_node.properties,
+                    node.id,
+                    self.value_position,
+                    ref,
+                    self.lexical.bindings.get(scope_node.id, {}).get(node.id, []),
+                    mutated=(scope_node.id, node.id) in self.lexical.mutated,
+                )
+                if narrowed is not None:
+                    return narrowed
         if isinstance(node, ast.Await):
             operand = self.resolve_scoped_value(node.value, scope_node, local_types)
             if operand and operand.get("type_id") in {

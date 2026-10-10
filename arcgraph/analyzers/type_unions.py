@@ -87,3 +87,43 @@ def tuple_element_type(ref: dict[str, Any]) -> dict[str, Any]:
     if args and all(type_identity(arg) == type_identity(args[0]) for arg in args):
         return args[0]
     return unknown_union_result(str(ref.get("type_expression") or "tuple"))
+
+
+def guarded_value_type(properties, name, position, ref, bindings, *, mutated=False):
+    """Use only a bounded local guard with no intervening or captured write."""
+    if mutated or any(b.get("kind") in {"global", "nonlocal"} for b in bindings):
+        return None
+    for entry in reversed(properties.get("receiver_narrowings", [])):
+        span = entry["range"]
+        if entry["name"] != name or not tuple(span[:2]) <= position <= tuple(span[2:]):
+            continue
+        if any(
+            tuple(loop[:2]) <= position <= tuple(loop[2:])
+            for loop in entry.get("loop_writes", [])
+        ):
+            return None
+        if any(
+            tuple(entry["check"]) < (b.get("line", 0), b.get("column", 0)) <= position
+            for b in bindings
+        ):
+            return None
+        ref = ref or {}
+        if entry.get("exclude_none"):
+            ref = single_value_type(ref)
+            if not ref.get("type_id"):
+                return None
+        type_id = entry.get("type_id", ref.get("type_id"))
+        return {
+            **ref,
+            "type_id": type_id,
+            "symbol_id": type_id,
+            "type_expression": type_id.partition(":")[2],
+            "origin": ref.get("origin") if entry.get("exclude_none") else None,
+            "type_args": (
+                ref.get("type_args", []) if entry.get("exclude_none") else []
+            ),
+            "strategy": "receiver_guard",
+            "narrowed_receiver": True,
+            "typed_value_evidence": True,
+        }
+    return None
