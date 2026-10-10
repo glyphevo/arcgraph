@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from arcgraph.analyzers.callable_types import CallableContracts, collect_contracts
+from arcgraph.analyzers.external_dependencies import TESTCLIENT_TYPES
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.exports import exported_class, runtime_exported_class
 from arcgraph.analyzers.operators import OPERATOR_METHODS
@@ -74,6 +75,7 @@ _TYPING_ORIGINS = {
 _TRANSPARENT_ORIGINS = {"Annotated", "ClassVar", "Final", "Optional", "Type", "Union"}
 _SCOPE_KINDS = {"module", "class", "function", "method"}
 _EXTERNAL_CONSTRUCTOR_TYPES = {
+    *TESTCLIENT_TYPES,
     "extsym:argparse.ArgumentParser",
     "extsym:pathlib.Path",
     "extsym:threading.Thread",
@@ -2990,11 +2992,14 @@ class _TypeContext:
                 or constructed.type_id.startswith("builtin:")
                 or constructed.type_id in _EXTERNAL_CONSTRUCTOR_TYPES
             ):
-                return self._value_type_record(
+                result = self._value_type_record(
                     constructed,
                     strategy="constructor",
                     source_expression=self._unparse(node),
                 )
+                if constructed.type_id in TESTCLIENT_TYPES:
+                    result["typed_value_evidence"] = True
+                return result
             documented = self._external_function_return_type(
                 node, func_name, scope_node, local_types
             )

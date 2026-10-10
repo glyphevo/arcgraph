@@ -13,6 +13,7 @@ from arcgraph.analyzers.python_scopes import (
     module_flow,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
+from arcgraph.analyzers.external_dependencies import mark_preferred_imports
 from arcgraph.analyzers.overloads import overload_declarations
 from arcgraph.core.ids import binding_id, class_id, function_id, method_id, module_id
 from arcgraph.core.schemas import Evidence, FileRecord, Node
@@ -201,6 +202,9 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         self.flow = module_flow(body)
         for stmt in body:
             self.visit(stmt)
+        mark_preferred_imports(
+            body, self.analysis.bindings_by_scope.get(self.scope_id, [])
+        )
 
     def visit_class_body(self, body: list[ast.stmt]) -> None:
         self.direct_statements = {id(stmt) for stmt in body}

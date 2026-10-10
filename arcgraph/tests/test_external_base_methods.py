@@ -23,7 +23,7 @@ def test_known_external_base_method(tmp_path, prefix):
     assert {f"extsym:{owner}.get", f"extsym:{owner}.post"} <= targets
 
 
-def test_finite_alternative_http_imports_do_not_invent_definition_owner(tmp_path):
+def test_agreeing_static_and_primary_import_selects_definition_owner(tmp_path):
     targets = _targets(
         tmp_path,
         {
@@ -31,7 +31,7 @@ def test_finite_alternative_http_imports_do_not_invent_definition_owner(tmp_path
         },
         v2=True,
     )
-    assert not any(t.endswith(".get") for t in targets)
+    assert "extsym:httpx2.Client.get" in targets
 
 
 @pytest.mark.parametrize(

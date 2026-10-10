@@ -34,6 +34,7 @@ class _ResolvedCallTarget:
     receiver_expression: str | None = None
     receiver_type: str | None = None
     receiver_type_ref_id: str | None = None
+    receiver_type_options: tuple[str, ...] | None = None
 
 
 def _by_name(nodes: list[Node]) -> dict[str, list[Node]]:
@@ -99,6 +100,7 @@ class _CallResolutionContext:
         self.lexical = LexicalScopes(nodes, self.scope_type_refs)
         # Each project class's method resolution order, once computed.
         self.method_resolution_orders: dict[str, list[Any] | None] = {}
+        self.dependency_client_contracts = {}
 
     def _typed_binding_refs(self, source: Node, name: str) -> list[dict[str, Any]]:
         recorded_refs: list[dict[str, Any]] = source.properties.get("type_refs", [])

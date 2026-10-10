@@ -9,6 +9,10 @@ from collections import defaultdict
 from typing import Any
 
 from arcgraph.analyzers.exports import exported_class
+from arcgraph.analyzers.external_dependencies import (
+    TESTCLIENT_TYPES,
+    installed_testclient_contract,
+)
 from arcgraph.analyzers.operators import OPERATOR_METHODS
 from arcgraph.analyzers.calls.constants import (
     ARGPARSE_METHODS,
@@ -198,6 +202,24 @@ class CallAnalyzer:
                         )
                     ):
                         generated_nodes.setdefault(resolved.target.id, resolved.target)
+                    alternate = resolved.target.properties.get("definition_candidates")
+                    if alternate and resolved.resolution_status == "resolved":
+                        diagnostic_id = "diagnostic:alternate:" + self._callsite_id(
+                            source, identified_callsite, raw_name
+                        )
+                        generated_nodes[diagnostic_id] = Node(
+                            id=diagnostic_id,
+                            kind="diagnostic",
+                            name=raw_name,
+                            path=source.path,
+                            start_line=identified_callsite.get("line"),
+                            properties={
+                                "reason": "alternate_external_definition",
+                                "definition_candidates": alternate,
+                                "selected_definition": resolved.target.id,
+                                "source_scope": source.id,
+                            },
+                        )
                     edges.append(
                         Edge(
                             source=source.id,
@@ -400,7 +422,7 @@ class CallAnalyzer:
                 target = self._external_method_target(member, method)
             if target is None:
                 return None
-            targets.setdefault(target.id, (target, type_id))
+            targets.setdefault(target.id, (target, set()))[1].add(type_id)
         return [
             _ResolvedCallTarget(
                 target=target,
@@ -408,10 +430,11 @@ class CallAnalyzer:
                 candidate_count=len(targets),
                 confidence="inferred",
                 receiver_expression=receiver,
-                receiver_type=type_id,
+                receiver_type=next(iter(types)) if len(types) == 1 else None,
+                receiver_type_options=tuple(sorted(types)),
                 edge_kind="uses" if target.kind in EXTERNAL_TARGET_KINDS else None,
             )
-            for target, type_id in targets.values()
+            for target, types in targets.values()
         ]
 
     def _resolve_callsite(
@@ -1066,6 +1089,27 @@ class CallAnalyzer:
             positioned = context.type_ref_at(source, node.id)
             if positioned and positioned.get("strategy") == "conditional_binding_join":
                 return positioned
+            if (
+                positioned
+                and positioned.get("type_id")
+                and positioned.get("strategy") == "callable_result_annotation"
+                and (source.id, node.id) not in context.lexical.mutated
+            ):
+                bindings = context._bindings_in_effect(source, node.id)
+                latest = max(
+                    bindings,
+                    key=lambda b: (b.get("line", 0), b.get("column", 0)),
+                    default={},
+                )
+                if (
+                    latest.get("binding_id") == positioned.get("binding_id")
+                    and latest.get("kind") == "assignment"
+                    and not latest.get("may_not_run")
+                    and not any(
+                        b.get("kind") in {"global", "nonlocal"} for b in bindings
+                    )
+                ):
+                    return {**positioned, "typed_value_evidence": True}
             if source.id in context.lexical.strict:
                 return context.lexical.type_ref(source, node.id)
             return context.type_ref_at(source, node.id) or module_scope_refs.get(
@@ -1745,7 +1789,32 @@ class CallAnalyzer:
         object or an external class, has methods unknown here, so the search
         stops there."""
 
-        start = context.by_id.get(self._type_id(ref) or "")
+        type_id = self._type_id(ref)
+        if type_id in TESTCLIENT_TYPES:
+            if type_id not in context.dependency_client_contracts:
+                context.dependency_client_contracts[type_id] = (
+                    installed_testclient_contract(type_id)
+                )
+            contract = context.dependency_client_contracts[type_id]
+            if contract is None or method in contract["blocked"]:
+                return None
+            if method in contract["methods"]:
+                owner = "starlette.testclient.TestClient"
+            elif method in GUESSED_METHODS_BY_OWNER.get("httpx.Client", ()):
+                owner = contract["base"]
+            else:
+                return None
+            target = self._external_symbol_node(
+                f"{owner}.{method}",
+                name=method,
+                source="installed_dependency_definition",
+            )
+            target.properties.update(
+                dependency_version=contract["version"],
+                definition_source_sha256=contract["source_sha256"],
+            )
+            return target
+        start = context.by_id.get(type_id or "")
         if start is None or start.kind != "class":
             return None
         order = self._method_resolution_order(start, context, ())
@@ -1759,16 +1828,21 @@ class CallAnalyzer:
             choices = self._finite_external_bases(start, context)
             # A stable value contract may be shared by distinct libraries, but
             # their definition identities are not interchangeable.
-            if len(choices) != 1 or method not in GUESSED_METHODS_BY_OWNER.get(
-                "httpx.Client", ()
-            ):
+            preferred = self._preferred_external_base(start, context)
+            if (
+                len(choices) != 1 and preferred is None
+            ) or method not in GUESSED_METHODS_BY_OWNER.get("httpx.Client", ()):
                 return None
             target = self._external_symbol_node(
-                f"{choices[0]}.{method}",
+                f"{preferred or choices[0]}.{method}",
                 name=method,
                 source="inherited_receiver_type",
             )
             target.properties["base_candidates"] = sorted(set(choices))
+            if preferred:
+                target.properties["definition_candidates"] = [
+                    f"extsym:{c}.{method}" for c in choices if c != preferred
+                ]
             return target
         begin = 0
         if after is not None:
@@ -1838,6 +1912,20 @@ class CallAnalyzer:
             choices.add(owner)
         return sorted(choices)
 
+    @staticmethod
+    def _preferred_external_base(start, context):
+        choices = CallAnalyzer._finite_external_bases(start, context)
+        module = context.lexical.modules.get(start.path)
+        if len(choices) != 2 or module is None:
+            return None
+        root = str(start.properties["bases"][0]).split(".")[0]
+        bindings = context.lexical.bindings.get(module.id, {}).get(root, [])
+        primary = [b for b in bindings if b.get("preferred_typing_runtime_import")]
+        if len(primary) != 1:
+            return None
+        preferred = str(import_binding_target(primary[0])) + ".Client"
+        return preferred if preferred in choices else None
+
     def _ambiguous_external_method(
         self, source: Node, receiver: str, method: str, context: _CallResolutionContext
     ) -> bool:
@@ -1847,6 +1935,7 @@ class CallAnalyzer:
             owner
             and method in GUESSED_METHODS_BY_OWNER.get("httpx.Client", ())
             and len(self._finite_external_bases(owner, context)) > 1
+            and self._preferred_external_base(owner, context) is None
         )
 
     def _method_resolution_order(
@@ -2414,7 +2503,11 @@ class CallAnalyzer:
         method_name: str,
     ) -> Node | None:
         type_id = self._type_id(type_ref)
-        if not type_id or not type_id.startswith("extsym:"):
+        if (
+            not type_id
+            or not type_id.startswith("extsym:")
+            or type_id in TESTCLIENT_TYPES
+        ):
             return None
         if type_ref.get("origin") == "documented_mapping" and method_name not in {
             "get",
@@ -3658,6 +3751,9 @@ class CallAnalyzer:
         )
         self._set_optional(properties, "receiver_type", resolved.receiver_type)
         self._set_optional(
+            properties, "receiver_type_options", resolved.receiver_type_options
+        )
+        self._set_optional(
             properties, "receiver_type_ref_id", resolved.receiver_type_ref_id
         )
         self._set_optional(properties, "attribute", callsite.get("attribute"))
@@ -4173,7 +4269,20 @@ class CallAnalyzer:
                 return _NO_VALUE
         elif name.startswith("_"):
             return _NO_VALUE
-        return self._module_name_value(module, name, lexical, None, seen)
+        value = self._module_name_value(module, name, lexical, None, seen)
+        if value and value[0] == "import" and value[1]:
+            provider_name, _, imported_name = value[1].rpartition(".")
+            provider = next(
+                (n for n in lexical.modules.values() if n.qualname == provider_name),
+                None,
+            )
+            if provider is not None and provider.id not in seen | {module.id}:
+                actual = self._module_name_value(
+                    provider, imported_name, lexical, None, seen | {module.id}
+                )
+                if actual and actual[0] == "def":
+                    return actual
+        return value
 
     @staticmethod
     def _declared_exports(

@@ -140,3 +140,27 @@ def test_a_definite_later_write_replaces_conditional_candidates(tmp_path):
         if e.source == "fn:pkg.user.use" and e.target.endswith(".find")
     ]
     assert {e.target for e in edges} == {"method:pkg.user.Matcher.find"}
+
+
+def test_two_receiver_types_inheriting_one_method_keep_both_type_options(tmp_path):
+    _targets(
+        tmp_path,
+        {
+            "user": "class Parent:\n    def find(self):pass\nclass Child(Parent):pass\ndef use(flag):\n    matcher=Parent()\n    if flag:matcher=Child()\n    matcher.find()\n"
+        },
+        v2=True,
+    )
+    edges = [
+        e
+        for e in GraphStoreReader.from_current(tmp_path / "out").read_edges()
+        if e.source == "fn:pkg.user.use" and e.target == "method:pkg.user.Parent.find"
+    ]
+    assert len(edges) == 1 and edges[0].resolution.candidate_count == 1
+    site = (
+        edges[0].properties.get("callsites") or [edges[0].properties.get("callsite")]
+    )[0]
+    assert site.get("receiver_type_options") == [
+        "class:pkg.user.Child",
+        "class:pkg.user.Parent",
+    ]
+    assert not site.get("receiver_type")
