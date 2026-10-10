@@ -1053,13 +1053,19 @@ class CallAnalyzer:
                     if isinstance(entry, str):
                         break
                     member = context.methods_by_class.get((entry.qualname, node.attr))
-                    if member and any(
-                        str(d).rsplit(".", 1)[-1] == "property"
-                        for d in member.properties.get("decorators", [])
+                    if member:
+                        if context._is_property_method(
+                            member
+                        ) and not member.properties.get("async"):
+                            returned = context.return_type_by_target.get(member.id)
+                            if returned is not None:
+                                return returned
+                        break
+                    if any(
+                        b.get("name") == node.attr
+                        for b in entry.properties.get("bindings", [])
                     ):
-                        returned = context.return_type_by_target.get(member.id)
-                        if returned is not None:
-                            return returned
+                        break
             if node.attr == "parent":
                 parent = self._path_value_type_ref(receiver_type, "path_parent")
                 if parent is not None:
@@ -2649,6 +2655,11 @@ class CallAnalyzer:
         if not receiver_expression.isidentifier():
             return None
         found = context.lexical.lookup(source, receiver_root)
+        if found and any(
+            b.get("kind") in {"for_target", "comprehension_target"} for b in found[1]
+        ):
+            # A name is not evidence of an unknown iterable's element type.
+            return None
         if found and any(
             self._called_local_value(
                 source,

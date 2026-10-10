@@ -82,3 +82,18 @@ def test_unknown_local_factory_result_does_not_take_its_variable_names_class(tmp
         v2=True,
     )
     assert "method:pkg.user.Generation.checked" not in targets
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_iteration_receiver_needs_element_type_before_name_fallback(tmp_path, typed):
+    annotation = ": list[Route]" if typed else ""
+    targets = _targets(
+        tmp_path,
+        {
+            "user": "class Route:\n    def matches(self): pass\nclass WebSocketRoute:\n    def matches(self): pass\ndef use(routes"
+            + annotation
+            + "):\n    for route in routes: route.matches()\n"
+        },
+        v2=True,
+    )
+    assert ("method:pkg.user.Route.matches" in targets) is typed
