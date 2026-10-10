@@ -619,3 +619,38 @@ def test_merge_engine_falls_back_to_working_tree_without_project_version(
     assert "my-project" in identity
     assert "working-tree" in identity
     assert "abc123deadbeef" not in identity
+
+
+def test_equal_rank_node_collision_is_independent_of_producer_order():
+    import itertools
+
+    candidates = [
+        Node(
+            id="extsym:pathlib.Path.write_bytes",
+            kind="external_symbol",
+            name="write_bytes",
+            qualname="pathlib.Path.write_bytes",
+            properties={"source": source, "receiver_type": "extsym:pathlib.Path"},
+        )
+        for source in ["receiver_type", "import_alias", "inherited_receiver_type"]
+    ]
+    expected = EvidenceMergeEngine.dedupe_nodes(candidates)[0].model_dump()
+    originals = [n.model_dump() for n in candidates]
+    for permutation in itertools.permutations(candidates):
+        assert (
+            EvidenceMergeEngine.dedupe_nodes(list(permutation))[0].model_dump()
+            == expected
+        )
+    assert [n.model_dump() for n in candidates] == originals
+
+
+def test_equal_rank_tie_break_does_not_replace_a_concrete_definition():
+    concrete = Node(id="fn:pkg.use", kind="function", name="use", path="pkg.py")
+    placeholder = Node(
+        id=concrete.id,
+        kind="function",
+        name="use",
+        properties={"resolution_status": "unresolved"},
+    )
+    assert EvidenceMergeEngine.dedupe_nodes([concrete, placeholder]) == [concrete]
+    assert EvidenceMergeEngine.dedupe_nodes([placeholder, concrete]) == [concrete]

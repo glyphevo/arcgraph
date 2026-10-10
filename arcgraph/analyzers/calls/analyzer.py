@@ -1037,11 +1037,26 @@ class CallAnalyzer:
                 )
                 if field is not None:
                     return field
+                owner = context.by_id.get(receiver_type_id)
+                order = (
+                    self._method_resolution_order(owner, context, ()) if owner else None
+                )
+                for entry in order or []:
+                    if isinstance(entry, str):
+                        break
+                    member = context.methods_by_class.get((entry.qualname, node.attr))
+                    if member and any(
+                        str(d).rsplit(".", 1)[-1] == "property"
+                        for d in member.properties.get("decorators", [])
+                    ):
+                        returned = context.return_type_by_target.get(member.id)
+                        if returned is not None:
+                            return returned
             if node.attr == "parent":
                 parent = self._path_value_type_ref(receiver_type, "path_parent")
                 if parent is not None:
                     return parent
-            if scoped_root is not None:
+            if scoped_root is not None or receiver_type is not None:
                 return unknown_union_result(full_name)
             return None
 
@@ -2537,10 +2552,11 @@ class CallAnalyzer:
         method_name: str,
         context: _CallResolutionContext,
     ) -> Node | None:
-        """Last-resort resolver: match when exactly one class defines the method.
+        """Last-resort resolver: choose a unique name-affine class for a simple receiver.
 
-        Iterates ``context.methods_by_class`` to find all classes that define
-        a method named *method_name*.  If exactly one class matches **and**:
+        Exact normalized class names take precedence over suffix affinity.
+        Unrelated classes defining the same method do not change the answer.
+        Ambiguous matching classes remain unknown. Require:
 
         1. The receiver root is NOT a known import alias, and
         2. The receiver name has lexical affinity with the candidate class name
@@ -2555,16 +2571,36 @@ class CallAnalyzer:
         import_aliases = self._visible_import_aliases(source, context)
         if receiver_root in import_aliases:
             return None
+        if not receiver_expression.isidentifier():
+            return None
+        found = context.lexical.lookup(source, receiver_root)
+        if found and any(
+            self._called_local_value(
+                source,
+                context.lexical.root_name(str(binding.get("value") or "")) or "",
+                context,
+            )
+            for binding in found[1]
+            if binding.get("kind") in {"assignment", "annotated_assignment"}
+        ):
+            # An unknown value derived from a local callable/receiver is not
+            # evidence for the unrelated project class its new name resembles.
+            return None
         candidates = [
             (class_qualname, target)
             for (class_qualname, name), target in context.methods_by_class.items()
             if name == method_name
+            and self._receiver_matches_class(receiver_root, class_qualname)
         ]
+        exact = [
+            (q, n)
+            for q, n in candidates
+            if q.rsplit(".", 1)[-1].lower() == receiver_root.replace("_", "").lower()
+        ]
+        candidates = exact or candidates
         if len(candidates) != 1:
             return None
         class_qualname, target = candidates[0]
-        if not self._receiver_matches_class(receiver_root, class_qualname):
-            return None
         return target
 
     @staticmethod

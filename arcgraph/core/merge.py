@@ -144,13 +144,31 @@ class EvidenceMergeEngine:
 
     @staticmethod
     def dedupe_nodes(nodes: list[Node]) -> list[Node]:
+        """Prefer resolution rank, then a canonical whole producer record.
+
+        Equal-rank conflicting properties have no authority ordering. A stable
+        tie-break avoids traversal-dependent output without inventing a merged
+        record or asserting that the selected producer is more accurate.
+        """
         deduped: dict[str, Node] = {}
         for node in nodes:
             node = EvidenceMergeEngine._config_resource(node)
             existing = deduped.get(node.id)
-            if existing is None or EvidenceMergeEngine._node_resolution_rank(
-                node
-            ) > EvidenceMergeEngine._node_resolution_rank(existing):
+            rank = EvidenceMergeEngine._node_resolution_rank(node)
+            previous_rank = (
+                EvidenceMergeEngine._node_resolution_rank(existing)
+                if existing is not None
+                else None
+            )
+            if (
+                existing is None
+                or rank > previous_rank
+                or (
+                    rank == previous_rank
+                    and json.dumps(node.model_dump(mode="json"), sort_keys=True)
+                    < json.dumps(existing.model_dump(mode="json"), sort_keys=True)
+                )
+            ):
                 deduped[node.id] = node
         return sorted(deduped.values(), key=lambda node: node.id)
 
