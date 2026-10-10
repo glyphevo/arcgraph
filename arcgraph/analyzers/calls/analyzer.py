@@ -1115,7 +1115,9 @@ class CallAnalyzer:
                         return self._derived_type_ref(
                             receiver_type, values[0], "documented_attribute"
                         )
-            documented = attribute_value_type(receiver_type_id or "", node.attr)
+            documented = attribute_value_type(
+                receiver_type_id or "", node.attr, receiver_type
+            )
             if documented is not None:
                 return self._derived_type_ref(
                     receiver_type, documented, "documented_attribute"
@@ -1144,6 +1146,20 @@ class CallAnalyzer:
                 return unknown_union_result(self._unparse(node))
             if isinstance(node.slice, ast.Slice):
                 return sliced_value_type(receiver_type)
+            args = (receiver_type or {}).get("type_args", [])
+            if (
+                (receiver_type or {}).get("origin") == "documented_tuple"
+                and isinstance(node.slice, ast.Constant)
+                and type(node.slice.value) is int
+                and args
+                and not any(a.get("type_expression") == "..." for a in args)
+            ):
+                index = node.slice.value
+                return (
+                    {**args[index], "typed_value_evidence": True}
+                    if -len(args) <= index < len(args)
+                    else unknown_union_result(self._unparse(node))
+                )
             value = self._subscript_value_type_ref(receiver_type)
             if (
                 value is None
@@ -1223,6 +1239,7 @@ class CallAnalyzer:
                         return unknown_union_result(self._unparse(node))
                 return None
             return self._type_ref_from_target(
+                source,
                 resolved.target,
                 context,
                 node,
@@ -1416,7 +1433,7 @@ class CallAnalyzer:
             item = type_args[1]
         elif type_id == "builtin:tuple":
             item = tuple_element_type(receiver_type)
-        elif type_id == "builtin:list":
+        elif type_id == "builtin:list" or receiver_type.get("origin") == "Sequence":
             item = type_args[0]
         else:
             return None
@@ -1946,6 +1963,7 @@ class CallAnalyzer:
 
     def _type_ref_from_target(
         self,
+        source: Node,
         target: Node,
         context: _CallResolutionContext,
         call: ast.Call,
@@ -1972,7 +1990,13 @@ class CallAnalyzer:
             # A documented function return is read only through a name that is
             # still its import, as the type analyzer reads an assigned call.
             documented = (
-                function_return_type(qualname, call) if imported else None
+                function_return_type(
+                    qualname,
+                    call,
+                    lambda value: self._receiver_type_ref_node(source, value, context),
+                )
+                if imported
+                else None
             ) or (
                 method_return_type(type_id_of_qualname(owner), method)
                 if owner

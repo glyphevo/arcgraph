@@ -1776,6 +1776,24 @@ class _TypeContext:
         scope_node: Node,
         local_types: dict[str, dict[str, Any]],
     ) -> dict[str, Any] | None:
+        if isinstance(node, ast.Name) and node.id not in local_types:
+            found = self.lexical.lookup(scope_node, node.id)
+            if (
+                found
+                and found[0].id != scope_node.id
+                and self.lexical.stable(*found)
+                and (found[0].path, node.id) not in self.lexical.global_writes
+            ):
+                annotation = found[1][0].get("annotation")
+                if isinstance(annotation, str):
+                    return {
+                        **self._value_type_record(
+                            self.resolve_annotation(annotation, use_imports=True),
+                            strategy="captured_annotation",
+                            source_expression=node.id,
+                        ),
+                        "typed_value_evidence": True,
+                    }
         if isinstance(node, ast.Name) and self.value_position is not None:
             ref = local_types.get(node.id)
             if ref and not ref.get("comprehension_binding"):
@@ -1870,7 +1888,7 @@ class _TypeContext:
             if isinstance(type_id, str) and type_id.startswith("class:"):
                 class_qualname = type_id.removeprefix("class:")
                 return self._attribute_type_ref(class_qualname, node.attr, ())
-            return attribute_value_type(type_id or "", node.attr)
+            return attribute_value_type(type_id or "", node.attr, receiver)
         if isinstance(node, ast.Subscript):
             receiver = self.resolve_scoped_value(node.value, scope_node, local_types)
             if not receiver:
@@ -1879,6 +1897,20 @@ class _TypeContext:
                 return unknown_union_result(self._unparse(node))
             if isinstance(node.slice, ast.Slice):
                 return sliced_value_type(receiver)
+            args = receiver.get("type_args", [])
+            if (
+                receiver.get("origin") == "documented_tuple"
+                and isinstance(node.slice, ast.Constant)
+                and type(node.slice.value) is int
+                and args
+                and not any(a.get("type_expression") == "..." for a in args)
+            ):
+                index = node.slice.value
+                return (
+                    {**args[index], "typed_value_evidence": True}
+                    if -len(args) <= index < len(args)
+                    else unknown_union_result(self._unparse(node))
+                )
             value = self._subscript_value_type_source(receiver)
             if value is None and receiver.get("isinstance_receiver"):
                 return unknown_union_result(self._unparse(node))
@@ -2382,7 +2414,7 @@ class _TypeContext:
             item = type_args[1]
         elif type_id == "builtin:tuple":
             item = tuple_element_type(source)
-        elif type_id == "builtin:list":
+        elif type_id == "builtin:list" or source.get("origin") == "Sequence":
             item = type_args[0]
         else:
             return None
@@ -2885,7 +2917,7 @@ class _TypeContext:
                     source_expression=self._unparse(node),
                 )
             documented = self._external_function_return_type(
-                node, func_name, scope_node
+                node, func_name, scope_node, local_types
             )
             if documented is not None:
                 return self._value_type_record(
@@ -2991,6 +3023,7 @@ class _TypeContext:
         node: ast.Call,
         func_name: str,
         scope_node: Node | None,
+        local_types: dict[str, dict[str, Any]],
     ) -> _ResolvedType | None:
         """The documented return of an imported standard library function, as
         the call analyzer reads the same call."""
@@ -3009,7 +3042,13 @@ class _TypeContext:
             ):
                 return None
         returned = function_return_type(
-            self._resolve_alias(func_name, use_imports=True), node
+            self._resolve_alias(func_name, use_imports=True),
+            node,
+            lambda value: (
+                self.resolve_scoped_value(value, scope_node, local_types)
+                if scope_node is not None
+                else self.resolve_value(value, local_types)
+            ),
         )
         if returned is None:
             return None
@@ -3039,6 +3078,7 @@ class _TypeContext:
             type_id=resolved.type_id,
             symbol_id=resolved.type_id,
             type_args=resolved.type_args,
+            origin=resolved.origin,
             status="resolved",
         )
 

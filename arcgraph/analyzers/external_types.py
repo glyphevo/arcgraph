@@ -20,6 +20,7 @@ from arcgraph.analyzers.type_unions import single_value_type, union_alternatives
 # what the documentation says; add one for that reason, not to move a metric.
 _PATH_FLAVOURS = ("Path", "PosixPath", "WindowsPath")
 _PURE_PATH_FLAVOURS = ("PurePath", "PurePosixPath", "PureWindowsPath")
+_CONCRETE_PATH_IDS = frozenset(f"extsym:pathlib.{f}" for f in _PATH_FLAVOURS)
 _STR_RETURNING = (
     "capitalize",
     "casefold",
@@ -215,6 +216,36 @@ ASYNC_GENERATOR_TYPE_ID = "extsym:types.AsyncGeneratorType"
 
 EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
     GENERATOR_TYPE_ID: frozenset({"close", "send", "throw", "__next__"}),
+    "extsym:sqlite3.Connection": frozenset(
+        {
+            "backup",
+            "blobopen",
+            "close",
+            "commit",
+            "create_aggregate",
+            "create_collation",
+            "create_function",
+            "create_window_function",
+            "cursor",
+            "deserialize",
+            "enable_load_extension",
+            "execute",
+            "executemany",
+            "executescript",
+            "getconfig",
+            "getlimit",
+            "interrupt",
+            "iterdump",
+            "load_extension",
+            "rollback",
+            "serialize",
+            "set_authorizer",
+            "set_progress_handler",
+            "set_trace_callback",
+            "setconfig",
+            "setlimit",
+        }
+    ),
     ASYNC_GENERATOR_TYPE_ID: frozenset({"aclose", "asend", "athrow", "__anext__"}),
     **{
         owner: frozenset({"copy", "digest", "hexdigest", "update"})
@@ -547,6 +578,17 @@ def method_return_type(owner: str, method: str) -> dict[str, Any] | None:
     """The documented return of ``method`` on a receiver of type id ``owner``,
     as a type reference, or None."""
 
+    if owner in _CONCRETE_PATH_IDS and method in {
+        "iterdir",
+        "glob",
+        "rglob",
+    }:
+        return {
+            "type_id": "extsym:collections.abc.Iterator",
+            "type_expression": f"Iterator[{owner[7:]}]",
+            "origin": "Iterator",
+            "type_args": [{"type_id": owner, "type_expression": owner[7:]}],
+        }
     returned = METHOD_RETURN_TYPES.get((owner, method))
     if returned is None:
         return None
@@ -563,9 +605,72 @@ def method_return_type(owner: str, method: str) -> dict[str, Any] | None:
     return ref
 
 
-def function_return_type(qualname: str, call: ast.Call) -> dict[str, Any] | None:
+def function_return_type(
+    qualname: str,
+    call: ast.Call,
+    resolve: Callable[[ast.expr], dict[str, Any] | None] | None = None,
+) -> dict[str, Any] | None:
     """The documented return of the external function ``qualname`` at ``call``."""
 
+    if qualname == "sqlite3.connect":
+        # A supplied connection factory may return an unrelated implementation.
+        if len(call.args) > 5 or any(k.arg in {None, "factory"} for k in call.keywords):
+            return None
+        return {
+            "type_id": "extsym:sqlite3.Connection",
+            "type_expression": "sqlite3.Connection",
+        }
+    if qualname in {"re.sub", "re.subn", "re.escape", "re.split"}:
+        index = {"re.sub": 2, "re.subn": 2, "re.escape": 0, "re.split": 1}[qualname]
+        key = "pattern" if qualname == "re.escape" else "string"
+        value = (
+            call.args[index]
+            if len(call.args) > index
+            else next((k.value for k in call.keywords if k.arg == key), None)
+        )
+        ref = resolve(value) if resolve is not None and value is not None else None
+        type_id = (ref or {}).get("type_id")
+        if (
+            type_id not in {"builtin:str", "builtin:bytes"}
+            or union_alternatives(ref) is not None
+            or any(k.arg is None for k in call.keywords)
+        ):
+            return None
+        result = {"type_id": type_id, "type_expression": type_id[8:]}
+        if qualname == "re.subn":
+            return {
+                "type_id": "builtin:tuple",
+                "origin": "documented_tuple",
+                "type_expression": "tuple",
+                "type_args": [
+                    result,
+                    {"type_id": "builtin:int", "type_expression": "int"},
+                ],
+            }
+        if qualname == "re.split":
+            # Capturing groups can be unmatched (None); do not claim each
+            # element is text without proving the pattern has no groups.
+            return None
+        return result
+    if qualname == "subprocess.run":
+        result = {
+            "type_id": "extsym:subprocess.CompletedProcess",
+            "type_expression": "subprocess.CompletedProcess",
+        }
+        captured = any(
+            k.arg == "capture_output"
+            and isinstance(k.value, ast.Constant)
+            and k.value.value is True
+            for k in call.keywords
+        )
+        stream = _text_output_return(call)
+        if (
+            captured
+            and not any(k.arg is None for k in call.keywords)
+            and stream in {"builtin:str", "builtin:bytes"}
+        ):
+            result["type_args"] = [{"type_id": stream, "type_expression": stream[8:]}]
+        return result
     reader = _ARGUMENT_DEPENDENT_RETURNS.get(qualname)
     type_id = reader(call) if reader is not None else None
     if type_id is None:
@@ -600,6 +705,11 @@ def _check_output_return(call: ast.Call) -> str | None:
 
     if sum(not isinstance(a, ast.Starred) for a in call.args) >= 5:
         return NEVER_TYPE_ID
+    return _text_output_return(call)
+
+
+def _text_output_return(call: ast.Call) -> str | None:
+    """Constant Popen text-mode flags shared by run and check_output."""
     truths: list[bool | None] = []
     flags: dict[str, object] = {}
     for keyword in call.keywords:
@@ -1074,7 +1184,9 @@ def mapping_value_type(
     return value_type
 
 
-def attribute_value_type(owner: str, name: str) -> dict[str, Any] | None:
+def attribute_value_type(
+    owner: str, name: str, receiver: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """Small documented property contracts, independent of method-name guesses.
 
     Headers expose the Mapping[str, str] interface; this names that interface,
@@ -1082,7 +1194,21 @@ def attribute_value_type(owner: str, name: str) -> dict[str, Any] | None:
     outside field validation, like existing optional receiver annotations.
     """
     result: dict[str, Any]
-    if (
+    if owner == "extsym:subprocess.CompletedProcess" and name in {"stdout", "stderr"}:
+        args = (receiver or {}).get("type_args", [])
+        if len(args) != 1 or args[0].get("type_id") not in {
+            "builtin:str",
+            "builtin:bytes",
+        }:
+            return None
+        result = dict(args[0])
+    elif owner in PATH_TYPE_IDS and name == "parents":
+        result = {
+            "type_id": "extsym:collections.abc.Sequence",
+            "origin": "Sequence",
+            "type_args": [{"type_id": owner, "type_expression": owner[7:]}],
+        }
+    elif (
         name in {"suffix", "name"}
         and owner in PATH_TYPE_IDS
         or (name == "name" and owner == "extsym:enum.Enum")
