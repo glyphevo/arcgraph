@@ -58,8 +58,10 @@ def use(session=Depends(provide)):
     )
     fn = next(n for n in nodes if n.id == "fn:pkg.user.use")
     ref = next(
-        r for r in fn.properties.get("type_refs", []) if r.get("name") == "session"
+        (r for r in fn.properties.get("type_refs", []) if r.get("name") == "session"),
+        None,
     )
+    assert ref is not None, "Depends must contribute binding type evidence"
     assert ref["type_id"] == "class:pkg.deps.Session"
     assert ref["strategy"] == "fastapi_dependency_result"
     assert any(

@@ -43,6 +43,7 @@ app.include_router(router, prefix='/root')
         },
     )
     routes = {n.id: n for n in nodes if n.kind == "route"}
+    assert "route:GET:/root/outer/middle/leaf/v1/item" in routes
     route = routes["route:GET:/root/outer/middle/leaf/v1/item"]
     assert route.properties["handler"] == "method:pkg.api.A.get"
     assert route.properties["parameters"] == ["value"]
@@ -70,7 +71,8 @@ class A:
     def get(self): pass
 """},
     )
-    route = next(n for n in nodes if n.kind == "route")
+    route = next((n for n in nodes if n.kind == "route"), None)
+    assert route is not None, "The class method must register a local route"
     assert route.properties["path"] == "/item"
     assert route.properties["path_status"] == "unknown_prefix"
 
@@ -125,7 +127,8 @@ class A:
     def get(self): pass
 """},
     )
-    route = next(n for n in nodes if n.kind == "route")
+    route = next((n for n in nodes if n.kind == "route"), None)
+    assert route is not None, "Unknown prefixes must retain the local registration"
     assert route.properties["path_status"] == "unknown_prefix"
     assert route.properties["path"] == "/item"
 
@@ -178,6 +181,7 @@ app.include_router(router, prefix='/v1')
         },
     )
     routes = {n.id: n for n in nodes if n.kind == "route"}
+    assert "route:GET:/v1/api/item" in routes
     assert (
         routes["route:GET:/v1/api/item"].properties["handler"]
         == "method:pkg.controller.A.get"
@@ -199,6 +203,7 @@ app.include_router(router, prefix=runtime())
     routes = [n for n in nodes if n.kind == "route"]
     assert len(routes) == 1
     assert routes[0].properties["path"] == "/leaf/item"
+    assert "path_status" in routes[0].properties
     assert routes[0].properties["path_status"] == "unknown_prefix"
 
 
