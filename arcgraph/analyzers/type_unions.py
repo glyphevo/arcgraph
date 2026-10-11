@@ -174,7 +174,9 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                     "builtin:tuple",
                     "builtin:set",
                 }:
-                    return None
+                    # Presence cannot select one member of a heterogeneous
+                    # union. It also cannot erase an earlier concrete guard.
+                    continue
                 target = next(iter(common))
                 ref = {
                     "type_id": target,
