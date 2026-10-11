@@ -160,9 +160,27 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
             # binding summary. Leave existing concrete guard paths available.
             if union_alternatives(ref) is None:
                 continue
+            members = [
+                m
+                for m in union_alternatives(ref) or []
+                if m.get("type_id") != "builtin:None"
+            ]
             ref = single_value_type(ref)
             if not ref.get("type_id"):
-                return None
+                common = {m.get("type_id") for m in members}
+                if len(common) != 1 or not common <= {
+                    "builtin:dict",
+                    "builtin:list",
+                    "builtin:tuple",
+                    "builtin:set",
+                }:
+                    return None
+                target = next(iter(common))
+                ref = {
+                    "type_id": target,
+                    "type_expression": target[8:],
+                    "erased_container_arguments": True,
+                }
         else:
             target = entry["type_id"]
             if entry.get("normalized_builtin"):
@@ -183,6 +201,7 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                     and runtime_target
                     and any(
                         m.get("type_id") in {"typing:Any", "extsym:typing.Any"}
+                        or (m.get("type_id") is None and not m.get("type_args"))
                         or (
                             m.get("type_id") in _RUNTIME_CLASSES
                             and issubclass(
@@ -197,6 +216,16 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                         "type_expression": target.partition(":")[2],
                     }
                     matches = [ref]
+                if len(matches) > 1 and target in {
+                    "builtin:dict",
+                    "builtin:list",
+                    "builtin:tuple",
+                    "builtin:set",
+                }:
+                    # The check proves this container class, but cannot select
+                    # between dict[K, A] and dict[K, B]. Erase arguments rather
+                    # than choosing a branch; derived elements stay unknown.
+                    matches = [{"type_id": target, "type_expression": target[8:]}]
                 if len(matches) != 1:
                     return unknown_union_result(name)
                 for member in members:

@@ -1321,11 +1321,18 @@ class TypeRefAnalyzer:
         parsed = context.parse_expression(value)
         if parsed is None:
             return None
-        if isinstance(parsed, ast.Name):
-            # Plain copies already use none_excluded_before, including loop
-            # rebinding; share guards only for the derived value path here.
+        if isinstance(parsed, ast.Name) and not any(
+            entry["name"] == parsed.id
+            and entry.get("type_id")
+            and context.value_position is not None
+            and tuple(entry["range"][:2])
+            <= context.value_position
+            <= tuple(entry["range"][2:])
+            for entry in node.properties.get("receiver_narrowings", [])
+        ):
+            # None-aware copies retain their existing loop/branch handling.
+            # A concrete isinstance guard also supplies class evidence here.
             context.value_position = None
-
         source = (
             unknown_union_result(value)
             if binding.get("comprehension_write")
@@ -1492,6 +1499,8 @@ class TypeRefAnalyzer:
             result["untyped_comprehension"] = True
         if binding.get("unpack_path") or source.get("typed_value_evidence"):
             result["typed_value_evidence"] = True
+        if source.get("erased_container_arguments"):
+            result["erased_container_arguments"] = True
         return result
 
     @staticmethod
@@ -2059,7 +2068,7 @@ class _TypeContext:
                         }
         if isinstance(node, ast.Name) and self.value_position is not None:
             ref = local_types.get(node.id)
-            if ref and not ref.get("comprehension_binding"):
+            if not (ref or {}).get("comprehension_binding"):
                 narrowed = guarded_value_type(
                     scope_node.properties,
                     node.id,
@@ -2175,7 +2184,10 @@ class _TypeContext:
                     else unknown_union_result(self._unparse(node))
                 )
             value = self._subscript_value_type_source(receiver)
-            if value is None and receiver.get("isinstance_receiver"):
+            if value is None and (
+                receiver.get("isinstance_receiver")
+                or receiver.get("erased_container_arguments")
+            ):
                 return unknown_union_result(self._unparse(node))
             return value
         if isinstance(node, ast.Call):
@@ -3344,7 +3356,9 @@ class _TypeContext:
                             strategy="provider_return_annotation",
                             source_expression=self._unparse(node),
                         )
-                if receiver.get("isinstance_receiver"):
+                if receiver.get("isinstance_receiver") or receiver.get(
+                    "erased_container_arguments"
+                ):
                     return unknown_union_result(self._unparse(node))
             return None
 

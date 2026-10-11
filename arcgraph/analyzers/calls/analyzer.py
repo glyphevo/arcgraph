@@ -1279,7 +1279,10 @@ class CallAnalyzer:
             if (
                 value is None
                 and receiver_type
-                and receiver_type.get("isinstance_receiver")
+                and (
+                    receiver_type.get("isinstance_receiver")
+                    or receiver_type.get("erased_container_arguments")
+                )
             ):
                 return unknown_union_result(self._unparse(node))
             return value
@@ -1517,6 +1520,8 @@ class CallAnalyzer:
             derived["narrowed_receiver"] = True
         if receiver.get("isinstance_receiver"):
             derived["isinstance_receiver"] = True
+        if receiver.get("erased_container_arguments"):
+            derived["erased_container_arguments"] = True
         if receiver.get("heuristic_type_evidence"):
             derived["heuristic_type_evidence"] = True
         for key in ("type_ref_id", "binding_id"):
