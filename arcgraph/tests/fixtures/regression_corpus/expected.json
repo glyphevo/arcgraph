@@ -443,6 +443,16 @@
         "extsym:builtins.dict.get"
       ],
       "call": "module.properties.get('bindings', [])"
+    },
+    "route:GET:/api/outer/mount/leaf/item": {
+      "require": [
+        "method:pkg.fastapi_class_routes.Controller.get"
+      ]
+    },
+    "fn:pkg.fastapi_depends.case_dependency": {
+      "require": [
+        "method:pkg.fastapi_depends.Session.execute"
+      ]
     }
   }
 }

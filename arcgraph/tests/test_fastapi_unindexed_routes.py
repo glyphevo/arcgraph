@@ -1,8 +1,7 @@
 """A FastAPI route decorator the adapter passes over is reported, not dropped.
 
-Only a module-level function becomes a route, so mealie's class-based
-controllers, whose methods carry @router.get and the like, gave 252 of its 277
-handlers no route and no warning.
+Nested function registration requires execution evidence; class methods are
+registered by their module router decorators and are no longer skipped.
 """
 
 from __future__ import annotations
@@ -93,8 +92,8 @@ def test_route_decorators_on_methods_and_nested_functions_are_reported(
     warnings = _skipped(output)
     assert [warning.path for warning in warnings] == ["src/app/controllers.py"]
     message = warnings[0].message
-    assert message.startswith("3 FastAPI route decorator(s)")
-    for name in ("ItemController.get_all", "ItemController.create", "register.delete"):
+    assert message.startswith("1 FastAPI route decorator(s)")
+    for name in ("register.delete",):
         assert name in message
     assert "helper" not in message
     store = GraphStoreReader.from_current(output)

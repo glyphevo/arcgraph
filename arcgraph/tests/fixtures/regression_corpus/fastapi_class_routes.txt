@@ -1,0 +1,10 @@
+from fastapi import APIRouter, FastAPI
+
+leaf = APIRouter(prefix='/leaf')
+class Controller:
+    @leaf.get('/item')
+    def get(self): pass
+outer = APIRouter(prefix='/outer')
+outer.include_router(leaf, prefix='/mount')
+app = FastAPI()
+app.include_router(outer, prefix='/api')

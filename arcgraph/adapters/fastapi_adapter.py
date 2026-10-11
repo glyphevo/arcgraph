@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from arcgraph.adapters.common import (
     AdapterAnalysis,
@@ -13,15 +13,25 @@ from arcgraph.adapters.common import (
     call_name,
     combine_paths,
     import_aliases,
+    iter_symbol_defs,
     keyword,
     literal_str,
     literal_str_list,
     module_node_id,
-    resolve_alias,
-    resolve_module_name,
+    resolve_name,
     symbol_id_for_def,
 )
-from arcgraph.core.ids import function_id, route_id
+from arcgraph.core.ids import route_id
+from arcgraph.adapters.fastapi_routes import (
+    constant_text,
+    include_calls,
+    imported_factory_shadowed,
+    prefix_mutated,
+    qualified,
+    receiver_shadowed,
+    router_factories,
+    stable_receiver,
+)
 from arcgraph.core.schemas import BuildWarning, Edge, Evidence, FileRecord, Node
 
 
@@ -30,6 +40,8 @@ class RouteTarget:
     name: str
     prefix: str
     kind: str
+    prefix_known: bool = True
+    owner_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +59,10 @@ class RouteRegistration:
     decorator: ast.AST
     start_line: int
     end_line: int
+    path_status: str = "known"
+    parameters: tuple[str, ...] = ()
+    self_injection: str = "not_applicable"
+    path_scope: str = "local_registration"
 
 
 class FastAPIAdapter(SemanticAdapter):
@@ -67,114 +83,230 @@ class FastAPIAdapter(SemanticAdapter):
         node_index = NodeIndex(nodes)
         registrations_by_owner: dict[str, list[RouteRegistration]] = {}
 
+        contexts = [
+            (
+                file,
+                parsed_files[file.path],
+                import_aliases(file, parsed_files[file.path], module_names),
+            )
+            for file in files
+            if file.path in parsed_files
+        ]
+        factories = router_factories(contexts)
+        targets_by_module = {
+            file.module: self._route_targets(tree, imports, file, factories)
+            for file, tree, imports in contexts
+        }
+
+        canonical_targets = {
+            self._owner_key(module, name): target
+            for module, targets in targets_by_module.items()
+            for name, target in targets.items()
+        }
+        for file, tree, imports in contexts:
+            for call in ast.walk(tree):
+                if not isinstance(call, ast.Call) or not isinstance(
+                    call.func, ast.Attribute
+                ):
+                    continue
+                receiver = call_name(call.func.value)
+                if not receiver:
+                    continue
+                key = qualified(receiver, file, imports)
+                target = canonical_targets.get(key)
+                if target is not None and not imported_factory_shadowed(
+                    tree, call.func.value, imports
+                ):
+                    targets_by_module[file.module].setdefault(
+                        receiver, replace(target, name=receiver, owner_key=key)
+                    )
+
         for file_record in files:
             tree = parsed_files.get(file_record.path)
             if tree is None:
                 continue
             imports = import_aliases(file_record, tree, module_names)
-            route_targets = self._route_targets(tree, imports)
+            route_targets = targets_by_module[file_record.module]
             skipped = self._unindexed_route_decorators(tree, route_targets)
             if skipped:
                 analysis.warnings.append(
                     self._unindexed_routes_warning(file_record, skipped)
                 )
 
-            for stmt in tree.body:
-                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    source_id = symbol_id_for_def(file_record, stmt.name, function_id)
-                    for decorator in stmt.decorator_list:
-                        route_call = self._route_call(decorator, route_targets)
-                        if route_call is None:
-                            continue
-                        route_target, method, call = route_call
-                        route_path = combine_paths(
-                            route_target.prefix,
-                            self._route_path(call),
+            for stmt, qualname, id_factory in iter_symbol_defs(tree):
+                source_id = symbol_id_for_def(file_record, qualname, id_factory)
+                cls = next(
+                    (
+                        c
+                        for c in tree.body
+                        if isinstance(c, ast.ClassDef)
+                        and qualname.startswith(c.name + ".")
+                    ),
+                    None,
+                )
+                for decorator in stmt.decorator_list:
+                    route_call = self._route_call(decorator, route_targets)
+                    if route_call is None:
+                        continue
+                    route_target, method, call = route_call
+                    if cls is not None and receiver_shadowed(
+                        cls, route_target.name.split(".")[0]
+                    ):
+                        continue
+                    route_path = combine_paths(
+                        route_target.prefix,
+                        self._route_path(call),
+                    )
+                    dependencies = sorted(
+                        set(
+                            self._dependencies_from_route(call)
+                            + self._dependencies_from_function(stmt)
                         )
-                        dependencies = sorted(
-                            set(
-                                self._dependencies_from_route(call)
-                                + self._dependencies_from_function(stmt)
+                    )
+                    registration = RouteRegistration(
+                        owner_key=route_target.owner_key
+                        or self._owner_key(file_record.module, route_target.name),
+                        owner_name=route_target.name,
+                        owner_kind=route_target.kind,
+                        method=method,
+                        path=route_path,
+                        source_id=source_id,
+                        handler_name=qualname,
+                        dependencies=tuple(dependencies),
+                        tags=tuple(literal_str_list(keyword(call, "tags"))),
+                        file_record=file_record,
+                        decorator=decorator,
+                        start_line=getattr(decorator, "lineno", stmt.lineno),
+                        end_line=getattr(stmt, "end_lineno", stmt.lineno),
+                        path_status=(
+                            "known"
+                            if route_target.prefix_known
+                            and literal_str(
+                                call.args[0] if call.args else keyword(call, "path")
                             )
-                        )
-                        registration = RouteRegistration(
-                            owner_key=self._owner_key(
-                                file_record.module, route_target.name
-                            ),
-                            owner_name=route_target.name,
-                            owner_kind=route_target.kind,
-                            method=method,
-                            path=route_path,
-                            source_id=source_id,
-                            handler_name=stmt.name,
-                            dependencies=tuple(dependencies),
-                            tags=tuple(literal_str_list(keyword(call, "tags"))),
-                            file_record=file_record,
-                            decorator=decorator,
-                            start_line=getattr(decorator, "lineno", stmt.lineno),
-                            end_line=getattr(stmt, "end_lineno", stmt.lineno),
-                        )
-                        registrations_by_owner.setdefault(
-                            registration.owner_key, []
-                        ).append(registration)
+                            is not None
+                            else "unknown_prefix"
+                        ),
+                        parameters=tuple(
+                            a.arg
+                            for a in [
+                                *stmt.args.posonlyargs,
+                                *stmt.args.args,
+                                *stmt.args.kwonlyargs,
+                            ]
+                            if cls is None or a.arg not in {"self", "cls"}
+                        ),
+                        self_injection=(
+                            ("unverified" if cls.decorator_list else "not_injected")
+                            if cls
+                            else "not_applicable"
+                        ),
+                    )
+                    registrations_by_owner.setdefault(
+                        registration.owner_key, []
+                    ).append(registration)
 
-        for registrations in registrations_by_owner.values():
+        parents = {}
+        all_targets = canonical_targets
+        for file, tree, imports in contexts:
+            for call in include_calls(tree, set(targets_by_module[file.module])):
+                receiver = targets_by_module[file.module][call_name(call.func.value)]
+                owner = receiver.owner_key or self._owner_key(
+                    file.module, receiver.name
+                )
+                child = qualified(call_name(call.args[0]), file, imports)
+                if child not in all_targets:
+                    continue
+                prefix_expr = keyword(call, "prefix")
+                prefix = (
+                    constant_text(prefix_expr, tree) if prefix_expr is not None else ""
+                )
+                target = all_targets[owner]
+                parents.setdefault(child, []).append(
+                    (
+                        owner,
+                        combine_paths(target.prefix, prefix or ""),
+                        prefix is not None and target.prefix_known,
+                    )
+                )
+                analysis.edges.append(
+                    self._edge(
+                        module_node_id(file),
+                        "mod:" + child.rsplit(".", 1)[0],
+                        "includes_router",
+                        file,
+                        call,
+                        "include_router",
+                    )
+                )
+
+        def mounted(owner, seen):
+            if owner in seen:
+                return [("", False)]
+            if owner not in parents:
+                return [("", True)]
+            paths = []
+            for parent, prefix, known in parents[owner]:
+                paths.extend(
+                    (combine_paths(outer, prefix), known and available)
+                    for outer, available in mounted(parent, seen | {owner})
+                )
+            return paths
+
+        for owner, registrations in registrations_by_owner.items():
             for registration in registrations:
                 imports = import_aliases(
                     registration.file_record,
                     parsed_files[registration.file_record.path],
                     module_names,
                 )
+                variants = mounted(owner, set())
+                if any(not known for _, known in variants):
+                    registration = replace(registration, path_status="unknown_prefix")
                 self._add_route(analysis, node_index, registration, imports)
-
-        for file_record in files:
-            tree = parsed_files.get(file_record.path)
-            if tree is None:
-                continue
-            imports = import_aliases(file_record, tree, module_names)
-            route_targets = self._route_targets(tree, imports)
-
-            self._include_router_edges(
-                analysis,
-                node_index,
-                file_record,
-                tree,
-                imports,
-                module_names,
-                parsed_files,
-                route_targets,
-                registrations_by_owner,
-            )
+                for prefix, known in variants:
+                    current = replace(
+                        registration,
+                        path_scope="mounted_registration",
+                        path=(
+                            combine_paths(prefix, registration.path)
+                            if known
+                            else registration.path
+                        ),
+                        path_status=(
+                            registration.path_status if known else "unknown_prefix"
+                        ),
+                    )
+                    if current.path != registration.path:
+                        self._add_route(analysis, node_index, current, imports)
 
         analysis.nodes.sort(key=lambda node: node.id)
         analysis.edges.sort(key=lambda edge: (edge.source, edge.target, edge.kind))
         return analysis
 
-    def _route_targets(
-        self, tree: ast.Module, imports: ImportAliases
-    ) -> dict[str, RouteTarget]:
-        targets: dict[str, RouteTarget] = {}
+    def _route_targets(self, tree, imports, file_record, factories):
+        targets = {}
         for stmt in tree.body:
-            if not isinstance(stmt, ast.Assign):
+            if not isinstance(stmt, (ast.Assign, ast.AnnAssign)) or not isinstance(
+                stmt.value, ast.Call
+            ):
                 continue
-            if not isinstance(stmt.value, ast.Call):
+            if imported_factory_shadowed(tree, stmt.value.func, imports):
                 continue
-            factory = resolve_alias(call_name(stmt.value.func), imports)
-            short = factory.rsplit(".", 1)[-1] if factory else None
-            if short not in {"APIRouter", "FastAPI"}:
+            factory = qualified(call_name(stmt.value.func), file_record, imports)
+            kind = factories.get(factory)
+            if kind is None:
                 continue
-            prefix = (
-                literal_str(keyword(stmt.value, "prefix"))
-                if short == "APIRouter"
-                else None
-            ) or ""
-            kind = "router" if short == "APIRouter" else "app"
-            for target in stmt.targets:
-                if isinstance(target, ast.Name):
+            prefix_expr = keyword(stmt.value, "prefix") if kind == "router" else None
+            prefix = constant_text(prefix_expr, tree) if prefix_expr is not None else ""
+            assignments = (
+                stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            )
+            for target in assignments:
+                if isinstance(target, ast.Name) and stable_receiver(tree, target.id):
+                    known = prefix is not None and not prefix_mutated(tree, target.id)
                     targets[target.id] = RouteTarget(
-                        name=target.id,
-                        prefix=prefix,
-                        kind=kind,
+                        target.id, prefix if known else "", kind, known
                     )
         return targets
 
@@ -183,9 +315,8 @@ class FastAPIAdapter(SemanticAdapter):
     ) -> list[tuple[str, int]]:
         """Route decorators of this file's routers that no route is made of.
 
-        Only a module-level function becomes a route, so a decorator such as
-        @router.get on a method of a class-based controller, or on a nested
-        function, is passed over; it is listed here so the build can say so.
+        Module functions and methods of module classes become routes. Nested
+        function registrations are reported because their execution is unknown.
         A router reached another way, such as self.router, is not seen.
         """
 
@@ -203,7 +334,7 @@ class FastAPIAdapter(SemanticAdapter):
                         )
                     visit(stmt.body, f"{name}.", False)
                 elif isinstance(stmt, ast.ClassDef):
-                    visit(stmt.body, f"{prefix}{stmt.name}.", False)
+                    visit(stmt.body, f"{prefix}{stmt.name}.", top)
 
         visit(tree.body, "", True)
         return found
@@ -219,7 +350,7 @@ class FastAPIAdapter(SemanticAdapter):
             message=(
                 f"{len(skipped)} FastAPI route decorator(s) on methods or nested "
                 f"functions are not indexed as routes: {examples}{more}. ArcGraph "
-                "indexes FastAPI routes on module-level functions only."
+                "indexes module-level functions and methods on module-level classes."
             ),
             path=file_record.path,
         )
@@ -234,9 +365,7 @@ class FastAPIAdapter(SemanticAdapter):
         method = decorator.func.attr
         if method not in self.HTTP_METHODS:
             return None
-        if not isinstance(decorator.func.value, ast.Name):
-            return None
-        target_name = decorator.func.value.id
+        target_name = call_name(decorator.func.value)
         route_target = route_targets.get(target_name)
         if route_target is None:
             return None
@@ -284,56 +413,6 @@ class FastAPIAdapter(SemanticAdapter):
             return None
         return call_name(node.args[0])
 
-    def _include_router_edges(
-        self,
-        analysis: AdapterAnalysis,
-        node_index: NodeIndex,
-        file_record: FileRecord,
-        tree: ast.Module,
-        imports: ImportAliases,
-        module_names: set[str],
-        parsed_files: dict[str, ast.Module],
-        route_targets: dict[str, RouteTarget],
-        registrations_by_owner: dict[str, list[RouteRegistration]],
-    ) -> None:
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if not self._is_include_router_call(node, route_targets):
-                continue
-            if not node.args:
-                continue
-            router_ref = call_name(node.args[0])
-            if not router_ref:
-                continue
-
-            module_name = resolve_module_name(router_ref, imports)
-            if module_name in module_names:
-                analysis.edges.append(
-                    self._edge(
-                        module_node_id(file_record),
-                        f"mod:{module_name}",
-                        "includes_router",
-                        file_record,
-                        node,
-                        f"include_router({router_ref})",
-                    )
-                )
-
-            include_prefix = literal_str(keyword(node, "prefix")) or ""
-            if not include_prefix:
-                continue
-            for owner_key in self._router_owner_keys(router_ref, imports):
-                for registration in registrations_by_owner.get(owner_key, []):
-                    prefixed = self._with_include_prefix(registration, include_prefix)
-                    if prefixed.path != registration.path:
-                        reg_imports = import_aliases(
-                            registration.file_record,
-                            parsed_files[registration.file_record.path],
-                            module_names,
-                        )
-                        self._add_route(analysis, node_index, prefixed, reg_imports)
-
     def _add_route(
         self,
         analysis: AdapterAnalysis,
@@ -359,6 +438,10 @@ class FastAPIAdapter(SemanticAdapter):
                     "handler": registration.source_id,
                     "dependencies": list(registration.dependencies),
                     "tags": list(registration.tags),
+                    "path_status": registration.path_status,
+                    "path_scope": registration.path_scope,
+                    "parameters": list(registration.parameters),
+                    "self_injection": registration.self_injection,
                 },
             )
         )
@@ -376,8 +459,21 @@ class FastAPIAdapter(SemanticAdapter):
             )
         )
         for dependency in registration.dependencies:
-            target_id = node_index.function_id_for(
+            # A dependency name must identify its provider; unique short-name
+            # guesses are not evidence for a newly registered class route.
+            qualified_dependency = resolve_name(
                 dependency, registration.file_record, imports
+            )
+            target_id = next(
+                (
+                    candidate
+                    for candidate in (
+                        "fn:" + qualified_dependency,
+                        "class:" + qualified_dependency,
+                    )
+                    if candidate in node_index.by_id
+                ),
+                None,
             )
             if target_id:
                 analysis.edges.append(
@@ -390,50 +486,6 @@ class FastAPIAdapter(SemanticAdapter):
                         f"Depends({dependency})",
                     )
                 )
-
-    @staticmethod
-    def _is_include_router_call(
-        node: ast.Call, route_targets: dict[str, RouteTarget]
-    ) -> bool:
-        if not isinstance(node.func, ast.Attribute):
-            return False
-        if node.func.attr != "include_router":
-            return False
-        receiver = call_name(node.func.value)
-        return bool(receiver and route_targets.get(receiver, None))
-
-    @staticmethod
-    def _with_include_prefix(
-        registration: RouteRegistration, include_prefix: str
-    ) -> RouteRegistration:
-        return RouteRegistration(
-            owner_key=registration.owner_key,
-            owner_name=registration.owner_name,
-            owner_kind=registration.owner_kind,
-            method=registration.method,
-            path=combine_paths(include_prefix, registration.path),
-            source_id=registration.source_id,
-            handler_name=registration.handler_name,
-            dependencies=registration.dependencies,
-            tags=registration.tags,
-            file_record=registration.file_record,
-            decorator=registration.decorator,
-            start_line=registration.start_line,
-            end_line=registration.end_line,
-        )
-
-    @staticmethod
-    def _router_owner_keys(router_ref: str, imports: ImportAliases) -> list[str]:
-        keys: list[str] = []
-        module_name = resolve_module_name(router_ref, imports)
-        variable_name = router_ref.rsplit(".", 1)[-1]
-        if module_name:
-            keys.append(FastAPIAdapter._owner_key(module_name, variable_name))
-        resolved = resolve_alias(router_ref, imports)
-        if resolved and "." in resolved:
-            module, variable = resolved.rsplit(".", 1)
-            keys.append(FastAPIAdapter._owner_key(module, variable))
-        return list(dict.fromkeys(keys))
 
     @staticmethod
     def _owner_key(module: str, name: str) -> str:

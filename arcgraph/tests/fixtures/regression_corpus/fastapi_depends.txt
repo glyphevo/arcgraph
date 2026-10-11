@@ -1,0 +1,11 @@
+from collections.abc import Generator
+from fastapi import Depends
+
+class Session:
+    def execute(self): pass
+
+def provide() -> Generator[Session]:
+    yield Session()
+
+def case_dependency(session=Depends(provide)):
+    session.execute()

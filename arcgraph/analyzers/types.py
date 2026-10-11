@@ -11,6 +11,7 @@ from arcgraph.analyzers.external_dependencies import TESTCLIENT_TYPES
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.analyzers.exports import exported_class, runtime_exported_class
 from arcgraph.analyzers.operators import OPERATOR_METHODS
+from arcgraph.analyzers.fastapi_dependencies import dependency_result
 from arcgraph.analyzers.external_types import (
     EXTERNAL_METHOD_RETURN_OWNERS,
     ASYNC_GENERATOR_TYPE_ID,
@@ -1360,6 +1361,10 @@ class TypeRefAnalyzer:
             )
 
         value = binding.get("value")
+        if binding.get("kind") == "parameter":
+            value = context.parameter_defaults.get(node.start_line, {}).get(name)
+            if value is None or dependency_result(value, node, context) is None:
+                return None
         if isinstance(value, str) and value:
             propagated = self._propagated_type_ref(
                 value,
@@ -1397,7 +1402,12 @@ class TypeRefAnalyzer:
             # None-aware copies retain their existing loop/branch handling.
             # A concrete isinstance guard also supplies class evidence here.
             context.value_position = None
-        source = (
+        injected = (
+            dependency_result(value, node, context)
+            if binding.get("kind") == "parameter" or node.kind == "class"
+            else None
+        )
+        source = injected or (
             unknown_union_result(value)
             if binding.get("comprehension_write")
             else (
@@ -1559,6 +1569,10 @@ class TypeRefAnalyzer:
             ),
         )
 
+        if injected is not None:
+            result["dependency_target"] = injected["dependency_target"]
+            result["confidence"] = "confirmed"
+            result["typed_value_evidence"] = True
         if untyped_comprehension:
             result["untyped_comprehension"] = True
         if binding.get("unpack_path") or source.get("typed_value_evidence"):
