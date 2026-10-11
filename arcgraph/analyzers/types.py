@@ -758,7 +758,11 @@ class TypeRefAnalyzer:
     """Collect V2.2 TypeRef summaries without changing call resolution."""
 
     def prepare_return_analysis(
-        self, nodes: list[Node], annotation_trees: dict[str, ast.Module] | None = None
+        self,
+        nodes: list[Node],
+        annotation_trees: dict[str, ast.Module] | None = None,
+        *,
+        nominal_guard_trees: dict[str, ast.Module] | None = None,
     ) -> dict[str, bool]:
         """Start a type pass after binding collection has completed.
 
@@ -780,7 +784,13 @@ class TypeRefAnalyzer:
         )
         self._property_fields = _simple_property_fields(nodes, annotation_trees or {})
         self._nominal_guard_classes = _nominal_guard_classes(
-            nodes, annotation_trees or {}, self._callable_contracts
+            nodes,
+            (
+                nominal_guard_trees
+                if nominal_guard_trees is not None
+                else annotation_trees or {}
+            ),
+            self._callable_contracts,
         )
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache

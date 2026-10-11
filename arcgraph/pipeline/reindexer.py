@@ -13,6 +13,7 @@ from arcgraph.analyzers.similarity import (
 from arcgraph.core.cleanup import prune_arcgraph_output_after_publish
 from arcgraph.core.graph_store import GraphStoreReader, GraphStoreWriter
 from arcgraph.core.ids import diagnostic_id
+from arcgraph.core.ids import module_id
 from arcgraph.core.language_tiers import build_language_tiers
 from arcgraph.core.merge import EvidenceMergeEngine
 from arcgraph.core.metadata import current_commit, make_index_version
@@ -41,6 +42,7 @@ from arcgraph.pipeline.typescript_frontend import (
     TYPESCRIPT_FILE_EXTENSIONS,
     TYPESCRIPT_FRONTEND_NAME,
     TYPESCRIPT_SIMILARITY_PROFILE_ALGORITHM,
+    TypeScriptGraphAnalyzer,
     typescript_similarity_profile_count,
 )
 
@@ -197,6 +199,13 @@ class ArcGraphReindexer:
 
         old_nodes = store.read_nodes()
         old_edges = store.read_edges()
+        # Re-exports can change a consumer's checker target without changing
+        # the consumer's text. Refresh the import closure, not the whole TS tree.
+        changed_paths.update(
+            self._typescript_dependent_paths(
+                current_files, old_nodes, old_edges, changed_paths
+            )
+        )
         if any(path.endswith(".py") for path in changed_paths):
             # Conditional constructor/type evidence may change in a provider
             # while the consumer text stays identical. Include unresolved
@@ -410,6 +419,9 @@ class ArcGraphReindexer:
             ),
             refreshed_python_similarity_buckets=refreshed_python_similarity_buckets,
             rescued_shared_nodes=rescued_shared_nodes,
+            typescript_external_nodes=self._typescript_external_inventory(
+                current_files, old_nodes, old_edges, changed_content, changed_paths
+            ),
         )
         content.adapter_metrics = self._preserve_incremental_summary_metrics(
             store.metadata.get("adapter_metrics"),
@@ -931,6 +943,7 @@ class ArcGraphReindexer:
         refreshed_typescript_similarity_buckets: set[str],
         refreshed_python_similarity_buckets: set[str],
         rescued_shared_nodes: list[Node] | None = None,
+        typescript_external_nodes: list[Node] | None = None,
     ) -> IndexContent:
         changed_content_node_ids = {node.id for node in changed_content.nodes}
         kept_nodes = [
@@ -938,13 +951,17 @@ class ArcGraphReindexer:
             for node in old_nodes
             if node.kind != "external_package"
             and (node.path is None or node.path not in changed_paths)
+            and not (
+                typescript_external_nodes is not None
+                and self._is_typescript_external(node)
+            )
         ]
         kept_nodes.extend(
             node
             for node in rescued_shared_nodes or []
             if node.id not in changed_content_node_ids
         )
-        nodes = kept_nodes + changed_content.nodes
+        nodes = kept_nodes + changed_content.nodes + (typescript_external_nodes or [])
         valid_node_ids = {node.id for node in nodes}
         changed_old_node_ids = {
             node.id for node in old_nodes if node.path and node.path in changed_paths
@@ -1011,7 +1028,10 @@ class ArcGraphReindexer:
             # frontends re-emitted. A package imported solely by an unchanged
             # file would otherwise be rebuilt as a bare stub.
             previous_external_nodes=[
-                node for node in old_nodes if node.kind == "external_package"
+                node
+                for node in old_nodes
+                if node.kind == "external_package"
+                and not self._is_typescript_external(node)
             ],
         )
 
@@ -1316,6 +1336,146 @@ class ArcGraphReindexer:
         )
 
     @staticmethod
+    def _typescript_dependent_paths(
+        files: list[FileRecord],
+        nodes: list[Node],
+        edges: list[Edge],
+        changed_paths: set[str],
+    ) -> set[str]:
+        modules = {
+            node.id: node.path
+            for node in nodes
+            if node.kind == "module"
+            and node.path
+            and node.path.endswith(TYPESCRIPT_FILE_EXTENSIONS)
+        }
+        modules.update(
+            {
+                module_id(f.module): f.path
+                for f in files
+                if f.path.endswith(TYPESCRIPT_FILE_EXTENSIONS)
+            }
+        )
+        importers: dict[str, set[str]] = {}
+        for edge in edges:
+            if edge.kind == "imports" and edge.source in modules:
+                importers.setdefault(edge.target, set()).add(edge.source)
+        pending = [key for key, path in modules.items() if path in changed_paths]
+        seen = set(pending)
+        while pending:
+            for importer in importers.get(pending.pop(), set()):
+                if importer not in seen:
+                    seen.add(importer)
+                    pending.append(importer)
+        return {modules[key] for key in seen}
+
+    @staticmethod
+    def _is_typescript_external(node: Node) -> bool:
+        return node.kind in {"external_symbol", "external_package"} and (
+            node.properties.get("frontend_name") == TYPESCRIPT_FRONTEND_NAME
+        )
+
+    def _typescript_external_inventory(
+        self,
+        files: list[FileRecord],
+        old_nodes: list[Node],
+        old_edges: list[Edge],
+        changed_content: IndexContent,
+        changed_paths: set[str],
+    ) -> list[Node]:
+        """Retain producer inventory, including imports with no call edge.
+
+        The public graph has no per-file ownership for unused named imports.
+        Only when their package is touched, re-extract its surviving importers
+        to establish whether those otherwise unreferenced symbols still exist.
+        This needs neither a new persisted schema nor a full graph rebuild.
+        """
+        old = [n for n in old_nodes if self._is_typescript_external(n)]
+        fresh = [n for n in changed_content.nodes if self._is_typescript_external(n)]
+        packages = {
+            n.id.removeprefix("ext:"): n
+            for n in [*old, *fresh]
+            if n.kind == "external_package"
+        }
+        # Longest package first: package names themselves can contain dots.
+        prefixes = sorted(packages, key=len, reverse=True)
+
+        def package_for(target: str) -> str | None:
+            if target.startswith("ext:"):
+                return target.removeprefix("ext:")
+            if target.startswith("extsym:"):
+                return next(
+                    (p for p in prefixes if target.startswith(f"extsym:{p}.")), None
+                )
+            return None
+
+        surviving_edges = [
+            e for e in old_edges if not self._has_changed_evidence(e, changed_paths)
+        ]
+        edges = [*surviving_edges, *changed_content.edges]
+        referenced = {e.target for e in edges} | {e.source for e in edges}
+        affected = {
+            package_for(e.target)
+            for e in old_edges
+            if self._has_changed_evidence(e, changed_paths)
+        } - {None}
+        candidates = {
+            package_for(n.id)
+            for n in old
+            if n.kind == "external_symbol"
+            and n.id not in referenced
+            and package_for(n.id) in affected
+        }
+        inventory: list[Node] = []
+        if candidates:
+            owner_paths = {
+                evidence.path
+                for edge in surviving_edges
+                if package_for(edge.target) in candidates
+                for evidence in edge.evidence
+                if evidence.path
+            }
+            owners = [
+                f
+                for f in files
+                if f.path in owner_paths and f.path.endswith(TYPESCRIPT_FILE_EXTENSIONS)
+            ]
+            if owners:
+                context = [
+                    n
+                    for n in old_nodes
+                    if n.path not in changed_paths and n.path not in owner_paths
+                ] + changed_content.nodes
+                analyzer = TypeScriptGraphAnalyzer(self.repo_root)
+                payload = analyzer._run_extractor(
+                    owners,
+                    context,
+                    similarity_profiles=[],
+                    defer_similarity_scoring=True,
+                )
+                inventory = analyzer._external_symbol_nodes(
+                    payload.get("external_symbols", [])
+                )
+        produced_ids = {n.id for n in [*fresh, *inventory]}
+        symbols = [
+            n
+            for n in old
+            if n.kind == "external_symbol"
+            and (
+                n.id in referenced
+                or package_for(n.id) not in affected
+                or n.id in produced_ids
+            )
+        ] + [n for n in fresh if n.kind == "external_symbol"]
+        # A hook creates a symbol/package without an imports edge to the package.
+        needed_packages = {package_for(n.id) for n in symbols} | {
+            package_for(e.target) for e in edges
+        }
+        return symbols + [
+            node for package, node in packages.items() if package in needed_packages
+        ]
+
+    @staticmethod
     def _with_referenced_external_nodes(
         nodes: list[Node],
         edges: list[Edge],
@@ -1340,6 +1500,12 @@ class ArcGraphReindexer:
                 edge.target
                 for edge in edges
                 if edge.target.startswith("ext:") and edge.target not in existing
+            }
+            | {
+                node.id
+                for node in nodes
+                if ArcGraphReindexer._is_typescript_external(node)
+                and node.kind == "external_package"
             }
         )
         external_nodes = [
@@ -1368,7 +1534,9 @@ class ArcGraphReindexer:
         return [
             node
             for node in nodes
-            if not _is_pathless_synthetic_node(node) or node.id in referenced_node_ids
+            if not _is_pathless_synthetic_node(node)
+            or node.id in referenced_node_ids
+            or ArcGraphReindexer._is_typescript_external(node)
         ]
 
 

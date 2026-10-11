@@ -183,7 +183,9 @@ class PythonGraphAnalyzer:
             else nodes
         )
         return_decorator_cache = type_ref_analyzer.prepare_return_analysis(
-            type_context, parsed_files
+            type_context,
+            parsed_files,
+            nominal_guard_trees=self._nominal_guard_trees(type_context, parsed_files),
         )
         for file_record in files:
             tree = parsed_files.get(file_record.path)
@@ -267,6 +269,33 @@ class PythonGraphAnalyzer:
             phase_timings=phase_timings,
             extractor_metadata={"dependency_environment": environment.metadata},
         )
+
+    def _nominal_guard_trees(
+        self, nodes: list[Node], parsed_files: dict[str, ast.Module]
+    ) -> dict[str, ast.Module]:
+        """Read unchanged class syntax for the same nominal proof as a full pass.
+
+        Node summaries omit class keywords (including metaclass), so treating
+        a surviving class node as proof would be unsafe. These ASTs are used
+        only for the proof; their files are not reanalyzed or republished.
+        """
+        trees = dict(parsed_files)
+        if self.repo_root is None:
+            return trees
+        paths = {
+            node.path
+            for node in nodes
+            if node.kind == "class" and node.path and node.path not in trees
+        }
+        for path in sorted(paths):
+            try:
+                source = (self.repo_root / path).read_text(encoding="utf-8-sig")
+                with warnings_module.catch_warnings():
+                    warnings_module.simplefilter("ignore", SyntaxWarning)
+                    trees[path] = ast.parse(source, filename=path)
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                continue
+        return trees
 
     # ------------------------------------------------------------------
     # Helpers (delegated from ArcGraphIndexer)
