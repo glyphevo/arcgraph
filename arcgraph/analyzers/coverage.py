@@ -114,6 +114,12 @@ class CoverageCollector:
         }
         if isinstance(payload, list):
             return self._analyze_browser_json(path, payload, nodes, module_by_path)
+        if (
+            isinstance(payload, dict)
+            and isinstance(payload.get("meta"), dict)
+            and isinstance(payload.get("files"), dict)
+        ):
+            return self._analyze_coverage_python(path, payload, nodes, module_by_path)
         if isinstance(payload, dict) and self._looks_like_istanbul(payload):
             return self._analyze_istanbul_json(path, payload, nodes, module_by_path)
         if not isinstance(payload, dict):
@@ -176,6 +182,145 @@ class CoverageCollector:
             edges=sorted(edges, key=lambda edge: (edge.source, edge.target, edge.kind)),
             metrics={"format": "json"},
         )
+
+    def _analyze_coverage_python(self, path, payload, nodes, module_by_path):
+        """Aggregate edges match XML; pytest contexts add test-specific edges.
+
+        Paths and test identities must match indexed files, not global names.
+        Arbitrary/static contexts are counted as unmatched, never test nodes.
+        """
+        if type(payload["meta"].get("format")) is not int or payload["meta"][
+            "format"
+        ] not in {1, 2, 3}:
+            return CoverageAnalysis(
+                warnings=[
+                    BuildWarning(
+                        kind="coverage_python_unsupported_format",
+                        path=self._display_path(path),
+                        message="Unsupported coverage.py JSON format.",
+                    )
+                ],
+                metrics={"format": "coverage.py"},
+            )
+        symbols = self._symbol_nodes(nodes)
+        aggregate = self._coverage_node(path, "coverage.py")
+        edges = {}
+        unmatched = malformed = 0
+        unknown_contexts = set()
+        for raw_path, item in payload["files"].items():
+            if not isinstance(item, dict) or not isinstance(
+                item.get("executed_lines"), list
+            ):
+                malformed += 1
+                continue
+            file_path = self._coverage_file_path(raw_path, module_by_path)
+            if file_path is None:
+                unmatched += 1
+                continue
+            lines = {
+                line
+                for line in item["executed_lines"]
+                if type(line) is int and line > 0
+            }
+            if not lines:
+                continue
+            contexts = {"": lines}
+            raw_contexts = item.get("contexts")
+            for number, names in (
+                raw_contexts.items() if isinstance(raw_contexts, dict) else []
+            ):
+                if (
+                    not isinstance(number, str)
+                    or not number.isdecimal()
+                    or int(number) not in lines
+                    or not isinstance(names, list)
+                ):
+                    continue
+                for name in names:
+                    if isinstance(name, str) and name:
+                        contexts.setdefault(name, set()).add(int(number))
+            for name, covered in contexts.items():
+                source = (
+                    aggregate
+                    if not name
+                    else self._coverage_test_context(name, nodes, module_by_path)
+                )
+                if source is None:
+                    unknown_contexts.add(name)
+                    continue
+                targets = [
+                    module_by_path[file_path],
+                    *[
+                        symbol
+                        for symbol in symbols
+                        if symbol.path == file_path
+                        and any(
+                            symbol.start_line
+                            <= line
+                            <= (symbol.end_line or symbol.start_line)
+                            for line in covered
+                        )
+                    ],
+                ]
+                for target in targets:
+                    if target.id == source.id:
+                        continue
+                    key = (source.id, target.id)
+                    if key not in edges:
+                        edges[key] = self._coverage_edge(
+                            source.id,
+                            target.id,
+                            path=file_path,
+                            detail=self._display_path(path),
+                            evidence_kind="coverage_python",
+                            properties={
+                                "coverage_source": "coverage.py",
+                                "path": file_path,
+                                "level": (
+                                    "file" if target.kind == "module" else "symbol"
+                                ),
+                                "covered_lines": [],
+                                "contexts": [],
+                            },
+                        )
+                    properties = edges[key].properties
+                    properties["covered_lines"] = sorted(
+                        set(properties["covered_lines"]) | covered
+                    )
+                    if name:
+                        properties["contexts"] = sorted(
+                            set(properties["contexts"]) | {name}
+                        )
+        return CoverageAnalysis(
+            nodes=[aggregate] if edges else [],
+            edges=sorted(edges.values(), key=lambda e: (e.source, e.target, e.kind)),
+            metrics={
+                "format": "coverage.py",
+                "entries_total": len(payload["files"]),
+                "entries_unmatched": unmatched,
+                "entries_malformed": malformed,
+                "contexts_unmatched": len(unknown_contexts),
+            },
+        )
+
+    def _coverage_test_context(self, context, nodes, modules):
+        # pytest-cov node ids may have static prefixes and phase suffixes.
+        identifiers = [part for part in context.split("|") if "::" in part]
+        if len(identifiers) != 1:
+            return None
+        path, *parts = identifiers[0].split("::")
+        file_path = self._match_file_path(self._normalized_path(path), modules)
+        if file_path is None or not parts:
+            return None
+        qualname = ".".join(part.split("[", 1)[0] for part in parts)
+        matches = [
+            node
+            for node in nodes
+            if node.path == file_path
+            and node.kind in {"function", "method", "test_case"}
+            and node.qualname == modules[file_path].qualname + "." + qualname
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     def _analyze_istanbul_json(
         self,
@@ -441,7 +586,7 @@ class CoverageCollector:
         edges: list[Edge] = []
         for class_el in root.findall(".//class"):
             filename = self._normalized_path(class_el.get("filename"))
-            file_path = self._match_file_path(filename, module_by_path)
+            file_path = self._coverage_file_path(filename, module_by_path)
             if file_path is None:
                 continue
             covered_lines = self._covered_lines(class_el)
@@ -805,6 +950,15 @@ class CoverageCollector:
     def _normalized_path(value: Any) -> str | None:
         return value.replace("\\", "/") if isinstance(value, str) and value else None
 
+    def _coverage_file_path(self, value, module_by_path):
+        filename = self._normalized_path(value)
+        if filename and Path(filename).is_absolute():
+            try:
+                filename = Path(filename).relative_to(self.repo_root).as_posix()
+            except ValueError:
+                return None
+        return self._match_file_path(filename, module_by_path)
+
     @staticmethod
     def _match_file_path(
         filename: str | None, module_by_path: dict[str, Node]
@@ -813,7 +967,7 @@ class CoverageCollector:
             return None
         if filename in module_by_path:
             return filename
-        matches = [path for path in module_by_path if path.endswith(filename)]
+        matches = [path for path in module_by_path if path.endswith("/" + filename)]
         return matches[0] if len(matches) == 1 else None
 
     def _absolute_path(self, path: Path) -> Path:
