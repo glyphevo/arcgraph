@@ -1,0 +1,17 @@
+__all__ = ["keep", "drop"]
+
+
+def keep() -> int:
+    return 1
+
+
+def drop() -> int:
+    return 2
+
+
+def _clear() -> None:
+    global __all__
+    __all__ = ["keep"]
+
+
+_clear()

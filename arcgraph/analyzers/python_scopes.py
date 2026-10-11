@@ -199,6 +199,34 @@ def _bound_after_block(block: list[ast.stmt], bound: set[str]) -> set[str] | Non
     return bound
 
 
+def _bound_at_breaks(body: list[ast.stmt], bound: set[str]) -> list[set[str]]:
+    """Bindings on each exit from this loop, excluding nested loop breaks.
+
+    Complex exceptional/control paths keep only the incoming proof. This is
+    definite assignment, not proof of a value's type: unknown writes remain.
+    """
+    paths = []
+    for stmt in body:
+        if isinstance(stmt, ast.Break):
+            paths.append(bound)
+            break
+        if isinstance(stmt, ast.If):
+            paths.extend(_bound_at_breaks(stmt.body, bound))
+            paths.extend(_bound_at_breaks(stmt.orelse, bound))
+        elif isinstance(
+            stmt, (ast.Try, ast.TryStar, ast.With, ast.AsyncWith, ast.Match)
+        ):
+            # A break through handlers/finally or suppressing managers needs
+            # richer path analysis; do not claim their tentative writes.
+            if any(isinstance(n, ast.Break) for n in ast.walk(stmt)):
+                paths.append(bound)
+        after = _bound_after(stmt, bound)
+        if after is None:
+            break
+        bound = after
+    return paths
+
+
 def _bound_after(stmt: ast.stmt, bound: set[str]) -> set[str] | None:
     """The names surely bound once ``stmt`` has run and the next statement
     runs, given ``bound`` before it; None if the next statement never runs
@@ -244,7 +272,14 @@ def _bound_after(stmt: ast.stmt, bound: set[str]) -> set[str] | None:
         )
         # The body may not run; the else runs where no break skips it.
         if not never_breaks:
-            return bound
+            # Fallthrough either took a break with these bindings, or ran
+            # else. An exiting else removes the zero-iteration path.
+            return _meet(
+                [
+                    *_bound_at_breaks(stmt.body, bound),
+                    _bound_after_block(stmt.orelse, bound),
+                ]
+            )
         return _bound_after_block(stmt.orelse, bound)
     if isinstance(stmt, (ast.With, ast.AsyncWith)):
         # Its body may stop where the context manager suppresses an error.

@@ -1,0 +1,6 @@
+__all__ = ["helper"]
+COUNT = len(__all__)
+
+
+def helper() -> int:
+    return 1

@@ -1,0 +1,13 @@
+from typing import overload
+
+
+@overload
+def c(x: int) -> int: ...
+@overload
+def c(x: str) -> str: ...
+def c(x: int | str) -> int | str:
+    return x
+
+
+def use_c() -> None:
+    c(1)

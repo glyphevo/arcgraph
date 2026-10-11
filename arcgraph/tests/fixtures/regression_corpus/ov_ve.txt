@@ -1,0 +1,14 @@
+import sqlite3
+from typing import overload
+
+
+@overload
+def e(x: int) -> int: ...
+@overload
+def e(x: str) -> str: ...
+def e(x):
+    return x
+
+
+def use_e() -> None:
+    e(1)

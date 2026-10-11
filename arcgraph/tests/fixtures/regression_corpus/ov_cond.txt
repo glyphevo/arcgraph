@@ -1,0 +1,19 @@
+import sys
+from typing import Any, overload
+
+if sys.version_info >= (3, 13):
+    from typing import TypeIs
+else:
+    from typing_extensions import TypeIs
+
+
+@overload
+def ovc(x: int) -> TypeIs[int]: ...
+@overload
+def ovc(x: Any) -> TypeIs[Any]: ...
+def ovc(x: Any) -> Any:
+    return x
+
+
+def overload_version_conditional() -> None:
+    ovc(1)

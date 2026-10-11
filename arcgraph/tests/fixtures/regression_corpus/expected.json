@@ -1,0 +1,448 @@
+{
+  "_doc": "Expectations follow Python runtime semantics. require: every listed target must be a resolved edge from the case. forbid: none of these may appear as a resolved target. node_line: the definition node must start at the runtime implementation line. origin names the LEDGER entry that first recorded the case. call: optional call expression; when present the check applies to that callsite only.",
+  "cases": {
+    "method:pkg.cases.Holder.cond_attr": {
+      "origin": "E294-1, user decision E327",
+      "require": [
+        "method:pkg.cases.Matcher.find",
+        "method:pkg.cases.Other.find"
+      ]
+    },
+    "method:pkg.cases.Holder.same_line_call_then_write": {
+      "origin": "E294-2",
+      "require": [
+        "method:pkg.cases.Matcher.find"
+      ],
+      "forbid": [
+        "method:pkg.cases.Other.find"
+      ]
+    },
+    "method:pkg.cases.Holder.missing_attr_chain": {
+      "origin": "E294-7, E313-A1",
+      "forbid": [
+        "extsym:builtins.bytes.find",
+        "extsym:builtins.str.find",
+        "method:pkg.cases.Inner.find"
+      ]
+    },
+    "method:pkg.cases.Holder.present_attr_chain": {
+      "origin": "E313-A1",
+      "require": [
+        "method:pkg.cases.Inner.find"
+      ]
+    },
+    "fn:pkg.cases.generator_annotation": {
+      "origin": "E294-3",
+      "require": [
+        "extsym:types.GeneratorType.send"
+      ],
+      "forbid": [
+        "method:pkg.cases.Box.send"
+      ]
+    },
+    "fn:pkg.cases.decorator_replaces": {
+      "origin": "E294-6",
+      "forbid": [
+        "method:pkg.cases.Box.send"
+      ]
+    },
+    "fn:pkg.cases.contextmanager_send": {
+      "origin": "E263",
+      "forbid": [
+        "extsym:types.GeneratorType.send",
+        "method:pkg.cases.Box.send"
+      ]
+    },
+    "fn:pkg.stars.star_all_read": {
+      "origin": "E294-4",
+      "require": [
+        "fn:pkg.exports_a.helper"
+      ]
+    },
+    "fn:pkg.stars.star_global_all": {
+      "origin": "E263",
+      "forbid": [
+        "fn:pkg.gl.drop"
+      ]
+    },
+    "fn:pkg.cases.while_false": {
+      "origin": "E263",
+      "require": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.not_is_none": {
+      "origin": "E263",
+      "require": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.nested_and_or": {
+      "origin": "E263",
+      "require": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.or_list": {
+      "origin": "E263",
+      "require": [
+        "extsym:builtins.list.append"
+      ]
+    },
+    "fn:pkg.cases.case_guard_true": {
+      "origin": "E263",
+      "require": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.binary_result": {
+      "origin": "E298, E313-A3",
+      "require": [
+        "method:pkg.cases.Headers.items"
+      ]
+    },
+    "fn:pkg.cases.enum_name": {
+      "origin": "E316",
+      "require": [
+        "extsym:builtins.str.replace"
+      ]
+    },
+    "fn:pkg.cases.enum_value": {
+      "origin": "E319",
+      "forbid": [
+        "extsym:builtins.str.replace"
+      ]
+    },
+    "fn:pkg.cases.path_suffix": {
+      "origin": "E316",
+      "require": [
+        "extsym:builtins.str.lstrip",
+        "extsym:builtins.str.lower"
+      ]
+    },
+    "fn:pkg.cases.path_name": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.str.endswith"
+      ]
+    },
+    "fn:pkg.cases.importfrom_module": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.str.startswith"
+      ]
+    },
+    "fn:pkg.cases.isinstance_attr_chain": {
+      "origin": "E319",
+      "require": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.is_not_none_parent": {
+      "origin": "E319",
+      "require": [
+        "extsym:pathlib.Path.mkdir"
+      ]
+    },
+    "fn:pkg.cases.return_none_parent": {
+      "origin": "E319",
+      "require": [
+        "extsym:pathlib.Path.mkdir"
+      ]
+    },
+    "fn:pkg.cases.isinstance_importfrom": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.str.startswith"
+      ]
+    },
+    "fn:pkg.cases.neg_no_narrow": {
+      "origin": "E319",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_isinstance_other": {
+      "origin": "E319",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_write_after_narrow": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_branch_write": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_closure_write": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_loop_rebind": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_if_without_exit": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.mkdir"
+      ]
+    },
+    "fn:pkg.cases.neg_or_narrow": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.neg_loop_escape": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:builtins.str.endswith"
+      ]
+    },
+    "fn:pkg.cases.loop_derived_name": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.str.endswith"
+      ]
+    },
+    "fn:pkg.cases.walk_name": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.str.endswith"
+      ]
+    },
+    "fn:pkg.cases.generic_branch": {
+      "origin": "E322",
+      "require": [
+        "extsym:builtins.str.upper"
+      ],
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.unknown_tuple_element": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.any_dict_value": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.nullable_default": {
+      "origin": "E322",
+      "require": [
+        "extsym:builtins.dict.items"
+      ]
+    },
+    "fn:pkg.cases.neg_default_other_type": {
+      "origin": "E325",
+      "forbid": [
+        "extsym:builtins.dict.items",
+        "extsym:builtins.list.items"
+      ]
+    },
+    "fn:pkg.cases.any_isinstance_dict": {
+      "origin": "E325",
+      "require": [
+        "extsym:builtins.dict.get"
+      ]
+    },
+    "fn:pkg.cases.any_or_none_isinstance_dict": {
+      "origin": "E325",
+      "require": [
+        "extsym:builtins.dict.get"
+      ]
+    },
+    "fn:pkg.cases.project_union": {
+      "origin": "E325",
+      "require": [
+        "method:pkg.cases.Foo.run"
+      ]
+    },
+    "fn:pkg.cases.subclass_narrowing": {
+      "origin": "E325",
+      "require": [
+        "extsym:datetime.datetime.date"
+      ]
+    },
+    "fn:pkg.cases.neg_reassign_untyped": {
+      "origin": "E322",
+      "forbid": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.subprocess_text": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.str.strip"
+      ],
+      "forbid": [
+        "extsym:builtins.bytes.strip"
+      ]
+    },
+    "fn:pkg.cases.subprocess_bytes": {
+      "origin": "E319",
+      "require": [
+        "extsym:builtins.bytes.split"
+      ],
+      "forbid": [
+        "extsym:builtins.str.split"
+      ]
+    },
+    "fn:pkg.cases.parents_index": {
+      "origin": "E319",
+      "require": [
+        "extsym:pathlib.Path.exists"
+      ]
+    },
+    "fn:pkg.cases.sqlite_local": {
+      "origin": "E330",
+      "require": [
+        "extsym:sqlite3.Connection.execute"
+      ],
+      "forbid": [
+        "protocol:pep249.Cursor.execute"
+      ]
+    },
+    "fn:pkg.cases.for_else_break": {
+      "origin": "E343",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "module.properties.get('bindings', [])"
+    },
+    "fn:pkg.cases.re_result": {
+      "origin": "E330",
+      "require": [
+        "extsym:builtins.str.lower"
+      ]
+    },
+    "fn:pkg.cases.read_text_result": {
+      "origin": "E330",
+      "require": [
+        "extsym:builtins.str.split"
+      ],
+      "forbid": [
+        "extsym:builtins.bytes.split"
+      ]
+    },
+    "fn:pkg.cases.not_isinstance_return": {
+      "origin": "E330",
+      "require": [
+        "extsym:builtins.str.strip"
+      ]
+    },
+    "fn:pkg.cases.and_guard": {
+      "origin": "E327",
+      "require": [
+        "extsym:builtins.str.upper"
+      ]
+    },
+    "fn:pkg.ov_plain.overload_plain": {
+      "origin": "E327, E343",
+      "require": [
+        "fn:pkg.ov_plain.ov"
+      ],
+      "node_line": {
+        "fn:pkg.ov_plain.ov": 8
+      }
+    },
+    "fn:pkg.ov_cond.overload_version_conditional": {
+      "origin": "E343",
+      "require": [
+        "fn:pkg.ov_cond.ovc"
+      ],
+      "node_line": {
+        "fn:pkg.ov_cond.ovc": 14
+      }
+    },
+    "fn:pkg.cases.for_else_break_dataclass": {
+      "origin": "E343",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "module.properties.get('bindings', [])"
+    },
+    "fn:pkg.ov_va.use_a": {
+      "origin": "E327, C1",
+      "require": [
+        "fn:pkg.ov_va.a"
+      ],
+      "node_line": {
+        "fn:pkg.ov_va.a": 8
+      }
+    },
+    "fn:pkg.ov_vb.use_b": {
+      "origin": "E327, C1",
+      "require": [
+        "fn:pkg.ov_vb.b"
+      ],
+      "node_line": {
+        "fn:pkg.ov_vb.b": 8
+      }
+    },
+    "fn:pkg.ov_vc.use_c": {
+      "origin": "E327, C1",
+      "require": [
+        "fn:pkg.ov_vc.c"
+      ],
+      "node_line": {
+        "fn:pkg.ov_vc.c": 8
+      }
+    },
+    "fn:pkg.ov_vd.use_d": {
+      "origin": "E327, C1",
+      "require": [
+        "fn:pkg.ov_vd.d"
+      ],
+      "node_line": {
+        "fn:pkg.ov_vd.d": 8
+      }
+    },
+    "fn:pkg.ov_ve.use_e": {
+      "origin": "E327, C1",
+      "require": [
+        "fn:pkg.ov_ve.e"
+      ],
+      "node_line": {
+        "fn:pkg.ov_ve.e": 9
+      }
+    },
+    "fn:pkg.cases.for_else_break_range": {
+      "origin": "E343",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "module.properties.get('bindings', [])"
+    },
+    "fn:pkg.fe_e343.for_else": {
+      "origin": "E343 verbatim",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "module.properties.get('bindings', [])"
+    },
+    "fn:pkg.fe_e343.plain": {
+      "origin": "E343 verbatim",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "module.properties.get('bindings', [])"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+from pkg.exports_a import *
+from pkg.gl import *
+
+
+def star_all_read() -> int:
+    return helper()
+
+
+def star_global_all() -> None:
+    drop()

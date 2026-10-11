@@ -1,0 +1,13 @@
+from typing import Any, overload
+
+
+@overload
+def d(x: int) -> int: ...
+@overload
+def d(x: str) -> str: ...
+def d(x: Any) -> Any:
+    return x
+
+
+def use_d() -> None:
+    d(1)

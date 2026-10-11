@@ -1,0 +1,13 @@
+from typing import Any, overload
+
+
+@overload
+def ov(x: int) -> int: ...
+@overload
+def ov(x: str) -> str: ...
+def ov(x: Any) -> Any:
+    return x
+
+
+def overload_plain() -> None:
+    ov(1)

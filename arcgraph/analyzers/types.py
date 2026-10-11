@@ -2348,6 +2348,18 @@ class _TypeContext:
         arbitrary factory calls need their own evidence rules.
         """
         scope.properties["conditional_type_input"] = True
+        if all(
+            isinstance(arm, (ast.Constant, ast.JoinedStr))
+            for arm in (expression.body, expression.orelse)
+        ):
+            values = [
+                self.resolve_scoped_value(arm, scope, local_types)
+                for arm in (expression.body, expression.orelse)
+            ]
+            if all(
+                value and value.get("type_id") for value in values
+            ) and type_identity(values[0]) == type_identity(values[1]):
+                return {**values[0], "typed_value_evidence": True}
         found = self.lexical.lookup(scope, str(binding.get("name")))
         if (
             scope.kind not in {"function", "method"}

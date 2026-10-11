@@ -1,0 +1,24 @@
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class Node:
+    properties: dict[str, Any] = field(default_factory=dict)
+
+
+def for_else(nodes: dict[str, Node], parts: list[str]) -> None:
+    for split in range(len(parts)):
+        module = nodes.get(parts[split])
+        if module is not None:
+            break
+    else:
+        return None
+    module.properties.get("bindings", [])
+
+
+def plain(nodes: dict[str, Node], key: str) -> None:
+    module = nodes.get(key)
+    if module is None:
+        return None
+    module.properties.get("bindings", [])

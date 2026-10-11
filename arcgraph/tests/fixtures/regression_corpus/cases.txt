@@ -1,0 +1,397 @@
+"""Regression corpus: each function is one case; expectations are in ../../expected.json.
+
+No star imports here: a star import may rebind isinstance or overload, and the
+analyzer is right to refuse narrowing then (LEDGER E343 correction of E327).
+"""
+
+import ast
+import contextlib
+import enum
+import os
+import re
+import sqlite3
+import subprocess
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+
+class Matcher:
+    def find(self, x: str) -> int:
+        return 0
+
+
+class Other:
+    def find(self, x: str) -> int:
+        return 1
+
+
+class Inner:
+    def find(self, x: str) -> int:
+        return 2
+
+
+class WithInner:
+    def __init__(self) -> None:
+        self.inner = Inner()
+
+
+class Box:
+    def send(self, v: object) -> None: ...
+
+
+class Holder:
+    def __init__(self) -> None:
+        self.matcher = Matcher()
+        self.wrapped = WithInner()
+
+    def cond_attr(self, flag: bool) -> int:
+        if flag:
+            self.matcher = Other()
+        return self.matcher.find("a")
+
+    def same_line_call_then_write(self, row: str) -> None:
+        x = self.matcher.find(row); self.matcher = Other()
+
+    def missing_attr_chain(self) -> int:
+        return self.matcher.inner.find("a")
+
+    def present_attr_chain(self) -> int:
+        return self.wrapped.inner.find("a")
+
+
+def made() -> Box:
+    yield 1
+
+
+def generator_annotation() -> None:
+    made().send(None)
+
+
+def wrap(fn):
+    return lambda: 1
+
+
+@wrap
+def wrapped() -> Box:
+    return Box()
+
+
+def decorator_replaces() -> None:
+    wrapped().send(None)
+
+
+@contextmanager
+def cm():
+    yield 1
+
+
+def contextmanager_send() -> None:
+    cm().send(None)
+
+
+def while_false(p: Path | None) -> None:
+    while False:
+        break
+    if p is None:
+        return
+    p.exists()
+
+
+def not_is_none(p: Path | None) -> None:
+    if not p is None:
+        p.exists()
+
+
+def nested_and_or(p: Path | None, q: bool) -> None:
+    if (p is not None and q) or (p is not None and not q):
+        p.exists()
+
+
+def or_list(xs: list[str] | None) -> None:
+    ys = xs or []
+    ys.append("a")
+
+
+def case_guard_true(p: Path | None) -> None:
+    match p:
+        case None:
+            return
+        case _ if True:
+            p.exists()
+
+
+class Headers:
+    def items(self) -> list:
+        return []
+
+    def __or__(self, other: "Headers") -> "Headers":
+        return self
+
+
+def binary_result(h: Headers) -> None:
+    h = h | Headers()
+    h.items()
+
+
+class Kind(enum.Enum):
+    A_B = 1
+
+
+def enum_name(k: Kind) -> None:
+    k.name.replace("_", " ")
+
+
+def enum_value(k: Kind) -> None:
+    k.value.replace("_", " ")
+
+
+def path_suffix(p: Path) -> None:
+    p.suffix.lstrip(".").lower()
+
+
+def path_name(p: Path) -> None:
+    p.name.endswith("x")
+
+
+def importfrom_module(stmt: ast.ImportFrom) -> bool:
+    return stmt.module.startswith("d")
+
+
+def isinstance_attr_chain(x: object) -> None:
+    if isinstance(x, Path):
+        x.parent.exists()
+
+
+def is_not_none_parent(p: Path | None) -> None:
+    if p is not None:
+        p.parent.mkdir()
+
+
+def return_none_parent(p: Path | None) -> None:
+    if p is None:
+        return
+    p.parent.mkdir()
+
+
+def isinstance_importfrom(stmt: ast.stmt) -> bool:
+    if isinstance(stmt, ast.ImportFrom):
+        return bool(stmt.module and stmt.module.startswith("d"))
+    return False
+
+
+def neg_no_narrow(x: object) -> None:
+    x.parent.exists()
+
+
+def neg_isinstance_other(x: object) -> None:
+    if isinstance(x, str):
+        x.parent.exists()
+
+
+def neg_write_after_narrow(x: object, y: object) -> None:
+    if isinstance(x, Path):
+        x = y
+        x.parent.exists()
+
+
+def neg_branch_write(x: object, y: object, flag: bool) -> None:
+    if isinstance(x, Path):
+        if flag:
+            x = y
+        x.parent.exists()
+
+
+def neg_closure_write(x: object, y: object) -> None:
+    def change() -> None:
+        nonlocal x
+        x = y
+
+    if isinstance(x, Path):
+        change()
+        x.parent.exists()
+
+
+def neg_loop_rebind(x: object, ys: list[object]) -> None:
+    if isinstance(x, Path):
+        for y in ys:
+            x.parent.exists()
+            x = y
+
+
+def neg_if_without_exit(p: Path | None) -> None:
+    if p is None:
+        print("none")
+    p.parent.mkdir()
+
+
+def neg_or_narrow(x: object) -> None:
+    if isinstance(x, Path) or x is None:
+        x.parent.exists()
+
+
+def neg_loop_escape(p: Path, xs: list[int]) -> None:
+    q = None
+    for _ in xs:
+        q = p / "a"
+    q.name.endswith("x")
+
+
+def loop_derived_name(p: Path, xs: list[int]) -> None:
+    for _ in xs:
+        q = p / "a"
+        q.name.endswith("x")
+
+
+def walk_name(root: Path) -> None:
+    for dirpath_raw, _dirs, filenames in os.walk(root):
+        dirpath = Path(dirpath_raw)
+        for filename in sorted(filenames):
+            path = dirpath / filename
+            path.name.endswith("x")
+
+
+def generic_branch(x: Path | list[str]) -> None:
+    if isinstance(x, list):
+        x[0].upper()
+        x[0].exists()
+
+
+def unknown_tuple_element(x) -> None:
+    if isinstance(x, tuple):
+        x[0].exists()
+
+
+def any_dict_value(x: Any) -> None:
+    if isinstance(x, dict):
+        x["a"].exists()
+
+
+def nullable_default(headers: dict | None = None) -> None:
+    h = headers or dict()
+    h.items()
+
+
+def neg_default_other_type(headers: dict | None = None) -> None:
+    h = headers or list()
+    h.items()
+
+
+def any_isinstance_dict(x: Any) -> None:
+    if isinstance(x, dict):
+        x.get("a")
+
+
+def any_or_none_isinstance_dict(x: Any | None) -> None:
+    if isinstance(x, dict):
+        x.get("a")
+
+
+class Foo:
+    def run(self) -> None: ...
+
+
+class Bar:
+    def go(self) -> None: ...
+
+
+def project_union(x: Foo | Bar) -> None:
+    if isinstance(x, Foo):
+        x.run()
+
+
+def subclass_narrowing(value: date | str) -> None:
+    if isinstance(value, datetime):
+        value.date()
+
+
+def neg_reassign_untyped(p: Path, other) -> None:
+    q = p / "a"
+    q = other
+    q.exists()
+
+
+def subprocess_text() -> None:
+    completed = subprocess.run(["git"], capture_output=True, text=True)
+    completed.stdout.strip()
+
+
+def subprocess_bytes() -> None:
+    completed = subprocess.run(["git"], capture_output=True)
+    completed.stdout.split(b"\x00")
+
+
+def parents_index(p: Path) -> None:
+    p.parents[0].exists()
+
+
+def sqlite_local() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.execute("select 1")
+
+
+class Node:
+    def __init__(self) -> None:
+        self.properties: dict[str, Any] = {}
+
+
+def for_else_break(nodes: dict[str, Node], parts: list[str]) -> None:
+    for part in parts:
+        module = nodes.get(part)
+        if module is not None:
+            break
+    else:
+        return None
+    module.properties.get("bindings", [])
+
+
+def re_result(s: str) -> None:
+    re.sub("a", "b", s).lower()
+
+
+def read_text_result(p: Path) -> None:
+    p.read_text().split(",")
+
+
+def not_isinstance_return(v: object) -> None:
+    if not isinstance(v, str):
+        return
+    v.strip()
+
+
+def and_guard(d: dict) -> None:
+    v = d.get("a")
+    if isinstance(v, str) and v:
+        v.upper()
+
+
+def contextlib_suppress_ok() -> None:
+    with contextlib.suppress(ValueError):
+        pass
+
+
+@dataclass
+class DataNode:
+    properties: dict[str, Any] = field(default_factory=dict)
+
+
+def for_else_break_dataclass(nodes: dict[str, DataNode], parts: list[str]) -> None:
+    for part in parts:
+        module = nodes.get(part)
+        if module is not None:
+            break
+    else:
+        return None
+    module.properties.get("bindings", [])
+
+
+def for_else_break_range(nodes: dict[str, DataNode], parts: list[str]) -> None:
+    for split in range(len(parts)):
+        module = nodes.get(parts[split])
+        if module is not None:
+            break
+    else:
+        return None
+    module.properties.get("bindings", [])
