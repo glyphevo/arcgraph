@@ -1069,6 +1069,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum seconds to trace each pytest test call.",
     )
     trace_run.add_argument(
+        "--python",
+        help="Project Python executable; otherwise probe the project environment.",
+    )
+    trace_run.add_argument(
         "pytest_args",
         nargs=argparse.REMAINDER,
         help="Arguments passed to pytest after an optional -- separator.",
@@ -2378,6 +2382,7 @@ def handle_trace_run(args: argparse.Namespace) -> dict[str, Any]:
         source_roots=list(resolved.roots),
         max_events=args.max_events,
         max_seconds=args.max_seconds,
+        python=getattr(args, "python", None),
     )
 
 

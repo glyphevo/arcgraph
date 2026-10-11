@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-import threading
 import time
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,8 @@ from arcgraph.core.merge import EvidenceMergeEngine
 from arcgraph.core.metadata import current_commit, make_index_version
 from arcgraph.core.operation_lock import arcgraph_operation_lock
 from arcgraph.core.scanner import SourceRoot
+from arcgraph.core.project_environment import project_interpreter_path
+from arcgraph.interfaces.trace_recorder import _RuntimeTraceRecorder
 from arcgraph.core.schemas import SCHEMA_VERSION, IndexMetadata
 
 
@@ -343,8 +346,22 @@ def run_runtime_trace(
     source_roots: list[SourceRoot],
     max_events: int = 50_000,
     max_seconds: float = 120.0,
+    python: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run pytest under a lightweight project-code call tracer."""
+
+    interpreter = project_interpreter_path(repo_root.resolve(), python)
+    if interpreter is not None:
+        return _run_project_trace(
+            repo_root=repo_root.resolve(),
+            output_path=output_path,
+            pytest_args=pytest_args,
+            source_roots=source_roots,
+            max_events=max_events,
+            max_seconds=max_seconds,
+            interpreter=interpreter,
+            interpreter_source="explicit" if python else "project_environment",
+        )
 
     try:
         import pytest
@@ -397,6 +414,16 @@ def run_runtime_trace(
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "frontend_version": "ArcGraph-runtime-trace-v1",
         "duration_seconds": round(duration_seconds, 4),
+        "python_executable": sys.executable,
+        "python_prefix": sys.prefix,
+        "python_version": sys.version.split()[0],
+        "interpreter_source": "host_fallback",
+        "environment_diagnostics": [
+            {
+                "kind": "project_interpreter_missing",
+                "message": "No project interpreter found; used the ArcGraph host environment.",
+            }
+        ],
     }
     payload = {
         "trace_run": trace_run,
@@ -416,165 +443,71 @@ def run_runtime_trace(
         "events": len(recorder.events),
         "truncated_events": recorder.truncated_events,
         "duration_seconds": round(duration_seconds, 4),
+        "interpreter_source": "host_fallback",
+        "python_executable": sys.executable,
+        "environment_diagnostics": trace_run["environment_diagnostics"],
     }
 
 
-class _RuntimeTraceRecorder:
-    def __init__(
-        self,
-        *,
-        repo_root: Path,
-        source_roots: list[SourceRoot],
-        max_events: int,
-        max_seconds: float,
-    ) -> None:
-        self.repo_root = repo_root
-        self.source_roots = source_roots
-        self.max_events = max(1, max_events)
-        self.max_seconds = max_seconds
-        self.events: list[dict[str, Any]] = []
-        self.diagnostics: list[dict[str, Any]] = []
-        self.truncated_events = 0
-        self._current_test_id: str | None = None
-        self._current_test_symbol: str | None = None
-        self._started = 0.0
-
-    def trace_test_call(self, item: Any) -> Any:
-        self._current_test_id = str(item.nodeid)
-        self._current_test_symbol = self._test_symbol(item)
-        self._started = time.monotonic()
-        previous_sys_profile = sys.getprofile()
-        previous_thread_profile = threading.getprofile()
-        sys.setprofile(self._profile)
-        threading.setprofile(self._profile)
-        try:
-            yield
-        finally:
-            sys.setprofile(previous_sys_profile)
-            threading.setprofile(previous_thread_profile)
-            self._current_test_id = None
-            self._current_test_symbol = None
-
-    def _profile(self, frame: Any, event: str, arg: Any) -> None:
-        if event != "call":
-            return
-        if len(self.events) >= self.max_events:
-            self.truncated_events += 1
-            return
-        if time.monotonic() - self._started > self.max_seconds:
-            self.diagnostics.append(
-                {
-                    "kind": "wall_time_limit_exceeded",
-                    "message": f"Runtime trace exceeded max_seconds={self.max_seconds}.",
-                    "path": self._frame_path(frame),
-                }
-            )
-            sys.setprofile(None)
-            return
-        source = self._frame_symbol(frame.f_back) if frame.f_back is not None else None
-        target = self._frame_symbol(frame)
-        if target == self._current_test_symbol:
-            return
-        if source is None and target is not None:
-            source = self._current_test_symbol
-        if source is None or target is None or source == target:
-            return
-        path = self._frame_path(frame)
-        if path is None:
-            return
-        self.events.append(
-            {
-                "kind": "call",
-                "source": source,
-                "target": target,
-                "path": path,
-                "line": frame.f_lineno,
-                "test_id": self._current_test_id,
-            }
-        )
-
-    def _frame_symbol(self, frame: Any) -> str | None:
-        path = self._frame_path(frame)
-        if path is None:
-            return None
-        module = self._module_for_path(path)
-        if module is None:
-            return None
-        function_name = frame.f_code.co_name
-        qualname = getattr(frame.f_code, "co_qualname", function_name)
-        if function_name == "<module>":
-            return f"mod:{module}"
-        if function_name.startswith("<") or "<locals>" in qualname:
-            return None
-        if "." in qualname:
-            return f"method:{module}.{qualname}"
-        return f"fn:{module}.{function_name}"
-
-    def _frame_path(self, frame: Any) -> str | None:
-        filename = frame.f_code.co_filename
-        try:
-            resolved = Path(filename).resolve()
-            relative = resolved.relative_to(self.repo_root)
-        except (OSError, ValueError):
-            return None
-        if self._is_ignored_runtime_path(relative):
-            return None
-        return relative.as_posix()
-
-    def _test_symbol(self, item: Any) -> str | None:
-        test_obj = getattr(item, "obj", None)
-        item_path = getattr(item, "path", None) or getattr(item, "fspath", None)
-        if item_path is None:
-            return None
-        try:
-            relative_path = Path(item_path).resolve().relative_to(self.repo_root)
-        except (OSError, ValueError):
-            return None
-        module = self._module_for_path(relative_path.as_posix())
-        qualname = getattr(test_obj, "__qualname__", None)
-        if not isinstance(module, str) or not module:
-            return None
-        if not isinstance(qualname, str) or not qualname:
-            return None
-        if "<locals>" in qualname or qualname.startswith("<"):
-            return None
-        return (
-            f"method:{module}.{qualname}"
-            if "." in qualname
-            else f"fn:{module}.{qualname}"
-        )
-
-    def _module_for_path(self, path: str) -> str | None:
-        for source_root in self.source_roots:
-            root = Path(source_root.path)
-            try:
-                relative = Path(path).relative_to(root)
-            except ValueError:
-                continue
-            if relative.suffix != ".py":
-                return None
-            parts = list(relative.parts)
-            parts[-1] = relative.stem
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            if source_root.module_prefix:
-                parts.insert(0, source_root.module_prefix)
-            return ".".join(parts)
-        return None
-
-    @staticmethod
-    def _is_ignored_runtime_path(path: Path) -> bool:
-        ignored_parts = {
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            ".venv",
-            "__pycache__",
-            "node_modules",
-            "site-packages",
-            "venv",
+def _run_project_trace(
+    *,
+    repo_root,
+    output_path,
+    pytest_args,
+    source_roots,
+    max_events,
+    max_seconds,
+    interpreter,
+    interpreter_source,
+):
+    output = Path(output_path)
+    if not output.is_absolute():
+        output = repo_root / output
+    output = output.absolute()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="arcgraph-project-trace-") as temporary:
+        root = Path(temporary)
+        result_path = root / "result.json"
+        config = {
+            "repo_root": str(repo_root),
+            "output": str(output),
+            "result": str(result_path),
+            "pytest_args": pytest_args,
+            "max_events": max_events,
+            "max_seconds": max_seconds,
+            "source_roots": [
+                {"path": r.path, "module_prefix": r.module_prefix} for r in source_roots
+            ],
+            "commit_sha": current_commit(repo_root),
+            "interpreter_source": interpreter_source,
         }
-        return any(part in ignored_parts for part in path.parts)
+        config_path = root / "config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        env["PYTHONNOUSERSITE"] = "1"
+        runner = Path(__file__).with_name("trace_recorder.py")
+        result = subprocess.run(
+            [str(interpreter), "-B", str(runner), str(config_path)],
+            cwd=repo_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if result.returncode or not result_path.is_file():
+            raise RuntimeError(
+                "Project pytest tracer failed: "
+                + (result.stderr or result.stdout)[-2000:]
+            )
+        summary = json.loads(result_path.read_text(encoding="utf-8"))
+    return {
+        "schema_version": SCHEMA_VERSION,
+        **summary,
+        "path": str(output),
+        "interpreter_source": interpreter_source,
+        "python_executable": str(interpreter),
+    }
 
 
 def _purge_new_repo_modules(repo_root: Path, previous_modules: set[str]) -> None:

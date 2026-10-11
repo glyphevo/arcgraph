@@ -18,7 +18,10 @@ from typing import Any
 from arcgraph import SCHEMA_VERSION
 from arcgraph.change.errors import ChangeSafetyError
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
-from arcgraph.core.project_environment import ProjectEnvironment
+from arcgraph.core.project_environment import (
+    ProjectEnvironment,
+    project_interpreter_path,
+)
 from arcgraph.core.utils import replace_text_file
 
 # requires-python of ArcGraph itself, as pyproject.toml declares it;
@@ -79,6 +82,19 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
             }
         ]
     environment = ProjectEnvironment(repo_root)
+    interpreter = project_interpreter_path(repo_root)
+    checks.append(
+        {
+            "name": "project_trace_interpreter",
+            "status": "pass" if interpreter else "warn",
+            "message": (
+                f"Project trace interpreter: {interpreter}."
+                if interpreter
+                else "No project interpreter found; trace run falls back to the ArcGraph host."
+            ),
+            "fix": "Use the project .venv, tool.arcgraph.python_environment, or trace run --python.",
+        }
+    )
     checks.append(
         {
             "name": "project_dependency_environment",

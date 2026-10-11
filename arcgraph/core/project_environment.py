@@ -8,6 +8,7 @@ This is source evidence; editable installs and computed import paths stay unknow
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import tomllib
 from email.parser import Parser
@@ -42,6 +43,26 @@ def project_environment_path(
 
 def _name(value: str) -> str:
     return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def project_interpreter_path(repo_root: Path, explicit=None) -> Path | None:
+    """Locate, but never execute, a project interpreter using the shared path.
+
+    Preserve the venv executable path: resolving its symlink to the base Python
+    would run with the base environment instead of the project's packages.
+    """
+    if explicit is not None:
+        candidate = Path(explicit).absolute()
+        if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            raise RuntimeError(f"Project interpreter is unavailable: {candidate}")
+        return candidate
+    environment = project_environment_path(repo_root)
+    if environment is None or not (environment / "pyvenv.cfg").is_file():
+        return None
+    candidate = environment / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
+    return candidate if candidate.is_file() and os.access(candidate, os.X_OK) else None
 
 
 class ProjectEnvironment:
