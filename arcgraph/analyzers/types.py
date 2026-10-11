@@ -2765,9 +2765,71 @@ class _TypeContext:
             )
         if not self._return_decorator_cache[node.id]:
             return None
-        return self.callable_annotation(returns, node) or self.resolve_annotation(
+        callable_result = self.callable_annotation(returns, node)
+        if callable_result is not None:
+            return callable_result
+        concrete = self._declaration_return_type(node, returns)
+        if concrete is not None:
+            return concrete
+        return self.resolve_annotation(
             returns, use_imports=node.path == self.file_record.path
         )
+
+    def _declaration_return_type(self, node, returns):
+        """Simple annotations use the defining scope, including foreign factories.
+
+        A qualified import or a project definition is evidence. A caller's
+        short-name match is not. Cache both supported and unsupported shapes
+        once per prepared source generation, not once per consuming file.
+        """
+        contracts = self.callable_contracts
+        if not hasattr(contracts, "concrete_return_types"):
+            contracts.concrete_return_types = {}
+        cache = contracts.concrete_return_types
+        if node.id in cache:
+            return cache[node.id]
+        if returns.strip("\"'") in _NONE_NAMES:
+            resolved = self._resolve_named_type("None", use_imports=False)
+        else:
+            parsed = self.parse_expression(returns)
+            if not isinstance(parsed, (ast.Name, ast.Attribute, ast.Constant)):
+                cache[node.id] = None
+                return None
+            owners = contracts.scopes(node).chain(node)[1:]
+            declaration = owners[0] if owners else node
+            concrete = contracts.concrete(parsed, declaration)
+            if concrete:
+                target = (
+                    "builtin:" + concrete
+                    if concrete in _BUILTIN_TYPES
+                    else (
+                        exported_class(concrete, self.export_nodes)
+                        or (
+                            class_id(concrete)
+                            if class_id(concrete) in self.classes_by_id
+                            else "extsym:" + concrete
+                        )
+                    )
+                )
+                resolved = _ResolvedType(
+                    expression=returns,
+                    type_id=target,
+                    symbol_id=target,
+                    origin=concrete if concrete in _BUILTIN_TYPES else None,
+                    status="resolved",
+                )
+            else:
+                qualified = contracts.name(parsed, declaration)
+                resolved = (
+                    self.resolve_annotation(
+                        returns, use_imports=node.path == self.file_record.path
+                    )
+                    if qualified
+                    and qualified.startswith(("typing.", "typing_extensions."))
+                    else _ResolvedType(expression=returns)
+                )
+        cache[node.id] = resolved
+        return resolved
 
     def _annotation_decorators_preserve_return(self, node: Node) -> bool:
         """Small allowlist with identity evidence, not decorator suffix guesses.
