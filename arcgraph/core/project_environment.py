@@ -110,14 +110,11 @@ class ProjectEnvironment:
 
 
 def dependency_environment_changed(metadata: dict, repo_root: Path) -> bool:
-    """Absent provenance in legacy indexes is left to their ordinary rebuild."""
-    stored = (
-        metadata.get("extractor_metadata", {})
-        .get("python-v1-compat-shim", {})
-        .get("dependency_environment")
-    )
+    """Legacy Python indexes must replace the unbound host dependency evidence."""
+    python = metadata.get("extractor_metadata", {}).get("python-v1-compat-shim")
+    stored = python.get("dependency_environment") if isinstance(python, dict) else None
     if not isinstance(stored, dict):
-        return False
+        return isinstance(python, dict)
     if stored.get("path") is None:
         # A caller-supplied frontend without project context did not consult
         # an environment. Changing the indexer's root cannot change its inputs.

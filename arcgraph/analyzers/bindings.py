@@ -814,6 +814,9 @@ class _BindingScopeVisitor(ast.NodeVisitor):
         for span, names in self.flow.settling:
             if name in names and (span[0], span[1]) <= position <= (span[2], span[3]):
                 record["settles_with"] = span
+                region = self.flow.settling_regions.get(tuple(span))
+                if region is not None:
+                    record["settlement_region"] = region
                 break
 
     def _add_shadowing_diagnostic(

@@ -194,7 +194,17 @@ class _CallResolutionContext:
                 settled = True
                 break
             boundary = binding.get("settles_with")
-            if boundary and (line, column) > (boundary[2], boundary[3]):
+            region = binding.get("settlement_region")
+            if (
+                boundary
+                and (line, column) > (boundary[2], boundary[3])
+                and (
+                    not region
+                    or (region[0], region[1])
+                    <= (line, column)
+                    <= (region[2], region[3])
+                )
+            ):
                 span = boundary
             for guard in source.properties.get("receiver_narrowings", []):
                 if (

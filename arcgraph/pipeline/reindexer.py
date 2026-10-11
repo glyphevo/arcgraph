@@ -144,6 +144,21 @@ class ArcGraphReindexer:
             project_environment=Path(explicit) if explicit else None,
         )
         if dependency_environment_changed(store.metadata, self.repo_root):
+            # Refresh the source generation without losing the previously
+            # declared precision, coverage or runtime input paths.
+            inputs = {
+                "precision_scip": "scip_index_path",
+                "precision_pyright": "pyright_export_path",
+                "coverage": "coverage_path",
+                "runtime_trace": "runtime_trace_path",
+            }
+            for artifact in (store.metadata.get("evidence_manifest") or {}).get(
+                "artifacts", []
+            ):
+                field = inputs.get(artifact.get("kind"))
+                path = artifact.get("path")
+                if field and isinstance(path, str) and path:
+                    setattr(indexer, field, self.repo_root / path)
             metadata, build_dir = indexer._build_inner()
             return {
                 "schema_version": metadata.schema_version,

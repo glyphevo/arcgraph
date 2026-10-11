@@ -190,3 +190,43 @@ def test_external_method_requires_a_definition_in_the_project_dependency(
     (site / "httpx2/_client.py").write_text("class Client:pass\n", encoding="utf-8")
     targets = _targets(tmp_path, {"user": SOURCE}, v2=True)
     assert not any(t.endswith(".get") for t in targets)
+
+
+def test_legacy_python_index_requires_project_dependency_provenance(
+    tmp_path, monkeypatch
+):
+    _host(tmp_path, monkeypatch)
+    _environment(tmp_path)
+    _targets(tmp_path, {"user": SOURCE}, v2=True)
+    store = GraphStoreReader.from_current(tmp_path / "out")
+    store.metadata["extractor_metadata"]["python-v1-compat-shim"].pop(
+        "dependency_environment", None
+    )
+    assert compute_freshness(store).reason == "dependency_environment_changed"
+
+
+def test_environment_refresh_retains_an_explicit_coverage_input(tmp_path, monkeypatch):
+    _host(tmp_path, monkeypatch)
+    site = _environment(tmp_path)
+    _targets(tmp_path, {"user": SOURCE}, v2=True)
+    coverage = tmp_path / "custom-coverage.xml"
+    coverage.write_text(
+        '<coverage><packages><package name="pkg"><classes><class name="user" filename="pkg/user.py"><lines><line number="4" hits="1"/></lines></class></classes></package></packages></coverage>',
+        encoding="utf-8",
+    )
+    repo = tmp_path / "repo"
+    ArcGraphIndexer(
+        repo, tmp_path / "out", [SourceRoot(".")], coverage_path=coverage
+    ).build()
+    (site / "starlette-fixture.dist-info/METADATA").write_text(
+        "Name: starlette\nVersion: 2.0\n", encoding="utf-8"
+    )
+    result = ArcGraphReindexer(repo, tmp_path / "out").reindex_changed()
+    assert result["status"] == "reindexed"
+    synced = GraphStoreReader.from_current(tmp_path / "out")
+    ArcGraphIndexer(
+        repo, tmp_path / "full", [SourceRoot(".")], coverage_path=coverage
+    ).build()
+    full = GraphStoreReader.from_current(tmp_path / "full")
+    assert synced.metadata["coverage_metrics"] == full.metadata["coverage_metrics"]
+    assert any(n.kind == "coverage_run" for n in synced.read_nodes())

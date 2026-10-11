@@ -165,6 +165,11 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                 return None
         else:
             target = entry["type_id"]
+            if entry.get("normalized_builtin"):
+                ref = {
+                    "type_id": target,
+                    "type_expression": target.partition(":")[2],
+                }
             members = union_alternatives(ref)
             if members is not None:
                 matches = [
@@ -207,6 +212,15 @@ def guarded_value_type(properties, name, position, ref, bindings, *, mutated=Fal
                         ):
                             return unknown_union_result(name)
                     elif other_id != "builtin:None":
+                        if (
+                            other_id is None
+                            and runtime_target is not None
+                            and not matches[0].get("type_args")
+                        ):
+                            # A real builtin check proves its runtime class,
+                            # even if the value arrived through an unknown
+                            # write. It proves no generic arguments.
+                            continue
                         if other_id in entry.get("disjoint_types", []):
                             continue
                         if not matches[0].get("type_args") and other_id in {

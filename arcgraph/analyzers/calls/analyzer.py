@@ -915,7 +915,11 @@ class CallAnalyzer:
                 target=external_target,
                 strategy="external_receiver_type",
                 candidate_count=1,
-                confidence="heuristic",
+                confidence=(
+                    "heuristic"
+                    if receiver_type.get("heuristic_type_evidence")
+                    else "inferred"
+                ),
                 edge_kind="uses",
                 receiver_expression=receiver_expression,
                 receiver_type=self._type_id(receiver_type),
@@ -1355,7 +1359,11 @@ class CallAnalyzer:
                 context,
                 node,
                 imported=self._bound_by_import(source, node.func, context),
-                guessed=resolved.strategy in _NAME_GUESS_STRATEGIES,
+                guessed=(
+                    resolved.strategy in _NAME_GUESS_STRATEGIES
+                    or resolved.strategy == "external_receiver_type"
+                    and resolved.confidence == "heuristic"
+                ),
             )
 
         if isinstance(node, ast.BinOp):
@@ -1488,11 +1496,9 @@ class CallAnalyzer:
         if value is None:
             return None
         # An element keeps its container's evidence, as a subscript does.
-        element: dict[str, Any] = {**value, "strategy": "builtin_method_return"}
-        if receiver.get("typed_value_evidence"):
-            element["typed_value_evidence"] = True
-        if isinstance(receiver.get("type_ref_id"), str):
-            element["type_ref_id"] = receiver["type_ref_id"]
+        element = self._derived_type_ref(receiver, value, "builtin_method_return")
+        if not receiver.get("narrowed_receiver"):
+            element.pop("binding_id", None)
         return element
 
     @staticmethod
@@ -1511,6 +1517,8 @@ class CallAnalyzer:
             derived["narrowed_receiver"] = True
         if receiver.get("isinstance_receiver"):
             derived["isinstance_receiver"] = True
+        if receiver.get("heuristic_type_evidence"):
+            derived["heuristic_type_evidence"] = True
         for key in ("type_ref_id", "binding_id"):
             if isinstance(receiver.get(key), str):
                 derived[key] = receiver[key]
@@ -1550,12 +1558,15 @@ class CallAnalyzer:
             return None
         if not isinstance(item, dict):
             return None
-        propagated = dict(item)
-        propagated["strategy"] = "subscript_value"
+        propagated = CallAnalyzer._derived_type_ref(
+            receiver_type, item, "subscript_value"
+        )
+        if not receiver_type.get("narrowed_receiver"):
+            # Preserve the established nullable-container barrier. A bounded
+            # guard adds proof; merely taking an element does not.
+            propagated.pop("binding_id", None)
         if wrapped or receiver_type.get("typed_value_evidence"):
             propagated["typed_value_evidence"] = True
-        if isinstance(receiver_type.get("type_ref_id"), str):
-            propagated["type_ref_id"] = receiver_type["type_ref_id"]
         return propagated
 
     @staticmethod
@@ -1688,7 +1699,11 @@ class CallAnalyzer:
                     target=external_target,
                     strategy="external_receiver_type",
                     candidate_count=1,
-                    confidence="heuristic",
+                    confidence=(
+                        "heuristic"
+                        if receiver_type.get("heuristic_type_evidence")
+                        else "inferred"
+                    ),
                     edge_kind="uses",
                     receiver_expression=receiver_expression,
                     receiver_type=self._type_id(receiver_type),
@@ -2155,7 +2170,7 @@ class CallAnalyzer:
             # names, such as conn.execute; nothing else follows from a guess.
             external_return = self._external_return_type_ref(target)
             if external_return is not None:
-                return external_return
+                return {**external_return, "heuristic_type_evidence": guessed}
             if guessed:
                 return None
             qualname = target.qualname or target.id.removeprefix("extsym:")

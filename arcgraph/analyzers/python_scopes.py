@@ -323,6 +323,7 @@ class ModuleFlow:
     blocks: dict[int, list[int]] = field(default_factory=dict)
     loop_bodies: dict[int, list[int]] = field(default_factory=dict)
     settling: list[tuple[list[int], frozenset[str]]] = field(default_factory=list)
+    settling_regions: dict[tuple[int, ...], list[int]] = field(default_factory=dict)
 
 
 def module_flow(body: list[ast.stmt]) -> ModuleFlow:
@@ -342,10 +343,16 @@ def module_flow(body: list[ast.stmt]) -> ModuleFlow:
             if isinstance(stmt, (ast.For, ast.AsyncFor)) and stmt.body:
                 flow.loop_bodies[id(stmt)] = _block_span(stmt.body)
             blocks = _blocks_and_whether_they_may_not_run(stmt)
-            if span is None and blocks:
+            if blocks:
                 names = _bound_after(stmt, set()) or set()
                 if names:
-                    flow.settling.append((_span(stmt, stmt), frozenset(names)))
+                    boundary = _span(stmt, stmt)
+                    flow.settling.append((boundary, frozenset(names)))
+                    if span is not None:
+                        # Reaching a later point in this enclosing body proves
+                        # the inner statement ran, even if the outer body need
+                        # not run. Outside that body its proof does not hold.
+                        flow.settling_regions[tuple(boundary)] = span
             # A case's pattern and guard, and a handler's name, bind only
             # where its body runs.
             if isinstance(stmt, ast.Match):

@@ -27,7 +27,7 @@ from arcgraph.analyzers.external_types import (
     sliced_value_type,
 )
 from arcgraph.analyzers.imports import ImportAnalyzer
-from arcgraph.analyzers.python_scopes import breaks_out
+from arcgraph.analyzers.python_scopes import breaks_out, _bound_after_block
 from arcgraph.analyzers.type_unions import (
     contains_union,
     nullable_default_type,
@@ -710,12 +710,59 @@ class TypeRefAnalyzer:
                     module, tree, nodes, resolver=self._callable_contracts
                 )
         self._prepared_nodes = nodes
+        self._non_suppressing_managers = self._manager_exit_contracts(
+            nodes, annotation_trees or {}
+        )
         self._property_fields = _simple_property_fields(nodes, annotation_trees or {})
         self._nominal_guard_classes = _nominal_guard_classes(
             nodes, annotation_trees or {}, self._callable_contracts
         )
         self._return_decorator_cache: dict[str, bool] = {}
         return self._return_decorator_cache
+
+    @staticmethod
+    def _manager_exit_contracts(nodes, trees):
+        methods = {
+            (n.path, n.start_line): n
+            for n in nodes
+            if n.kind == "method" and n.name == "__exit__"
+        }
+        contracts = set()
+        for path, tree in trees.items():
+            for function in ast.walk(tree):
+                member = methods.get((path, getattr(function, "lineno", None)))
+                if not isinstance(function, ast.FunctionDef) or member is None:
+                    continue
+                if function.decorator_list:
+                    continue
+                pending = list(function.body)
+                safe = True
+                while pending:
+                    part = pending.pop()
+                    if isinstance(
+                        part,
+                        (
+                            ast.FunctionDef,
+                            ast.AsyncFunctionDef,
+                            ast.ClassDef,
+                            ast.Lambda,
+                        ),
+                    ):
+                        continue
+                    if isinstance(part, (ast.Yield, ast.YieldFrom)) or (
+                        isinstance(part, ast.Return)
+                        and part.value is not None
+                        and not (
+                            isinstance(part.value, ast.Constant)
+                            and (part.value.value is None or part.value.value is False)
+                        )
+                    ):
+                        safe = False
+                        break
+                    pending.extend(ast.iter_child_nodes(part))
+                if safe:
+                    contracts.add("class:" + member.qualname.rsplit(".", 1)[0])
+        return contracts
 
     def analyze(
         self,
@@ -796,6 +843,7 @@ class TypeRefAnalyzer:
                 test = stmt.test
                 guard_body = stmt.body
                 check = test
+                replacement = None
                 if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
                     check = next(
                         (
@@ -816,7 +864,19 @@ class TypeRefAnalyzer:
                         check = test.operand
                         guard_body = statements[index + 1 :]
                     else:
-                        check = None
+                        check = test.operand
+                        if (
+                            isinstance(stmt, ast.If)
+                            and not stmt.orelse
+                            and len(stmt.body) == 1
+                            and isinstance(stmt.body[0], ast.Assign)
+                            and len(stmt.body[0].targets) == 1
+                            and isinstance(stmt.body[0].targets[0], ast.Name)
+                        ):
+                            replacement = stmt.body[0]
+                            guard_body = statements[index + 1 :]
+                        else:
+                            check = None
                 entries = []
                 if (
                     isinstance(check, ast.Call)
@@ -846,6 +906,22 @@ class TypeRefAnalyzer:
                             )
                         )
                         value = {"type_id": type_id}
+                        if replacement is not None:
+                            literal_type = {
+                                ast.Dict: "dict",
+                                ast.List: "list",
+                                ast.Tuple: "tuple",
+                                ast.Set: "set",
+                            }.get(type(replacement.value))
+                            if (
+                                replacement.targets[0].id != name
+                                or literal_type != concrete
+                            ):
+                                continue
+                            # Both paths produce this builtin class: the
+                            # successful check or the literal replacement.
+                            # Neither path proves element type arguments.
+                            value["normalized_builtin"] = True
                         if (
                             type_id.startswith("class:")
                             and type_id not in context.nominal_guard_classes
@@ -931,7 +1007,11 @@ class TypeRefAnalyzer:
                                 > (test.end_lineno, test.end_col_offset)
                                 and _binds_name(loop, name)
                             ],
-                            "check": [test.end_lineno, test.end_col_offset],
+                            "check": (
+                                [stmt.end_lineno, stmt.end_col_offset]
+                                if replacement is not None
+                                else [test.end_lineno, test.end_col_offset]
+                            ),
                             "range": [
                                 body[0].lineno,
                                 body[0].col_offset,
@@ -1109,6 +1189,71 @@ class TypeRefAnalyzer:
                     self._int_or_none(binding.get("column")),
                     binding_id=binding_id if isinstance(binding_id, str) else None,
                 )
+        self._record_completed_with(node, context, local_types, analysis)
+
+    def _record_completed_with(self, node, context, local_types, analysis):
+        """Only a manager proven not to suppress can settle its body writes."""
+        function = context.functions.get(node.start_line)
+        if function is None:
+            return
+        contracts = getattr(self, "_non_suppressing_managers", None)
+        if contracts is None:
+            contracts = self._manager_exit_contracts(
+                context.nodes, {node.path: context.tree}
+            )
+        pending = [(function.body, None)]
+        while pending:
+            body, region = pending.pop()
+            for statement in body:
+                if isinstance(
+                    statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    continue
+                span = [
+                    statement.lineno,
+                    statement.col_offset,
+                    statement.end_lineno,
+                    statement.end_col_offset,
+                ]
+                pending.extend((block, span) for block in _statement_blocks(statement))
+                if not isinstance(statement, ast.With) or len(statement.items) != 1:
+                    continue
+                inputs = {}
+                for binding in sorted(
+                    node.properties.get("bindings", []),
+                    key=lambda b: (b.get("line", 0), b.get("column", 0)),
+                ):
+                    if (binding.get("line", 0), binding.get("column", 0)) >= (
+                        statement.lineno,
+                        statement.col_offset,
+                    ):
+                        continue
+                    name = binding.get("name")
+                    inputs[name] = analysis.type_refs_by_binding.get(
+                        binding.get("binding_id")
+                    ) or unknown_union_result(str(name))
+                context.value_position = (statement.lineno, statement.col_offset)
+                try:
+                    manager = context.resolve_scoped_value(
+                        statement.items[0].context_expr, node, inputs
+                    )
+                finally:
+                    context.value_position = None
+                if not manager or union_alternatives(manager) is not None:
+                    continue
+                if manager.get("type_id") not in contracts | {
+                    "extsym:sqlite3.Connection"
+                }:
+                    continue
+                bound = _bound_after_block(statement.body, set()) or set()
+                for binding in node.properties.get("bindings", []):
+                    point = (binding.get("line", 0), binding.get("column", 0))
+                    if binding.get("name") in bound and tuple(
+                        span[:2]
+                    ) < point <= tuple(span[2:]):
+                        binding["settles_with"] = span
+                        if region:
+                            binding["settlement_region"] = region
 
     def _binding_type_ref(
         self,
