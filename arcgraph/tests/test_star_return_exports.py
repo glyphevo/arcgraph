@@ -61,8 +61,9 @@ def test_imported_return_class_preserves_generic_field_elements(tmp_path):
     for name, content in {
         "__init__": "",
         "models": "class Item:\n    properties: dict[str, object]\nclass Graph:\n    nodes: list[Item]\n",
-        "provider": "from pkg.models import Graph\ndef load() -> Graph:\n    return Graph()\n",
-        "user": "from pkg.provider import load\ndef use():\n    return [n.properties.get('a') for n in load().nodes]\n",
+        "compat": "from pkg.models import Graph\n",
+        "provider": "from pkg.compat import Graph\nclass Provider:\n    def load(self) -> Graph:\n        return Graph()\n",
+        "user": "from pkg.provider import Provider\ndef use():\n    graph = Provider().load()\n    return [n.properties.get('a') for n in graph.nodes]\n",
     }.items():
         (package / (name + ".py")).write_text(content, encoding="utf-8")
     ArcGraphIndexer(tmp_path, tmp_path / "out", [SourceRoot(".")]).build()

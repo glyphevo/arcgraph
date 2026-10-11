@@ -1,0 +1,1072 @@
+{
+  "cases": {
+    "fn:pkg.d1_models.case_01": {
+      "stage": "D1",
+      "origin": "historical139#9",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "item.get('key')",
+      "provenance": {
+        "path": "arcgraph/analyzers/otel_trace.py",
+        "line": 291,
+        "column": 16,
+        "expression": "item.get('key')",
+        "target": "extsym:collections.abc.Mapping.get",
+        "source": "method:arcgraph.analyzers.otel_trace.OtelSpanConverter._attribute_value",
+        "context": "278:     def _attribute_value(self, value: Any) -> Any:\n279:         if not isinstance(value, dict):\n280:             return value\n281:         for key in (\"stringValue\", \"intValue\", \"doubleValue\", \"boolValue\"):\n282:             if key in value:\n283:                 return value[key]\n284:         if \"arrayValue\" in value and isinstance(value[\"arrayValue\"], dict):\n285:             return [\n286:                 self._attribute_value(item)\n287:                 for item in value[\"arrayValue\"].get(\"values\", [])\n288:             ]\n289:         if \"kvlistValue\" in value and isinstance(value[\"kvlistValue\"], dict):\n290:             return {\n291:                 item.get(\"key\"): self._attribute_value(item.get(\"value\"))\n292:                 for item in value[\"kvlistValue\"].get(\"values\", [])\n293:                 if isinstance(item, dict)\n294:             }\n295:         return None\n296: \n297:     def _diagnostic(self, kind: str, message: str) -> None:",
+        "assessment_reason": "推导式的if isinstance(item,dict)在源码上证明dict；当前guard范围记录未覆盖comprehension过滤器，循环元素来自未建模JSON结构。不是旧执行关系错误，仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_02": {
+      "stage": "D1",
+      "origin": "historical139#10",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "item.get('value')",
+      "provenance": {
+        "path": "arcgraph/analyzers/otel_trace.py",
+        "line": 291,
+        "column": 55,
+        "expression": "item.get('value')",
+        "target": "extsym:collections.abc.Mapping.get",
+        "source": "method:arcgraph.analyzers.otel_trace.OtelSpanConverter._attribute_value",
+        "context": "278:     def _attribute_value(self, value: Any) -> Any:\n279:         if not isinstance(value, dict):\n280:             return value\n281:         for key in (\"stringValue\", \"intValue\", \"doubleValue\", \"boolValue\"):\n282:             if key in value:\n283:                 return value[key]\n284:         if \"arrayValue\" in value and isinstance(value[\"arrayValue\"], dict):\n285:             return [\n286:                 self._attribute_value(item)\n287:                 for item in value[\"arrayValue\"].get(\"values\", [])\n288:             ]\n289:         if \"kvlistValue\" in value and isinstance(value[\"kvlistValue\"], dict):\n290:             return {\n291:                 item.get(\"key\"): self._attribute_value(item.get(\"value\"))\n292:                 for item in value[\"kvlistValue\"].get(\"values\", [])\n293:                 if isinstance(item, dict)\n294:             }\n295:         return None\n296: \n297:     def _diagnostic(self, kind: str, message: str) -> None:",
+        "assessment_reason": "推导式的if isinstance(item,dict)在源码上证明dict；当前guard范围记录未覆盖comprehension过滤器，循环元素来自未建模JSON结构。不是旧执行关系错误，仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_03": {
+      "stage": "D1",
+      "origin": "historical139#12",
+      "require": [
+        "extsym:builtins.str.endswith"
+      ],
+      "call": "descriptor.endswith('.py')",
+      "provenance": {
+        "path": "arcgraph/analyzers/precise_references.py",
+        "line": 745,
+        "column": 11,
+        "expression": "descriptor.endswith('.py')",
+        "target": "extsym:builtins.str.endswith",
+        "source": "method:arcgraph.analyzers.precise_references.PreciseReferenceAnalyzer._scip_symbol_qualname",
+        "context": "732:         if value.startswith(\"local \"):\n733:             return None\n734:         descriptor = value\n735:         parts = value.split(\" \", 4)\n736:         if len(parts) == 5:\n737:             descriptor = parts[4]\n738:         if not any(marker in descriptor for marker in (\"/\", \"#\", \":\", \"().\", \"`\")):\n739:             return None\n740:         descriptor = unquote(descriptor).replace(\"`\", \"\")\n741:         descriptor = re.sub(r\"\\([^)]*\\)\\.\", \".\", descriptor)\n742:         descriptor = descriptor.rstrip(\":\")\n743:         descriptor = descriptor.replace(\"/\", \".\").replace(\"#\", \".\")\n744:         descriptor = descriptor.replace(\".py.\", \".\")\n745:         if descriptor.endswith(\".py\"):\n746:             descriptor = descriptor[:-3]\n747:         descriptor = descriptor.rstrip(\".\")\n748:         descriptor = re.sub(r\"\\.+\", \".\", descriptor)\n749:         if not descriptor:\n750:             return None\n751:         return descriptor",
+        "assessment_reason": "descriptor经unquote、re.sub和str操作始终是文本；未建模unquote返回合同使条件join保留未知分支。正常路径调用成立，不能只选known str分支。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_04": {
+      "stage": "D1",
+      "origin": "historical139#13",
+      "require": [
+        "extsym:builtins.str.replace"
+      ],
+      "call": "descriptor.replace('.py.', '.')",
+      "provenance": {
+        "path": "arcgraph/analyzers/precise_references.py",
+        "line": 744,
+        "column": 21,
+        "expression": "descriptor.replace('.py.', '.')",
+        "target": "extsym:builtins.str.replace",
+        "source": "method:arcgraph.analyzers.precise_references.PreciseReferenceAnalyzer._scip_symbol_qualname",
+        "context": "731:     def _scip_symbol_qualname(value: str) -> str | None:\n732:         if value.startswith(\"local \"):\n733:             return None\n734:         descriptor = value\n735:         parts = value.split(\" \", 4)\n736:         if len(parts) == 5:\n737:             descriptor = parts[4]\n738:         if not any(marker in descriptor for marker in (\"/\", \"#\", \":\", \"().\", \"`\")):\n739:             return None\n740:         descriptor = unquote(descriptor).replace(\"`\", \"\")\n741:         descriptor = re.sub(r\"\\([^)]*\\)\\.\", \".\", descriptor)\n742:         descriptor = descriptor.rstrip(\":\")\n743:         descriptor = descriptor.replace(\"/\", \".\").replace(\"#\", \".\")\n744:         descriptor = descriptor.replace(\".py.\", \".\")\n745:         if descriptor.endswith(\".py\"):\n746:             descriptor = descriptor[:-3]\n747:         descriptor = descriptor.rstrip(\".\")\n748:         descriptor = re.sub(r\"\\.+\", \".\", descriptor)\n749:         if not descriptor:\n750:             return None",
+        "assessment_reason": "descriptor经unquote、re.sub和str操作始终是文本；未建模unquote返回合同使条件join保留未知分支。正常路径调用成立，不能只选known str分支。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_05": {
+      "stage": "D1",
+      "origin": "historical139#14",
+      "require": [
+        "extsym:builtins.str.replace"
+      ],
+      "call": "descriptor.replace('/', '.')",
+      "provenance": {
+        "path": "arcgraph/analyzers/precise_references.py",
+        "line": 743,
+        "column": 21,
+        "expression": "descriptor.replace('/', '.')",
+        "target": "extsym:builtins.str.replace",
+        "source": "method:arcgraph.analyzers.precise_references.PreciseReferenceAnalyzer._scip_symbol_qualname",
+        "context": "730:     @staticmethod\n731:     def _scip_symbol_qualname(value: str) -> str | None:\n732:         if value.startswith(\"local \"):\n733:             return None\n734:         descriptor = value\n735:         parts = value.split(\" \", 4)\n736:         if len(parts) == 5:\n737:             descriptor = parts[4]\n738:         if not any(marker in descriptor for marker in (\"/\", \"#\", \":\", \"().\", \"`\")):\n739:             return None\n740:         descriptor = unquote(descriptor).replace(\"`\", \"\")\n741:         descriptor = re.sub(r\"\\([^)]*\\)\\.\", \".\", descriptor)\n742:         descriptor = descriptor.rstrip(\":\")\n743:         descriptor = descriptor.replace(\"/\", \".\").replace(\"#\", \".\")\n744:         descriptor = descriptor.replace(\".py.\", \".\")\n745:         if descriptor.endswith(\".py\"):\n746:             descriptor = descriptor[:-3]\n747:         descriptor = descriptor.rstrip(\".\")\n748:         descriptor = re.sub(r\"\\.+\", \".\", descriptor)\n749:         if not descriptor:",
+        "assessment_reason": "descriptor经unquote、re.sub和str操作始终是文本；未建模unquote返回合同使条件join保留未知分支。正常路径调用成立，不能只选known str分支。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_06": {
+      "stage": "D1",
+      "origin": "historical139#15",
+      "require": [
+        "extsym:builtins.str.rstrip"
+      ],
+      "call": "descriptor.rstrip('.')",
+      "provenance": {
+        "path": "arcgraph/analyzers/precise_references.py",
+        "line": 747,
+        "column": 21,
+        "expression": "descriptor.rstrip('.')",
+        "target": "extsym:builtins.str.rstrip",
+        "source": "method:arcgraph.analyzers.precise_references.PreciseReferenceAnalyzer._scip_symbol_qualname",
+        "context": "734:         descriptor = value\n735:         parts = value.split(\" \", 4)\n736:         if len(parts) == 5:\n737:             descriptor = parts[4]\n738:         if not any(marker in descriptor for marker in (\"/\", \"#\", \":\", \"().\", \"`\")):\n739:             return None\n740:         descriptor = unquote(descriptor).replace(\"`\", \"\")\n741:         descriptor = re.sub(r\"\\([^)]*\\)\\.\", \".\", descriptor)\n742:         descriptor = descriptor.rstrip(\":\")\n743:         descriptor = descriptor.replace(\"/\", \".\").replace(\"#\", \".\")\n744:         descriptor = descriptor.replace(\".py.\", \".\")\n745:         if descriptor.endswith(\".py\"):\n746:             descriptor = descriptor[:-3]\n747:         descriptor = descriptor.rstrip(\".\")\n748:         descriptor = re.sub(r\"\\.+\", \".\", descriptor)\n749:         if not descriptor:\n750:             return None\n751:         return descriptor\n752: \n753:     @staticmethod",
+        "assessment_reason": "descriptor经unquote、re.sub和str操作始终是文本；未建模unquote返回合同使条件join保留未知分支。正常路径调用成立，不能只选known str分支。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_07": {
+      "stage": "D1",
+      "origin": "historical139#16",
+      "require": [
+        "extsym:builtins.str.replace"
+      ],
+      "call": "descriptor.replace('/', '.').replace('#', '.')",
+      "provenance": {
+        "path": "arcgraph/analyzers/precise_references.py",
+        "line": 743,
+        "column": 21,
+        "expression": "descriptor.replace('/', '.').replace('#', '.')",
+        "target": "extsym:builtins.str.replace",
+        "source": "method:arcgraph.analyzers.precise_references.PreciseReferenceAnalyzer._scip_symbol_qualname",
+        "context": "730:     @staticmethod\n731:     def _scip_symbol_qualname(value: str) -> str | None:\n732:         if value.startswith(\"local \"):\n733:             return None\n734:         descriptor = value\n735:         parts = value.split(\" \", 4)\n736:         if len(parts) == 5:\n737:             descriptor = parts[4]\n738:         if not any(marker in descriptor for marker in (\"/\", \"#\", \":\", \"().\", \"`\")):\n739:             return None\n740:         descriptor = unquote(descriptor).replace(\"`\", \"\")\n741:         descriptor = re.sub(r\"\\([^)]*\\)\\.\", \".\", descriptor)\n742:         descriptor = descriptor.rstrip(\":\")\n743:         descriptor = descriptor.replace(\"/\", \".\").replace(\"#\", \".\")\n744:         descriptor = descriptor.replace(\".py.\", \".\")\n745:         if descriptor.endswith(\".py\"):\n746:             descriptor = descriptor[:-3]\n747:         descriptor = descriptor.rstrip(\".\")\n748:         descriptor = re.sub(r\"\\.+\", \".\", descriptor)\n749:         if not descriptor:",
+        "assessment_reason": "descriptor经unquote、re.sub和str操作始终是文本；未建模unquote返回合同使条件join保留未知分支。正常路径调用成立，不能只选known str分支。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_08": {
+      "stage": "D1",
+      "origin": "historical139#17",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "ref.get('type_expression', type_id.partition(':')[2])",
+      "provenance": {
+        "path": "arcgraph/analyzers/type_unions.py",
+        "line": 223,
+        "column": 31,
+        "expression": "ref.get('type_expression', type_id.partition(':')[2])",
+        "target": "extsym:builtins.dict.get",
+        "source": "fn:arcgraph.analyzers.type_unions.guarded_value_type",
+        "context": "210:             elif ref.get(\"type_id\") != target:\n211:                 ref = {\n212:                     **ref,\n213:                     \"type_id\": target,\n214:                     \"origin\": None,\n215:                     \"type_args\": [],\n216:                     \"type_expression\": target.partition(\":\")[2],\n217:                 }\n218:         type_id = entry.get(\"type_id\", ref.get(\"type_id\"))\n219:         return {\n220:             **ref,\n221:             \"type_id\": type_id,\n222:             \"symbol_id\": type_id,\n223:             \"type_expression\": ref.get(\"type_expression\", type_id.partition(\":\")[2]),\n224:             \"strategy\": \"receiver_guard\",\n225:             \"isinstance_receiver\": not entry.get(\"exclude_none\", False),\n226:             \"narrowed_receiver\": True,\n227:             \"typed_value_evidence\": True,\n228:         }\n229:     return None",
+        "assessment_reason": "ref由Union记录/branch字典合成，函数约定返回dict；分支内dict展开与generic形状在当前表达式模型中仍有unknown，None退出不证明所有未知分支是dict。原dict调用正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_09": {
+      "stage": "D1",
+      "origin": "historical139#18",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "ref.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/type_unions.py",
+        "line": 210,
+        "column": 17,
+        "expression": "ref.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "fn:arcgraph.analyzers.type_unions.guarded_value_type",
+        "context": "197:                         k: v\n198:                         for k, v in ref.items()\n199:                         if k\n200:                         not in {\n201:                             \"type_id\",\n202:                             \"symbol_id\",\n203:                             \"origin\",\n204:                             \"type_args\",\n205:                             \"type_expression\",\n206:                         }\n207:                     },\n208:                     **matches[0],\n209:                 }\n210:             elif ref.get(\"type_id\") != target:\n211:                 ref = {\n212:                     **ref,\n213:                     \"type_id\": target,\n214:                     \"origin\": None,\n215:                     \"type_args\": [],\n216:                     \"type_expression\": target.partition(\":\")[2],",
+        "assessment_reason": "ref由Union记录/branch字典合成，函数约定返回dict；分支内dict展开与generic形状在当前表达式模型中仍有unknown，None退出不证明所有未知分支是dict。原dict调用正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_10": {
+      "stage": "D1",
+      "origin": "historical139#19",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "ref.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/type_unions.py",
+        "line": 218,
+        "column": 39,
+        "expression": "ref.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "fn:arcgraph.analyzers.type_unions.guarded_value_type",
+        "context": "205:                             \"type_expression\",\n206:                         }\n207:                     },\n208:                     **matches[0],\n209:                 }\n210:             elif ref.get(\"type_id\") != target:\n211:                 ref = {\n212:                     **ref,\n213:                     \"type_id\": target,\n214:                     \"origin\": None,\n215:                     \"type_args\": [],\n216:                     \"type_expression\": target.partition(\":\")[2],\n217:                 }\n218:         type_id = entry.get(\"type_id\", ref.get(\"type_id\"))\n219:         return {\n220:             **ref,\n221:             \"type_id\": type_id,\n222:             \"symbol_id\": type_id,\n223:             \"type_expression\": ref.get(\"type_expression\", type_id.partition(\":\")[2]),\n224:             \"strategy\": \"receiver_guard\",",
+        "assessment_reason": "ref由Union记录/branch字典合成，函数约定返回dict；分支内dict展开与generic形状在当前表达式模型中仍有unknown，None退出不证明所有未知分支是dict。原dict调用正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_11": {
+      "stage": "D1",
+      "origin": "historical139#20",
+      "require": [
+        "extsym:builtins.dict.items"
+      ],
+      "call": "ref.items()",
+      "provenance": {
+        "path": "arcgraph/analyzers/type_unions.py",
+        "line": 198,
+        "column": 36,
+        "expression": "ref.items()",
+        "target": "extsym:builtins.dict.items",
+        "source": "fn:arcgraph.analyzers.type_unions.guarded_value_type",
+        "context": "185:                             other\n186:                             and entry.get(\"nominal_type\")\n187:                             and not matches[0].get(\"type_args\")\n188:                         ):\n189:                             # A pre-existing standard class cannot derive from\n190:                             # this plain project class. No generic args to hide.\n191:                             continue\n192:                         # Unknown inheritance or instance-check hooks cannot\n193:                         # prove this alternative disjoint from the target.\n194:                         return unknown_union_result(name)\n195:                 ref = {\n196:                     **{\n197:                         k: v\n198:                         for k, v in ref.items()\n199:                         if k\n200:                         not in {\n201:                             \"type_id\",\n202:                             \"symbol_id\",\n203:                             \"origin\",\n204:                             \"type_args\",",
+        "assessment_reason": "ref由Union记录/branch字典合成，函数约定返回dict；分支内dict展开与generic形状在当前表达式模型中仍有unknown，None退出不证明所有未知分支是dict。原dict调用正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_12": {
+      "stage": "D1",
+      "origin": "historical139#21",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "item.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1318,
+        "column": 34,
+        "expression": "item.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._display_element_type",
+        "context": "1305: \n1306:         items: list[dict[str, Any]] = []\n1307:         for element in display.elts:\n1308:             if isinstance(element, ast.Starred):\n1309:                 container = context.resolve_scoped_value(\n1310:                     element.value, scope_node, local_types\n1311:                 )\n1312:                 item = self._iterated_type_source(container) if container else None\n1313:             else:\n1314:                 item = context.resolve_scoped_value(element, scope_node, local_types)\n1315:             if (\n1316:                 not item\n1317:                 or union_alternatives(item) is not None\n1318:                 or not isinstance(item.get(\"type_id\"), str)\n1319:             ):\n1320:                 return None\n1321:             items.append(item)\n1322:         if not items or len({type_identity(item) for item in items}) != 1:\n1323:             return None\n1324:         element = dict(items[0])",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_13": {
+      "stage": "D1",
+      "origin": "historical139#22",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('callable_result')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1245,
+        "column": 32,
+        "expression": "source.get('callable_result')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)\n1234:                     else None\n1235:                 ),\n1236:                 type_args=(\n1237:                     tuple(\n1238:                         item\n1239:                         for item in source.get(\"type_args\", [])\n1240:                         if isinstance(item, dict)\n1241:                     )\n1242:                     if isinstance(source.get(\"type_args\"), list)\n1243:                     else ()\n1244:                 ),\n1245:                 callable_result=source.get(\"callable_result\"),\n1246:                 status=(\n1247:                     \"resolved\"\n1248:                     if isinstance(source.get(\"type_id\"), str)\n1249:                     else \"unresolved\"\n1250:                 ),\n1251:             ),",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_14": {
+      "stage": "D1",
+      "origin": "historical139#23",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('origin')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1233,
+        "column": 34,
+        "expression": "source.get('origin')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)\n1229:                     else None\n1230:                 ),\n1231:                 origin=(\n1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)\n1234:                     else None\n1235:                 ),\n1236:                 type_args=(\n1237:                     tuple(\n1238:                         item\n1239:                         for item in source.get(\"type_args\", [])",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_15": {
+      "stage": "D1",
+      "origin": "historical139#24",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('origin')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1232,
+        "column": 20,
+        "expression": "source.get('origin')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1219:             resolved=_ResolvedType(\n1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)\n1229:                     else None\n1230:                 ),\n1231:                 origin=(\n1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)\n1234:                     else None\n1235:                 ),\n1236:                 type_args=(\n1237:                     tuple(\n1238:                         item",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_16": {
+      "stage": "D1",
+      "origin": "historical139#25",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('strategy')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1192,
+        "column": 19,
+        "expression": "source.get('strategy')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1179:                 # An element of a container of unknown element type has no\n1180:                 # known type; it is not the container, which typed the loop\n1181:                 # variable of for path in (*a, *b) as a tuple.\n1182:                 return None\n1183:             elif binding.get(\"kind\") == \"comprehension_target\":\n1184:                 untyped_comprehension = (\n1185:                     untyped_comprehension or union_alternatives(source) is None\n1186:                 )\n1187:                 source = unknown_union_result(value)\n1188: \n1189:         if binding.get(\"unpack_path\"):\n1190:             source = self._unpacked_type_source(source, binding[\"unpack_path\"], value)\n1191: \n1192:         strategy = source.get(\"strategy\")\n1193:         if binding.get(\"kind\") == \"with_as\":\n1194:             strategy = (\n1195:                 \"async_context_manager_enter\"\n1196:                 if binding.get(\"context_manager_kind\") == \"async\"\n1197:                 else \"context_manager_enter\"\n1198:             )",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_17": {
+      "stage": "D1",
+      "origin": "historical139#26",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('symbol_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1228,
+        "column": 34,
+        "expression": "source.get('symbol_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1215:             subject_kind=\"binding\",\n1216:             strategy=strategy,\n1217:             confidence=\"inferred\",\n1218:             source_expression=value,\n1219:             resolved=_ResolvedType(\n1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)\n1229:                     else None\n1230:                 ),\n1231:                 origin=(\n1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)\n1234:                     else None",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_18": {
+      "stage": "D1",
+      "origin": "historical139#27",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('symbol_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1227,
+        "column": 20,
+        "expression": "source.get('symbol_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1214:             name=name,\n1215:             subject_kind=\"binding\",\n1216:             strategy=strategy,\n1217:             confidence=\"inferred\",\n1218:             source_expression=value,\n1219:             resolved=_ResolvedType(\n1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)\n1229:                     else None\n1230:                 ),\n1231:                 origin=(\n1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_19": {
+      "stage": "D1",
+      "origin": "historical139#28",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_args')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1242,
+        "column": 34,
+        "expression": "source.get('type_args')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1229:                     else None\n1230:                 ),\n1231:                 origin=(\n1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)\n1234:                     else None\n1235:                 ),\n1236:                 type_args=(\n1237:                     tuple(\n1238:                         item\n1239:                         for item in source.get(\"type_args\", [])\n1240:                         if isinstance(item, dict)\n1241:                     )\n1242:                     if isinstance(source.get(\"type_args\"), list)\n1243:                     else ()\n1244:                 ),\n1245:                 callable_result=source.get(\"callable_result\"),\n1246:                 status=(\n1247:                     \"resolved\"\n1248:                     if isinstance(source.get(\"type_id\"), str)",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_20": {
+      "stage": "D1",
+      "origin": "historical139#29",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_args', [])",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1239,
+        "column": 36,
+        "expression": "source.get('type_args', [])",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)\n1229:                     else None\n1230:                 ),\n1231:                 origin=(\n1232:                     source.get(\"origin\")\n1233:                     if isinstance(source.get(\"origin\"), str)\n1234:                     else None\n1235:                 ),\n1236:                 type_args=(\n1237:                     tuple(\n1238:                         item\n1239:                         for item in source.get(\"type_args\", [])\n1240:                         if isinstance(item, dict)\n1241:                     )\n1242:                     if isinstance(source.get(\"type_args\"), list)\n1243:                     else ()\n1244:                 ),\n1245:                 callable_result=source.get(\"callable_result\"),",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_21": {
+      "stage": "D1",
+      "origin": "historical139#30",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_expression')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1220,
+        "column": 31,
+        "expression": "source.get('type_expression')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1207:         if not isinstance(strategy, str):\n1208:             strategy = \"assignment_propagation\"\n1209: \n1210:         result = self._type_ref_record(\n1211:             context,\n1212:             scope_id=node.id,\n1213:             scope_kind=node.kind,\n1214:             name=name,\n1215:             subject_kind=\"binding\",\n1216:             strategy=strategy,\n1217:             confidence=\"inferred\",\n1218:             source_expression=value,\n1219:             resolved=_ResolvedType(\n1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_22": {
+      "stage": "D1",
+      "origin": "historical139#31",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1223,
+        "column": 34,
+        "expression": "source.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1210:         result = self._type_ref_record(\n1211:             context,\n1212:             scope_id=node.id,\n1213:             scope_kind=node.kind,\n1214:             name=name,\n1215:             subject_kind=\"binding\",\n1216:             strategy=strategy,\n1217:             confidence=\"inferred\",\n1218:             source_expression=value,\n1219:             resolved=_ResolvedType(\n1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)\n1229:                     else None",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_23": {
+      "stage": "D1",
+      "origin": "historical139#32",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1222,
+        "column": 20,
+        "expression": "source.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1209: \n1210:         result = self._type_ref_record(\n1211:             context,\n1212:             scope_id=node.id,\n1213:             scope_kind=node.kind,\n1214:             name=name,\n1215:             subject_kind=\"binding\",\n1216:             strategy=strategy,\n1217:             confidence=\"inferred\",\n1218:             source_expression=value,\n1219:             resolved=_ResolvedType(\n1220:                 expression=str(source.get(\"type_expression\") or value),\n1221:                 type_id=(\n1222:                     source.get(\"type_id\")\n1223:                     if isinstance(source.get(\"type_id\"), str)\n1224:                     else None\n1225:                 ),\n1226:                 symbol_id=(\n1227:                     source.get(\"symbol_id\")\n1228:                     if isinstance(source.get(\"symbol_id\"), str)",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_24": {
+      "stage": "D1",
+      "origin": "historical139#33",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1248,
+        "column": 34,
+        "expression": "source.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1235:                 ),\n1236:                 type_args=(\n1237:                     tuple(\n1238:                         item\n1239:                         for item in source.get(\"type_args\", [])\n1240:                         if isinstance(item, dict)\n1241:                     )\n1242:                     if isinstance(source.get(\"type_args\"), list)\n1243:                     else ()\n1244:                 ),\n1245:                 callable_result=source.get(\"callable_result\"),\n1246:                 status=(\n1247:                     \"resolved\"\n1248:                     if isinstance(source.get(\"type_id\"), str)\n1249:                     else \"unresolved\"\n1250:                 ),\n1251:             ),\n1252:             line=self._int_or_none(binding.get(\"line\")),\n1253:             end_line=self._int_or_none(\n1254:                 binding.get(\"evidence\", {}).get(\"end_line\")",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_25": {
+      "stage": "D1",
+      "origin": "historical139#34",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_ref_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1266,
+        "column": 30,
+        "expression": "source.get('type_ref_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1253:             end_line=self._int_or_none(\n1254:                 binding.get(\"evidence\", {}).get(\"end_line\")\n1255:                 if isinstance(binding.get(\"evidence\"), dict)\n1256:                 else None\n1257:             ),\n1258:             column=self._int_or_none(binding.get(\"column\")),\n1259:             binding_id=(\n1260:                 binding.get(\"binding_id\")\n1261:                 if isinstance(binding.get(\"binding_id\"), str)\n1262:                 else None\n1263:             ),\n1264:             inferred_from_type_ref_id=(\n1265:                 source.get(\"type_ref_id\")\n1266:                 if isinstance(source.get(\"type_ref_id\"), str)\n1267:                 else None\n1268:             ),\n1269:         )\n1270: \n1271:         if untyped_comprehension:\n1272:             result[\"untyped_comprehension\"] = True",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_26": {
+      "stage": "D1",
+      "origin": "historical139#35",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('type_ref_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1265,
+        "column": 16,
+        "expression": "source.get('type_ref_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1252:             line=self._int_or_none(binding.get(\"line\")),\n1253:             end_line=self._int_or_none(\n1254:                 binding.get(\"evidence\", {}).get(\"end_line\")\n1255:                 if isinstance(binding.get(\"evidence\"), dict)\n1256:                 else None\n1257:             ),\n1258:             column=self._int_or_none(binding.get(\"column\")),\n1259:             binding_id=(\n1260:                 binding.get(\"binding_id\")\n1261:                 if isinstance(binding.get(\"binding_id\"), str)\n1262:                 else None\n1263:             ),\n1264:             inferred_from_type_ref_id=(\n1265:                 source.get(\"type_ref_id\")\n1266:                 if isinstance(source.get(\"type_ref_id\"), str)\n1267:                 else None\n1268:             ),\n1269:         )\n1270: \n1271:         if untyped_comprehension:",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_27": {
+      "stage": "D1",
+      "origin": "historical139#36",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "source.get('typed_value_evidence')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 1273,
+        "column": 41,
+        "expression": "source.get('typed_value_evidence')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types.TypeRefAnalyzer._propagated_type_ref",
+        "context": "1260:                 binding.get(\"binding_id\")\n1261:                 if isinstance(binding.get(\"binding_id\"), str)\n1262:                 else None\n1263:             ),\n1264:             inferred_from_type_ref_id=(\n1265:                 source.get(\"type_ref_id\")\n1266:                 if isinstance(source.get(\"type_ref_id\"), str)\n1267:                 else None\n1268:             ),\n1269:         )\n1270: \n1271:         if untyped_comprehension:\n1272:             result[\"untyped_comprehension\"] = True\n1273:         if binding.get(\"unpack_path\") or source.get(\"typed_value_evidence\"):\n1274:             result[\"typed_value_evidence\"] = True\n1275:         return result\n1276: \n1277:     @staticmethod\n1278:     def _unpacked_type_source(\n1279:         source: dict[str, Any], path: list[list[int]], expression: str",
+        "assessment_reason": "source由resolve_value/resolve_scoped_value及迭代/拆包helper多次替换；这些内部helper的dict|None返回契约正常路径支持dict操作，但未建模的Union/拆包结果仍贡献unknown。本批不忽略这些写入来恢复旧类型。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_28": {
+      "stage": "D1",
+      "origin": "historical139#39",
+      "require": [
+        "extsym:builtins.str.startswith"
+      ],
+      "call": "base.startswith('class:')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 3326,
+        "column": 11,
+        "expression": "base.startswith('class:')",
+        "target": "extsym:builtins.str.startswith",
+        "source": "method:arcgraph.analyzers.types._TypeContext._attribute_type_ref",
+        "context": "3313:             return None\n3314:         binding = found[1][0]\n3315:         if binding.get(\"kind\") == \"class_definition\" and len(parts) == 1:\n3316:             base = str(binding.get(\"target\", \"\"))\n3317:         elif binding.get(\"kind\") == \"import_alias\":\n3318:             name = \".\".join([str(import_binding_target(binding) or \"\"), *parts[1:]])\n3319:             base = exported_class(name, self.export_nodes) or (\n3320:                 \"class:\" + name\n3321:                 if \"class:\" + name in self.classes_by_id\n3322:                 else \"extsym:\" + name\n3323:             )\n3324:         else:\n3325:             return None\n3326:         if base.startswith(\"class:\"):\n3327:             return self._attribute_type_ref(base[6:], attr, (*seen, qualname))\n3328:         return attribute_value_type(base, attr)\n3329: \n3330:     @staticmethod\n3331:     def _is_property_method(node: Node) -> bool:\n3332:         decorators = node.properties.get(\"decorators\", [])",
+        "assessment_reason": "base来自import_binding_target/exported_class或class_binding target，源码协议为字符串；条件helper结果未证明字符串，不能挑选class分支。正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_29": {
+      "stage": "D1",
+      "origin": "historical139#40",
+      "require": [
+        "method:pkg.d1_models.Scopes.lookup"
+      ],
+      "call": "scopes.lookup(module, parts[0])",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 3311,
+        "column": 16,
+        "expression": "scopes.lookup(module, parts[0])",
+        "target": "method:arcgraph.analyzers.calls.lexical.LexicalScopes.lookup",
+        "source": "method:arcgraph.analyzers.types._TypeContext._attribute_type_ref",
+        "context": "3298:         if owner is None or any(\n3299:             b.get(\"name\") == attr for b in owner.properties.get(\"bindings\", [])\n3300:         ):\n3301:             return None\n3302:         bases = owner.properties.get(\"bases\", [])\n3303:         if len(bases) != 1:\n3304:             return None\n3305:         scopes = self._decorator_scopes.get(owner.path)\n3306:         if scopes is None:\n3307:             scopes = LexicalScopes(self._nodes_by_path.get(owner.path, []), {})\n3308:             self._decorator_scopes[owner.path] = scopes\n3309:         module = scopes.modules.get(owner.path)\n3310:         parts = str(bases[0]).split(\".\")\n3311:         found = scopes.lookup(module, parts[0]) if module else None\n3312:         if not found or not scopes.stable(*found):\n3313:             return None\n3314:         binding = found[1][0]\n3315:         if binding.get(\"kind\") == \"class_definition\" and len(parts) == 1:\n3316:             base = str(binding.get(\"target\", \"\"))\n3317:         elif binding.get(\"kind\") == \"import_alias\":",
+        "assessment_reason": "_decorator_scopes缓存的生产者在源码中写入LexicalScopes，但dict.get的无注解元素形状未知；if scopes is None后构造不能证明预存非None项同类。当前不做全局堆内容证明，原正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_30": {
+      "stage": "D1",
+      "origin": "historical139#41",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "scopes.modules.get(owner.path)",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 3309,
+        "column": 17,
+        "expression": "scopes.modules.get(owner.path)",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types._TypeContext._attribute_type_ref",
+        "context": "3296:             )\n3297:         owner = self.classes_by_id.get(\"class:\" + qualname)\n3298:         if owner is None or any(\n3299:             b.get(\"name\") == attr for b in owner.properties.get(\"bindings\", [])\n3300:         ):\n3301:             return None\n3302:         bases = owner.properties.get(\"bases\", [])\n3303:         if len(bases) != 1:\n3304:             return None\n3305:         scopes = self._decorator_scopes.get(owner.path)\n3306:         if scopes is None:\n3307:             scopes = LexicalScopes(self._nodes_by_path.get(owner.path, []), {})\n3308:             self._decorator_scopes[owner.path] = scopes\n3309:         module = scopes.modules.get(owner.path)\n3310:         parts = str(bases[0]).split(\".\")\n3311:         found = scopes.lookup(module, parts[0]) if module else None\n3312:         if not found or not scopes.stable(*found):\n3313:             return None\n3314:         binding = found[1][0]\n3315:         if binding.get(\"kind\") == \"class_definition\" and len(parts) == 1:",
+        "assessment_reason": "_decorator_scopes缓存的生产者在源码中写入LexicalScopes，但dict.get的无注解元素形状未知；if scopes is None后构造不能证明预存非None项同类。当前不做全局堆内容证明，原正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_31": {
+      "stage": "D1",
+      "origin": "historical139#42",
+      "require": [
+        "method:pkg.d1_models.Scopes.stable"
+      ],
+      "call": "scopes.stable(*found)",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 3312,
+        "column": 28,
+        "expression": "scopes.stable(*found)",
+        "target": "method:arcgraph.analyzers.calls.lexical.LexicalScopes.stable",
+        "source": "method:arcgraph.analyzers.types._TypeContext._attribute_type_ref",
+        "context": "3299:             b.get(\"name\") == attr for b in owner.properties.get(\"bindings\", [])\n3300:         ):\n3301:             return None\n3302:         bases = owner.properties.get(\"bases\", [])\n3303:         if len(bases) != 1:\n3304:             return None\n3305:         scopes = self._decorator_scopes.get(owner.path)\n3306:         if scopes is None:\n3307:             scopes = LexicalScopes(self._nodes_by_path.get(owner.path, []), {})\n3308:             self._decorator_scopes[owner.path] = scopes\n3309:         module = scopes.modules.get(owner.path)\n3310:         parts = str(bases[0]).split(\".\")\n3311:         found = scopes.lookup(module, parts[0]) if module else None\n3312:         if not found or not scopes.stable(*found):\n3313:             return None\n3314:         binding = found[1][0]\n3315:         if binding.get(\"kind\") == \"class_definition\" and len(parts) == 1:\n3316:             base = str(binding.get(\"target\", \"\"))\n3317:         elif binding.get(\"kind\") == \"import_alias\":\n3318:             name = \".\".join([str(import_binding_target(binding) or \"\"), *parts[1:]])",
+        "assessment_reason": "_decorator_scopes缓存的生产者在源码中写入LexicalScopes，但dict.get的无注解元素形状未知；if scopes is None后构造不能证明预存非None项同类。当前不做全局堆内容证明，原正常路径成立。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_32": {
+      "stage": "D1",
+      "origin": "historical139#47",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "invoked.get('callable_result')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 2817,
+        "column": 23,
+        "expression": "invoked.get('callable_result')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types._TypeContext._resolve_call",
+        "context": "2804:                 owner, bindings, _ = found\n2805:                 annotation = bindings[0].get(\"annotation\")\n2806:                 contract = (\n2807:                     self.callable_annotation(annotation, owner)\n2808:                     if isinstance(annotation, str)\n2809:                     else None\n2810:                 )\n2811:                 if contract is not None:\n2812:                     invoked = self._value_type_record(\n2813:                         contract,\n2814:                         strategy=\"callable_annotation\",\n2815:                         source_expression=node.func.id,\n2816:                     )\n2817:         if invoked and invoked.get(\"callable_result\"):\n2818:             if stable:\n2819:                 return self._value_type_record(\n2820:                     self._resolved_type_from_record(invoked[\"callable_result\"]),\n2821:                     strategy=\"callable_result_annotation\",\n2822:                     source_expression=self._unparse(node),\n2823:                 )",
+        "assessment_reason": "invoked/receiver取值来自多个resolve helper和class-reference分支；这些helper的正常返回协议是dict|None，但复杂返回/unknown覆盖未能全部证明dict。正常路径成立，保持未知分支不选择旧目标。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_33": {
+      "stage": "D1",
+      "origin": "historical139#48",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "receiver.get('isinstance_receiver')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 2963,
+        "column": 19,
+        "expression": "receiver.get('isinstance_receiver')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types._TypeContext._resolve_call",
+        "context": "2950:                             source_expression=self._unparse(node),\n2951:                         )\n2952:                 if isinstance(type_id, str) and type_id.startswith(\"class:\"):\n2953:                     class_qualname = type_id.removeprefix(\"class:\")\n2954:                     resolved = self.return_types_by_method.get(\n2955:                         (class_qualname, node.func.attr)\n2956:                     )\n2957:                     if resolved is not None:\n2958:                         return self._value_type_record(\n2959:                             resolved,\n2960:                             strategy=\"provider_return_annotation\",\n2961:                             source_expression=self._unparse(node),\n2962:                         )\n2963:                 if receiver.get(\"isinstance_receiver\"):\n2964:                     return unknown_union_result(self._unparse(node))\n2965:             return None\n2966: \n2967:         if func_name:\n2968:             resolved = self._function_return_type(func_name, scope_node)\n2969:             if resolved is not None:",
+        "assessment_reason": "invoked/receiver取值来自多个resolve helper和class-reference分支；这些helper的正常返回协议是dict|None，但复杂返回/unknown覆盖未能全部证明dict。正常路径成立，保持未知分支不选择旧目标。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_34": {
+      "stage": "D1",
+      "origin": "historical139#49",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "receiver.get('strategy')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 2933,
+        "column": 20,
+        "expression": "receiver.get('strategy')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types._TypeContext._resolve_call",
+        "context": "2920:                         strategy=\"builtin_method_return\",\n2921:                         source_expression=self._unparse(node),\n2922:                     )\n2923:                 external_return = self._external_method_return_type(\n2924:                     receiver, node.func.attr\n2925:                 )\n2926:                 if external_return is not None:\n2927:                     return self._value_type_record(\n2928:                         external_return,\n2929:                         strategy=\"external_method_return\",\n2930:                         source_expression=self._unparse(node),\n2931:                     )\n2932:                 if (\n2933:                     receiver.get(\"strategy\") == \"class_reference\"\n2934:                     and node.func.attr in _PYDANTIC_INSTANCE_CLASSMETHOD_STRATEGIES\n2935:                     and isinstance(type_id, str)\n2936:                     and type_id.startswith(\"class:\")\n2937:                 ):\n2938:                     class_qualname = type_id.removeprefix(\"class:\")\n2939:                     if self._is_pydantic_model_class(class_qualname):",
+        "assessment_reason": "invoked/receiver取值来自多个resolve helper和class-reference分支；这些helper的正常返回协议是dict|None，但复杂返回/unknown覆盖未能全部证明dict。正常路径成立，保持未知分支不选择旧目标。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_35": {
+      "stage": "D1",
+      "origin": "historical139#50",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "receiver.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 2906,
+        "column": 68,
+        "expression": "receiver.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types._TypeContext._resolve_call",
+        "context": "2893:             if (\n2894:                 receiver is None\n2895:                 and scope_node is not None\n2896:                 and isinstance(node.func.value, ast.Name)\n2897:                 and node.func.value.id in {\"self\", \"cls\"}\n2898:                 and self._own_receiver(scope_node, node.func.value.id)\n2899:             ):\n2900:                 # self.factory() returns what the class's factory is annotated\n2901:                 # to return, as the call analyzer reads the same call.\n2902:                 class_qualname = self._class_qualname_for_scope(scope_node)\n2903:                 if class_qualname:\n2904:                     receiver = {\"type_id\": f\"class:{class_qualname}\"}\n2905:             if receiver is not None:\n2906:                 if union_alternatives(receiver) is not None and not receiver.get(\n2907:                     \"type_id\"\n2908:                 ):\n2909:                     return unknown_union_result(self._unparse(node))\n2910:                 type_id = receiver.get(\"type_id\")\n2911:                 builtin_return = self._builtin_method_return_type(\n2912:                     node,",
+        "assessment_reason": "invoked/receiver取值来自多个resolve helper和class-reference分支；这些helper的正常返回协议是dict|None，但复杂返回/unknown覆盖未能全部证明dict。正常路径成立，保持未知分支不选择旧目标。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_36": {
+      "stage": "D1",
+      "origin": "historical139#51",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "receiver.get('type_id')",
+      "provenance": {
+        "path": "arcgraph/analyzers/types.py",
+        "line": 2910,
+        "column": 26,
+        "expression": "receiver.get('type_id')",
+        "target": "extsym:builtins.dict.get",
+        "source": "method:arcgraph.analyzers.types._TypeContext._resolve_call",
+        "context": "2897:                 and node.func.value.id in {\"self\", \"cls\"}\n2898:                 and self._own_receiver(scope_node, node.func.value.id)\n2899:             ):\n2900:                 # self.factory() returns what the class's factory is annotated\n2901:                 # to return, as the call analyzer reads the same call.\n2902:                 class_qualname = self._class_qualname_for_scope(scope_node)\n2903:                 if class_qualname:\n2904:                     receiver = {\"type_id\": f\"class:{class_qualname}\"}\n2905:             if receiver is not None:\n2906:                 if union_alternatives(receiver) is not None and not receiver.get(\n2907:                     \"type_id\"\n2908:                 ):\n2909:                     return unknown_union_result(self._unparse(node))\n2910:                 type_id = receiver.get(\"type_id\")\n2911:                 builtin_return = self._builtin_method_return_type(\n2912:                     node,\n2913:                     receiver,\n2914:                     local_types,\n2915:                     scope_node=scope_node,\n2916:                 )",
+        "assessment_reason": "invoked/receiver取值来自多个resolve helper和class-reference分支；这些helper的正常返回协议是dict|None，但复杂返回/unknown覆盖未能全部证明dict。正常路径成立，保持未知分支不选择旧目标。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_37": {
+      "stage": "D1",
+      "origin": "historical139#54",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "properties.get('callsites')",
+      "provenance": {
+        "path": "arcgraph/change/graph_delta.py",
+        "line": 1212,
+        "column": 12,
+        "expression": "properties.get('callsites')",
+        "target": "extsym:builtins.dict.get",
+        "source": "fn:arcgraph.change.graph_delta._edge_semantic_projection",
+        "context": "1199:     return {key: value for key, value in fact.items() if key not in dropped}\n1200: \n1201: \n1202: def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:\n1203:     resolution = edge.resolution.model_dump(mode=\"json\")\n1204:     properties = edge.properties\n1205:     callsite = properties.get(\"callsite\")\n1206:     if isinstance(callsite, dict) and \"stable_callsite_subject\" in callsite:\n1207:         resolution = {\n1208:             key: value for key, value in resolution.items() if key != \"callsite_id\"\n1209:         }\n1210:     if isinstance(callsite, dict):\n1211:         properties = {**properties, \"callsite\": _stable_callsite_fact(callsite)}\n1212:     facts = properties.get(\"callsites\")\n1213:     if isinstance(facts, list):\n1214:         # Every call a merged edge stands for, as its first call is above.\n1215:         properties = {\n1216:             **properties,\n1217:             \"callsites\": [_stable_callsite_fact(fact) for fact in facts],\n1218:         }",
+        "assessment_reason": "properties初始Edge.properties字典，条件中重写为带字典展开/稳定callsite的字典；复杂Dict构造结果被当前模型记unknown。源代码支持dict.get，仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_38": {
+      "stage": "D1",
+      "origin": "historical139#57",
+      "require": [
+        "extsym:builtins.dict.items"
+      ],
+      "call": "exclusion_counts.items()",
+      "provenance": {
+        "path": "arcgraph/core/force_graph_export.py",
+        "line": 217,
+        "column": 48,
+        "expression": "exclusion_counts.items()",
+        "target": "extsym:collections.Counter.items",
+        "source": "fn:arcgraph.core.force_graph_export.build_force_graph_export",
+        "context": "204:             ),\n205:             \"source_roots\": list(current.get(\"source_roots\", [])),\n206:         },\n207:         \"module_graph\": module_graph,\n208:         \"symbol_graph\": symbol_graph,\n209:         \"focus_index\": focus_index,\n210:         \"focus\": focus_state,\n211:         \"module_symbols\": module_symbols,\n212:         \"meta\": {\n213:             \"total_nodes\": len(module_graph[\"nodes\"]) + len(symbol_graph[\"nodes\"]),\n214:             \"total_edges\": len(module_graph[\"edges\"]) + len(symbol_graph[\"edges\"]),\n215:             \"raw_node_count\": len(all_nodes),\n216:             \"eligible_node_count\": len(eligible_nodes),\n217:             \"excluded_node_counts\": dict(sorted(exclusion_counts.items())),\n218:             \"filters\": _filters_payload(options, edge_kinds),\n219:             \"freshness\": freshness,\n220:             \"capabilities\": current.get(\"capabilities\", {}),\n221:             \"visual_contract\": visual_contract(),\n222:         },\n223:         \"warnings\": warnings,",
+        "assessment_reason": "_eligible_nodes返回tuple[dict,Counter[str]]，实现构造Counter；复杂tuple返回/拆包没有保留第二元素合同。源码支持items，定义实际继承dict.items；不能把旧Counter名当独立定义证据。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_39": {
+      "stage": "D1",
+      "origin": "historical139#60",
+      "require": [
+        "extsym:builtins.dict.setdefault"
+      ],
+      "call": "result.setdefault('summary', {})",
+      "provenance": {
+        "path": "arcgraph/core/precise_references.py",
+        "line": 104,
+        "column": 18,
+        "expression": "result.setdefault('summary', {})",
+        "target": "extsym:builtins.dict.setdefault",
+        "source": "fn:arcgraph.core.precise_references.typescript_language_service_references",
+        "context": "91:             \"reason\": \"TypeScript reference backend returned invalid JSON.\",\n92:         }\n93:     if not isinstance(result, dict):\n94:         result = {\"status\": \"unavailable\", \"reason\": \"Invalid backend payload.\"}\n95:     result.setdefault(\"backend\", \"typescript_language_service\")\n96:     if completed.returncode != 0 and result.get(\"status\") == \"available\":\n97:         result = {\n98:             \"status\": \"unavailable\",\n99:             \"backend\": \"typescript_language_service\",\n100:             \"reason\": completed.stderr.strip()\n101:             or f\"Node exited {completed.returncode}.\",\n102:         }\n103:     if out_of_root_files:\n104:         summary = result.setdefault(\"summary\", {})\n105:         if isinstance(summary, dict):\n106:             summary[\"out_of_root_files_excluded\"] = out_of_root_files\n107:     return result\n108: \n109: \n110: def _relative_path_inside_root(repo_root: Path, value: Any) -> str | None:",
+        "assessment_reason": "前面的isinstance normalizer保证result是dict；后续if returncode条件又构造包含stderr表达式的dict。此复杂字典覆盖未保持已知class，最终summary调用仍漏连。不是无保护JSON结果。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_40": {
+      "stage": "D1",
+      "origin": "historical139#79",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "edge.get('properties', {})",
+      "provenance": {
+        "path": "arcgraph/core/query_engine.py",
+        "line": 1750,
+        "column": 31,
+        "expression": "edge.get('properties', {})",
+        "target": "extsym:collections.abc.Mapping.get",
+        "source": "method:arcgraph.core.query_engine.QueryEngine.similar",
+        "context": "1737:             key=lambda value: (-self._edge_score(value[\"edge\"]), value[\"id\"]),\n1738:         )[:max_results]:\n1739:             node = nodes_by_id.get(item[\"id\"])\n1740:             if node is None:\n1741:                 continue\n1742:             edge = item[\"edge\"]\n1743:             similar.append(\n1744:                 {\n1745:                     \"node\": node,\n1746:                     \"edge\": (\n1747:                         edge if detail_level != \"summary\" else self._compact_edge(edge)\n1748:                     ),\n1749:                     \"score\": self._edge_score(edge),\n1750:                     \"reasons\": edge.get(\"properties\", {}).get(\"reasons\", []),\n1751:                     \"low_information\": information_by_id.get(item[\"id\"], {}).get(\n1752:                         \"low_information\", True\n1753:                     ),\n1754:                     \"information_quality\": information_by_id.get(item[\"id\"], {}),\n1755:                 }\n1756:             )",
+        "assessment_reason": "edge取自item[edge]的未注解嵌套字典；生产者_ edge payload协议正常路径提供dict，当前不证明动态字典键内容。正常路径成立，尚无可传播的元素证据。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_41": {
+      "stage": "D1",
+      "origin": "historical139#122",
+      "require": [
+        "method:pkg.d1_models.SafetyError.to_payload"
+      ],
+      "call": "exc.to_payload()",
+      "provenance": {
+        "path": "arcgraph/interfaces/cli_change.py",
+        "line": 444,
+        "column": 17,
+        "expression": "exc.to_payload()",
+        "target": "method:arcgraph.change.errors.ChangeSafetyError.to_payload",
+        "source": "fn:arcgraph.interfaces.cli_change._change_error_payload",
+        "context": "431:     for index, argument in enumerate(argv):\n432:         if argument == \"--repo-id\" and index + 1 < len(argv):\n433:             return argv[index + 1]\n434:         if argument.startswith(\"--repo-id=\"):\n435:             return argument.partition(\"=\")[2]\n436:     return \"unknown\"\n437: \n438: \n439: def _change_error_payload(\n440:     args: argparse.Namespace,\n441:     exc: Exception,\n442: ) -> dict[str, Any]:\n443:     if isinstance(exc, ChangeSafetyError):\n444:         detail = exc.to_payload()\n445:         error_code = detail[\"code\"]\n446:         message = detail[\"message\"]\n447:     elif isinstance(exc, ValueError):\n448:         error_code = \"CHANGE_CLI_INPUT_INVALID\"\n449:         message = str(exc)\n450:     else:",
+        "assessment_reason": "显式isinstance(ChangeSafetyError)支持目标方法；该项目类继承外部异常基类，现有nominal guard安全证明不能排定其外部继承/instancecheck。保留unknown，不扩大未知继承规则，正常路径仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_42": {
+      "stage": "D1",
+      "origin": "historical139#123",
+      "require": [
+        "method:pkg.d1_models.SafetyError.to_payload"
+      ],
+      "call": "exc.to_payload()",
+      "provenance": {
+        "path": "arcgraph/interfaces/cli_support.py",
+        "line": 167,
+        "column": 19,
+        "expression": "exc.to_payload()",
+        "target": "method:arcgraph.change.errors.ChangeSafetyError.to_payload",
+        "source": "fn:arcgraph.interfaces.cli_support._cli_error_code",
+        "context": "154: \n155: \n156: _CLI_ERROR_CODES: dict[type[BaseException], str] = {\n157:     FileNotFoundError: \"ARCGRAPH_INPUT_NOT_FOUND\",\n158:     SchemaVersionError: \"ARCGRAPH_SCHEMA_VERSION_UNSUPPORTED\",\n159:     RuntimeError: \"ARCGRAPH_RUNTIME_ERROR\",\n160:     TypeError: \"ARCGRAPH_INTERNAL_ERROR\",\n161:     ValueError: \"ARCGRAPH_INTERNAL_ERROR\",\n162: }\n163: \n164: \n165: def _cli_error_code(exc: BaseException) -> str:\n166:     if isinstance(exc, ChangeSafetyError):\n167:         return str(exc.to_payload()[\"code\"])\n168:     for exc_type, code in _CLI_ERROR_CODES.items():\n169:         if type(exc) is exc_type:\n170:             return code\n171:     for exc_type, code in _CLI_ERROR_CODES.items():\n172:         if isinstance(exc, exc_type):\n173:             return code",
+        "assessment_reason": "显式isinstance(ChangeSafetyError)支持目标方法；该项目类继承外部异常基类，现有nominal guard安全证明不能排定其外部继承/instancecheck。保留unknown，不扩大未知继承规则，正常路径仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_43": {
+      "stage": "D1",
+      "origin": "historical139#125",
+      "require": [
+        "method:pkg.d1_models.SafetyError.to_payload"
+      ],
+      "call": "exc.to_payload()",
+      "provenance": {
+        "path": "arcgraph/interfaces/mcp_tools.py",
+        "line": 962,
+        "column": 17,
+        "expression": "exc.to_payload()",
+        "target": "method:arcgraph.change.errors.ChangeSafetyError.to_payload",
+        "source": "fn:arcgraph.interfaces.mcp_tools._change_mcp_error",
+        "context": "949:         \"operation\": operation,\n950:         \"status\": \"blocked\" if blocked else \"available\",\n951:         \"read_only\": True,\n952:         \"source_snippets\": {\"requested\": False, \"enabled\": False},\n953:         \"data\": data,\n954:     }\n955:     if verdict is not None:\n956:         payload[\"verdict\"] = verdict\n957:     return payload\n958: \n959: \n960: def _change_mcp_error(repo_id: str, exc: Exception) -> dict[str, Any]:\n961:     if isinstance(exc, ChangeSafetyError):\n962:         detail = exc.to_payload()\n963:         error_code = detail[\"code\"]\n964:         message = detail[\"message\"]\n965:     elif isinstance(exc, ValueError):\n966:         error_code = \"CHANGE_MCP_INPUT_INVALID\"\n967:         message = str(exc)\n968:     else:",
+        "assessment_reason": "显式isinstance(ChangeSafetyError)支持目标方法；该项目类继承外部异常基类，现有nominal guard安全证明不能排定其外部继承/instancecheck。保留unknown，不扩大未知继承规则，正常路径仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_44": {
+      "stage": "D1",
+      "origin": "historical139#126",
+      "require": [
+        "extsym:pathlib.Path.resolve"
+      ],
+      "call": "output_dir.resolve()",
+      "provenance": {
+        "path": "arcgraph/interfaces/mcp_tools.py",
+        "line": 743,
+        "column": 23,
+        "expression": "output_dir.resolve()",
+        "target": "extsym:pathlib.Path.resolve",
+        "source": "method:arcgraph.interfaces.mcp_tools.ArcGraphMCPToolGroup._resolve_repo",
+        "context": "730:             )\n731: \n732:         output_dir = (\n733:             Path(configured.output_dir)\n734:             if configured.output_dir is not None\n735:             else Path(self.config.default_output_dir)\n736:         )\n737:         if not output_dir.is_absolute():\n738:             output_dir = root_path / output_dir\n739: \n740:         return _ResolvedRepo(\n741:             repo_id=repo_id,\n742:             root_path=root_path,\n743:             output_dir=output_dir.resolve(),\n744:             expose_source_snippets=configured.expose_source_snippets,\n745:             mode=configured.mode,\n746:         )\n747: \n748:     def _validate_path_targets(self, repo: _ResolvedRepo, targets: list[str]) -> None:\n749:         for target in targets:",
+        "assessment_reason": "两支都Path构造，之后可能root_path/output_dir路径运算；configured/default配置字段和二元结果的复杂ternary形状未完全建模。源码正常路径是Path，但当前保留unknown算子分支。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_45": {
+      "stage": "D1",
+      "origin": "historical139#127",
+      "require": [
+        "extsym:builtins.dict.setdefault"
+      ],
+      "call": "sanitized.setdefault('schema_version', SCHEMA_VERSION)",
+      "provenance": {
+        "path": "arcgraph/interfaces/mcp_tools.py",
+        "line": 783,
+        "column": 8,
+        "expression": "sanitized.setdefault('schema_version', SCHEMA_VERSION)",
+        "target": "extsym:builtins.dict.setdefault",
+        "source": "method:arcgraph.interfaces.mcp_tools.ArcGraphMCPToolGroup._sanitize_payload",
+        "context": "770:         target_scoped: bool = False,\n771:     ) -> dict[str, Any]:\n772:         allow_snippets = repo.expose_source_snippets and include_source\n773:         sanitized = payload if allow_snippets else strip_source_snippets(payload)\n774:         if target_scoped:\n775:             sanitized = apply_target_payload_contract(sanitized)\n776:         sanitized = _contain_paths(sanitized, repo.root_path)\n777:         if include_source and not repo.expose_source_snippets:\n778:             warnings = list(sanitized.get(\"warnings\", []))\n779:             warnings.append(\n780:                 \"Source snippets were requested but are disabled for this repository.\"\n781:             )\n782:             sanitized = {**sanitized, \"warnings\": unique_values(warnings)}\n783:         sanitized.setdefault(\"schema_version\", SCHEMA_VERSION)\n784:         sanitized.setdefault(\"status\", \"available\")\n785:         sanitized[\"repo_id\"] = repo_id\n786:         sanitized[\"read_only\"] = repo.mode == \"read_only\"\n787:         sanitized[\"source_snippets\"] = {\n788:             \"requested\": include_source,\n789:             \"enabled\": repo.expose_source_snippets,",
+        "assessment_reason": "sanitized经过strip/apply/_contain_paths返回Any与后续字典展开；实际输入payload为dict时递归容器函数仍返回dict，但当前无参数相关返回合同。正常路径成立，不能忽略Any覆盖。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_46": {
+      "stage": "D1",
+      "origin": "historical139#128",
+      "require": [
+        "extsym:builtins.dict.setdefault"
+      ],
+      "call": "sanitized.setdefault('status', 'available')",
+      "provenance": {
+        "path": "arcgraph/interfaces/mcp_tools.py",
+        "line": 784,
+        "column": 8,
+        "expression": "sanitized.setdefault('status', 'available')",
+        "target": "extsym:builtins.dict.setdefault",
+        "source": "method:arcgraph.interfaces.mcp_tools.ArcGraphMCPToolGroup._sanitize_payload",
+        "context": "771:     ) -> dict[str, Any]:\n772:         allow_snippets = repo.expose_source_snippets and include_source\n773:         sanitized = payload if allow_snippets else strip_source_snippets(payload)\n774:         if target_scoped:\n775:             sanitized = apply_target_payload_contract(sanitized)\n776:         sanitized = _contain_paths(sanitized, repo.root_path)\n777:         if include_source and not repo.expose_source_snippets:\n778:             warnings = list(sanitized.get(\"warnings\", []))\n779:             warnings.append(\n780:                 \"Source snippets were requested but are disabled for this repository.\"\n781:             )\n782:             sanitized = {**sanitized, \"warnings\": unique_values(warnings)}\n783:         sanitized.setdefault(\"schema_version\", SCHEMA_VERSION)\n784:         sanitized.setdefault(\"status\", \"available\")\n785:         sanitized[\"repo_id\"] = repo_id\n786:         sanitized[\"read_only\"] = repo.mode == \"read_only\"\n787:         sanitized[\"source_snippets\"] = {\n788:             \"requested\": include_source,\n789:             \"enabled\": repo.expose_source_snippets,\n790:         }",
+        "assessment_reason": "sanitized经过strip/apply/_contain_paths返回Any与后续字典展开；实际输入payload为dict时递归容器函数仍返回dict，但当前无参数相关返回合同。正常路径成立，不能忽略Any覆盖。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_47": {
+      "stage": "D1",
+      "origin": "historical139#138",
+      "require": [
+        "extsym:pydantic.BaseModel.model_dump"
+      ],
+      "call": "context.model_dump(mode='json')",
+      "provenance": {
+        "path": "arcgraph/providers/orchestrator.py",
+        "line": 410,
+        "column": 52,
+        "expression": "context.model_dump(mode='json')",
+        "target": "extsym:pydantic.BaseModel.model_dump",
+        "source": "method:arcgraph.providers.orchestrator.AgentContextOrchestrator._build_task_context",
+        "context": "397:             why=why,\n398:             similar_implementations=similar,\n399:             test_recommendations=test_recommendations,\n400:             git_diff=git_diff,\n401:             memories=memory_context.get(\"memories\", []),\n402:             recommended_next_reads=structural_context.get(\"recommended_next_reads\", []),\n403:             estimated_tokens=structural_context.get(\"estimated_tokens\", 0),\n404:             truncation=structural_context.get(\"truncation\", {}),\n405:             warnings=warnings,\n406:         )\n407:         context = AgentTaskContext.model_validate(\n408:             apply_target_payload_contract(context.model_dump(mode=\"python\"))\n409:         )\n410:         context.estimated_tokens = estimated_tokens(context.model_dump(mode=\"json\"))\n411:         return context\n412: \n413: \n414: def _bounded(value: int, *, default: int, upper: int) -> int:\n415:     if value <= 0:\n416:         return default",
+        "assessment_reason": "context由AgentTaskContext构造后被Pydantic model_validate重写；项目继承的classmethod工厂返回关联未建模，不能沿用旧构造类型。运行时model_validate按类返回实例，仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_48": {
+      "stage": "D1",
+      "origin": "historical139#139",
+      "require": [
+        "extsym:builtins.dict.get"
+      ],
+      "call": "resolutions.get('no_guess', set())",
+      "provenance": {
+        "path": "arcgraph/tests/test_guessed_targets.py",
+        "line": 154,
+        "column": 11,
+        "expression": "resolutions.get('no_guess', set())",
+        "target": "extsym:builtins.dict.get",
+        "source": "fn:arcgraph.tests.test_guessed_targets.test_guesses_name_methods_that_exist",
+        "context": "141:         # importlib.abc.Loader does not define exec_module, nor io.IOBase write.\n142:         \"extsym:importlib.abc.InspectLoader.exec_module\",\n143:         \"extsym:typing.IO.write\",\n144:         # add_parser is the subparsers action's, returning an update's or an\n145:         # insert's, successors a directed graph's.\n146:         \"extsym:argparse._SubParsersAction.add_parser\",\n147:         \"extsym:sqlalchemy.sql.dml.UpdateBase.returning\",\n148:         \"extsym:networkx.DiGraph.successors\",\n149:         # MetricWrapperBase is not exported at the top, and inc is Counter's.\n150:         \"extsym:prometheus_client.metrics.MetricWrapperBase.labels\",\n151:         \"extsym:prometheus_client.Counter.inc\",\n152:     }\n153:     # FastAPI has no route, and the circuit_breaker package no CircuitBreaker.\n154:     assert resolutions.get(\"no_guess\", set()) == set()\n155: \n156: \n157: def test_a_guess_outside_the_list_links_nothing():\n158:     from arcgraph.analyzers.calls import CallAnalyzer\n159: \n160:     analyzer = CallAnalyzer(enable_v2=True)",
+        "assessment_reason": "_resolutions_by_function的返回字典/嵌套set生成及临时with后的拆包路径缺少可传播元素形状，源码支持dict.get，仍漏连。",
+        "source_commit": "1da04bc6868c"
+      },
+      "model_note": "Minimal model of the recorded evidence; runtime defining owner is used rather than historical guessed owner."
+    },
+    "fn:pkg.d1_models.case_49": {
+      "stage": "D1",
+      "origin": "mealie-five-unrestored",
+      "require": [
+        "method:pkg.d1_models.Query.filter"
+      ],
+      "call": "q.filter(True)",
+      "provenance": {
+        "path": "mealie/repos/_recipe_suggestions.py",
+        "line": 357,
+        "expression": "q.filter(self.model.group_id == self.group_id)",
+        "result": [
+          {
+            "path": "mealie/repos/_recipe_suggestions.py",
+            "line": 357,
+            "expression": "q.filter(self.model.group_id == self.group_id)",
+            "target": "unresolved:9e769bfcb319d2c91724590cf496ad9dc8717232933672b6cff3875c845da87f",
+            "status": "unresolved",
+            "confidence": "unresolved",
+            "reason": "ambiguous_union_receiver"
+          }
+        ],
+        "reason": "SQLAlchemy Select及两个_filter_suggestions helper正常返回查询对象；generic qualified返回与可能的unknown覆盖仍未证明。不丢未知写入去选择最初q。",
+        "restored": false
+      },
+      "model_note": "Minimal typed model of the documented normal runtime path; original dynamic database/service values remain outside this model."
+    },
+    "fn:pkg.d1_models.case_50": {
+      "stage": "D1",
+      "origin": "mealie-five-unrestored",
+      "require": [
+        "extsym:builtins.str.strip"
+      ],
+      "call": "og_text.strip()",
+      "provenance": {
+        "path": "mealie/services/migrations/cookn.py",
+        "line": 245,
+        "expression": "og_text.strip()",
+        "result": [
+          {
+            "path": "mealie/services/migrations/cookn.py",
+            "line": 245,
+            "expression": "og_text.strip()",
+            "target": "unresolved:a7ade46e107c15fdf4e8cea9e4f8b0ed874c5d8f397a0798f093b19f401306b7",
+            "status": "unresolved",
+            "confidence": "unresolved",
+            "reason": "ambiguous_union_receiver"
+          }
+        ],
+        "reason": "og_text通过多次+=数据库字段/brand累积；当前字段值为Any，unknown __radd__可能改变结果类型。正常字符串数据运行时成立，但未证明所有写入为str。",
+        "restored": false
+      },
+      "model_note": "Minimal typed model of the documented normal runtime path; original dynamic database/service values remain outside this model."
+    },
+    "fn:pkg.d1_models.case_51": {
+      "stage": "D1",
+      "origin": "mealie-five-unrestored",
+      "require": [
+        "extsym:builtins.str.lower"
+      ],
+      "call": "response.text.lower()",
+      "provenance": {
+        "path": "mealie/services/openai/openai.py",
+        "line": 225,
+        "expression": "response.text.lower()",
+        "result": [
+          {
+            "path": "mealie/services/openai/openai.py",
+            "line": 225,
+            "expression": "response.text.lower()",
+            "target": "unresolved:6bb7ce2ce071bdd6c0cec9a770102d6b335ca93e2e7c8bd491cfb962a412522c",
+            "status": "unresolved",
+            "confidence": "unresolved",
+            "reason": "ambiguous_union_receiver"
+          }
+        ],
+        "reason": "response在get_temporary_path生成器contextmanager/try内赋值；本批只证明SQLite和显式源码__exit__不吞异常，不假设任意contextmanager完成赋值。正常路径成立，仍漏连。",
+        "restored": false
+      },
+      "model_note": "Minimal typed model of the documented normal runtime path; original dynamic database/service values remain outside this model."
+    },
+    "fn:pkg.d1_models.case_52": {
+      "stage": "D1",
+      "origin": "mealie-five-unrestored",
+      "require": [
+        "extsym:datetime.datetime.isoformat"
+      ],
+      "call": "dt.isoformat()",
+      "provenance": {
+        "path": "mealie/services/query_filter/keywords.py",
+        "line": 78,
+        "expression": "dt.isoformat()",
+        "result": [
+          {
+            "path": "mealie/services/query_filter/keywords.py",
+            "line": 78,
+            "expression": "dt.isoformat()",
+            "target": "unresolved:97704a80b08ef789be50ad2013b256f46d469369100c939e777ee22862c7b6b3",
+            "status": "unresolved",
+            "confidence": "unresolved",
+            "reason": "ambiguous_union_receiver"
+          }
+        ],
+        "reason": "now+dateutil.relativedelta的外部算子返回合同未建模；另一支now是datetime，不能选该支忽略未知加法结果。正常路径成立，仍漏连。",
+        "restored": false
+      },
+      "model_note": "Minimal typed model of the documented normal runtime path; original dynamic database/service values remain outside this model."
+    }
+  }
+}
