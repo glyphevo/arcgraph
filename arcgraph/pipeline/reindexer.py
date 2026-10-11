@@ -1431,7 +1431,7 @@ class ArcGraphReindexer:
             owner_paths = {
                 evidence.path
                 for edge in surviving_edges
-                if package_for(edge.target) in candidates
+                if edge.kind == "imports" and package_for(edge.target) in candidates
                 for evidence in edge.evidence
                 if evidence.path
             }
@@ -1452,6 +1452,7 @@ class ArcGraphReindexer:
                     context,
                     similarity_profiles=[],
                     defer_similarity_scoring=True,
+                    external_imports_only=True,
                 )
                 inventory = analyzer._external_symbol_nodes(
                     payload.get("external_symbols", [])

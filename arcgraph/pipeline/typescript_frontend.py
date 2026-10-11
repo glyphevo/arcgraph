@@ -267,6 +267,7 @@ class TypeScriptGraphAnalyzer:
         *,
         similarity_profiles: list[dict[str, Any]] | None = None,
         defer_similarity_scoring: bool = False,
+        external_imports_only: bool = False,
     ) -> dict[str, Any]:
         script_path = Path(__file__).with_name("typescript_extractor.mjs")
         request: dict[str, Any] = {
@@ -293,6 +294,8 @@ class TypeScriptGraphAnalyzer:
             "routes": self._route_context(call_context_nodes),
             "declarationContext": self._declaration_context(call_context_nodes),
         }
+        if external_imports_only:
+            request["externalImportsOnly"] = True
         if defer_similarity_scoring and any(context.values()):
             encoded_context = json.dumps(
                 context,

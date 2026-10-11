@@ -40,6 +40,10 @@ EDITS = {
         "frontend/consumer.ts",
         SOURCES["frontend/consumer.ts"].replace("idle, keep", "keep"),
     ),
+    "tsimport_shared": (
+        "frontend/consumer.ts",
+        SOURCES["frontend/consumer.ts"].replace("idle, keep", "keep"),
+    ),
     "tsexport": (
         "frontend/exports.ts",
         'export { run as renamed } from "./provider";\n',
@@ -81,6 +85,8 @@ def test_sync_matches_full_field_by_field(tmp_path: Path, kind: str) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     for name, source in SOURCES.items():
+        if kind == "tsimport_shared" and name == "frontend/shared.ts":
+            source = source.replace("{ keep }", "{ idle, keep }")
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source, encoding="utf-8")

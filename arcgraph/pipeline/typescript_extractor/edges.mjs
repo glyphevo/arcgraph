@@ -2667,6 +2667,37 @@ function collectCommonJsExportEdges(ctx, node) {
   );
 }
 
+// Unused named imports produce symbols without symbol-target edges. Inventory
+// checks need only import syntax; do not construct a checker or walk call bodies.
+export function collectExternalImports(ts, files, parsed, resolveImport) {
+  const state = createEdgeState([]);
+  for (const file of files) {
+    const sourceFile = parsed.get(file.path);
+    if (!sourceFile || sourceFile.error) {
+      throw new Error(`Unable to read import inventory: ${file.path}`);
+    }
+    const ctx = {
+      ts,
+      file,
+      sourceFile,
+      moduleId: `mod:${file.module}`,
+      state,
+      resolveImport,
+      declarations: { localSymbols: new Map() },
+      importBindings: new Map(),
+      importOrigins: new Map(),
+      importOriginSymbols: new Map(),
+      compiler: null,
+    };
+    collectImports(ctx);
+    collectCommonJsImports(ctx);
+  }
+  return {
+    external_packages: [...state.externalPackages].sort(),
+    external_symbols: [...state.externalSymbols].sort(),
+  };
+}
+
 export function collectEdges(
   ts,
   files,

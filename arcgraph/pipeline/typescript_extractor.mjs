@@ -8,7 +8,7 @@ import {
   loadTypeScriptConfig,
 } from './typescript_extractor/module_resolution.mjs';
 import { collectDeclarations } from './typescript_extractor/declarations.mjs';
-import { collectEdges } from './typescript_extractor/edges.mjs';
+import { collectEdges, collectExternalImports } from './typescript_extractor/edges.mjs';
 import { collectSimilarity } from './typescript_extractor/similarity.mjs';
 import {
   declarationLineKey,
@@ -115,6 +115,16 @@ async function main() {
   const ts = loadTypeScript(input.repoRoot);
   const files = input.files || [];
   const parsed = parseSources(ts, files);
+  if (input.externalImportsOnly === true) {
+    const resolver = buildFileResolver(ts, input.repoRoot, [
+      ...files,
+      ...context.moduleContext,
+    ]);
+    process.stdout.write(JSON.stringify(
+      collectExternalImports(ts, files, parsed, resolver.resolveImport)
+    ));
+    return;
+  }
   const compilerContext = createTypeScriptProgram(ts, input.repoRoot, files);
   const resolver = buildFileResolver(ts, input.repoRoot, [
     ...files,
