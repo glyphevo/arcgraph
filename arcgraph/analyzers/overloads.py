@@ -9,7 +9,7 @@ def overload_declarations(tree: ast.Module) -> tuple[set[int], set[int]]:
     """Return proven declarations and those replaced by a direct implementation.
 
     Imports and intervening writes are read in execution order. Conditional
-    imports, star imports, alias chains and decorator factories provide no
+    imports of the decorator, star imports, alias chains and factories provide no
     proof. A family is collapsed only inside the same unconditional body.
     Cache by AST identity so symbol and binding passes share the decision.
     """
@@ -90,8 +90,20 @@ def overload_declarations(tree: ast.Module) -> tuple[set[int], set[int]]:
                         aliases.pop(part.name, None)
                         pending.pop(part.name, None)
                     elif isinstance(part, (ast.Import, ast.ImportFrom)):
-                        aliases.clear()
-                        pending.clear()
+                        if any(item.name == "*" for item in part.names):
+                            aliases.clear()
+                            pending.clear()
+                        else:
+                            # A branch can replace its own imported names, not
+                            # an unrelated unconditional decorator identity.
+                            for item in part.names:
+                                name = item.asname or (
+                                    item.name.split(".")[0]
+                                    if isinstance(part, ast.Import)
+                                    else item.name
+                                )
+                                aliases.pop(name, None)
+                                pending.pop(name, None)
 
     visit(tree.body, {})
     tree._arcgraph_overloads = (declarations, replaced)

@@ -110,3 +110,46 @@ def test_real_overload_implementation_matches_python_runtime():
     exec(compile(ast.parse(source), "probe", "exec"), namespace)
     assert namespace["ov"](1) == 1
     assert namespace["ov"]("text") == "text"
+
+
+@pytest.mark.parametrize(
+    "imported",
+    [
+        "from typing import TypeIs",
+        "import os as support",
+        "from unknown import Name as support",
+    ],
+)
+def test_unrelated_conditional_import_keeps_overload_identity(imported):
+    source = (
+        "from typing import overload\nif flag:\n    "
+        + imported
+        + "\nelse:\n    from typing_extensions import TypeIs\n"
+        "@overload\ndef ov(x: int): ...\n@overload\ndef ov(x: str): ...\n"
+        "def ov(x): return x\ndef use(): return ov(1)\n"
+    )
+    nodes = _analyzed_nodes(source)
+    implementations = [n for n in nodes if n.id == "fn:pkg.calls.ov"]
+    assert len(implementations) == 1
+    assert implementations[0].start_line == 10
+    assert implementations[0].properties["decorators"] == []
+    assert any(
+        e.target == "fn:pkg.calls.ov"
+        for e in CallAnalyzer(enable_v2=True).analyze(nodes).edges
+    )
+
+
+@pytest.mark.parametrize(
+    "shadow",
+    [
+        "from elsewhere import overload",
+        "import elsewhere as overload",
+        "from elsewhere import *",
+    ],
+)
+def test_conditional_import_can_shadow_overload(shadow):
+    source = (
+        "from typing import overload\nif flag:\n    " + shadow + "\n"
+        "@overload\ndef ov(x: int): ...\ndef ov(x): return x\n"
+    )
+    assert len([n for n in _analyzed_nodes(source) if n.id == "fn:pkg.calls.ov"]) == 2
