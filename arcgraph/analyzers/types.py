@@ -106,6 +106,70 @@ def _statement_blocks(stmt: ast.stmt) -> list[list[ast.stmt]]:
     return [block for block in blocks if block]
 
 
+def _expression_guard_blocks(function):
+    """Use statement guard rules for the actual branch of an expression.
+
+    A preceding AND-true / OR-false operand or IfExp branch supplies a guard.
+    Nested function/class/comprehension scopes are evaluated separately.
+    """
+    pending = list(function.body)
+    result = []
+    while pending:
+        node = pending.pop()
+        if isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.Lambda,
+                ast.ListComp,
+                ast.SetComp,
+                ast.DictComp,
+                ast.GeneratorExp,
+            ),
+        ):
+            continue
+        pairs = []
+        if isinstance(node, ast.BoolOp):
+            for index in range(1, len(node.values)):
+                previous = node.values[:index]
+                test = previous[0]
+                if len(previous) > 1:
+                    test = ast.copy_location(
+                        ast.BoolOp(op=node.op, values=previous), previous[0]
+                    )
+                    test.end_lineno = previous[-1].end_lineno
+                    test.end_col_offset = previous[-1].end_col_offset
+                if isinstance(node.op, ast.Or):
+                    test = (
+                        test.operand
+                        if isinstance(test, ast.UnaryOp)
+                        and isinstance(test.op, ast.Not)
+                        else ast.copy_location(
+                            ast.UnaryOp(op=ast.Not(), operand=test), test
+                        )
+                    )
+                pairs.append((test, node.values[index]))
+        elif isinstance(node, ast.IfExp):
+            pairs.append((node.test, node.body))
+            negative = (
+                node.test.operand
+                if isinstance(node.test, ast.UnaryOp)
+                and isinstance(node.test.op, ast.Not)
+                else ast.copy_location(
+                    ast.UnaryOp(op=ast.Not(), operand=node.test), node.test
+                )
+            )
+            pairs.append((negative, node.orelse))
+        for test, branch in pairs:
+            body = ast.copy_location(ast.Expr(value=branch), branch)
+            guard = ast.copy_location(ast.If(test=test, body=[body], orelse=[]), node)
+            result.append([guard])
+        pending.extend(ast.iter_child_nodes(node))
+    return result
+
+
 def _binds_name(stmt: ast.AST, name: str) -> bool:
     for node in ast.walk(stmt):
         if isinstance(node, ast.Name) and node.id == name:
@@ -829,7 +893,7 @@ class TypeRefAnalyzer:
             return
         narrowings = []
         loops = None
-        pending = [function.body]
+        pending = [function.body, *_expression_guard_blocks(function)]
         while pending:
             statements = pending.pop()
             for index, stmt in enumerate(statements):
@@ -2505,6 +2569,38 @@ class _TypeContext:
         arbitrary factory calls need their own evidence rules.
         """
         scope.properties["conditional_type_input"] = True
+        check = expression.test
+        literal = {
+            ast.Dict: "dict",
+            ast.List: "list",
+            ast.Set: "set",
+            ast.Tuple: "tuple",
+        }.get(type(expression.orelse))
+        if (
+            isinstance(check, ast.Call)
+            and isinstance(check.func, ast.Name)
+            and check.func.id == "isinstance"
+            and len(check.args) == 2
+            and not check.keywords
+            and isinstance(check.args[0], ast.Name)
+            and isinstance(expression.body, ast.Name)
+            and expression.body.id == check.args[0].id
+            and literal
+            and self.callable_contracts.concrete(check.args[1], scope) == literal
+            and self.lexical.lookup(scope, "isinstance") is None
+            and (scope.path, "isinstance") not in self.lexical.global_writes
+            and not any(
+                "*" in self.lexical.bindings.get(owner.id, {})
+                for owner in self.lexical.chain(scope)
+            )
+        ):
+            return {
+                "type_id": "builtin:" + literal,
+                "type_expression": literal,
+                "strategy": "guarded_literal_normalization",
+                "typed_value_evidence": True,
+                "erased_container_arguments": True,
+            }
         if all(
             isinstance(arm, (ast.Constant, ast.JoinedStr))
             for arm in (expression.body, expression.orelse)
@@ -2809,7 +2905,7 @@ class _TypeContext:
                 return None
             owners = contracts.scopes(node).chain(node)[1:]
             declaration = owners[0] if owners else node
-            concrete = contracts.concrete(parsed, declaration)
+            concrete = contracts.concrete_return(parsed, node, declaration)
             if concrete:
                 target = (
                     "builtin:" + concrete

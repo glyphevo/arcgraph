@@ -12,6 +12,7 @@ from typing import Any
 from arcgraph.analyzers.calls.lexical import LexicalScopes, import_binding_target
 from arcgraph.core.schemas import Node
 from arcgraph.analyzers.python_scopes import yields
+from arcgraph.analyzers.exports import runtime_exported_class
 
 _CALLABLES = {"typing.Callable", "collections.abc.Callable"}
 _PROTOCOLS = {"typing.Protocol", "typing_extensions.Protocol"}
@@ -131,6 +132,17 @@ class CallableContracts:
         self.module_names = module_names or set()
         self._scopes: dict[str | None, LexicalScopes] = {}
         self._results: dict[tuple[str | None, str, str], str | None] = {}
+        self.runtime_class_cache = {}
+
+    def exported_class(self, qualified):
+        """Reuse the runtime export policy once per qualified class identity."""
+        if qualified not in self.runtime_class_cache:
+            if not hasattr(self, "runtime_exports"):
+                self.runtime_exports = LexicalScopes(self.nodes, {})
+            self.runtime_class_cache[qualified] = runtime_exported_class(
+                qualified, self.runtime_exports
+            )
+        return self.runtime_class_cache[qualified]
 
     def scopes(self, source: Node) -> LexicalScopes:
         if source.path not in self._scopes:
@@ -147,6 +159,14 @@ class CallableContracts:
         scopes = self.scopes(source)
         found = scopes.lookup(source, root)
         if not found:
+            module = self.modules.get(source.path)
+            if module and any(
+                b.get("kind") == "star_import"
+                for b in module.properties.get("bindings", [])
+            ):
+                target = self.exported_class(str(module.qualname) + "." + root)
+                if target:
+                    return ".".join([target.removeprefix("class:"), *tail])
             return root if not tail and root in _BUILTINS else None
         owner, bindings, _ = found
         if (owner.path, root) in scopes.global_writes:
@@ -243,6 +263,34 @@ class CallableContracts:
             )
         return self.result(contract["expression"], module, seen | {qualified})
 
+    def concrete_return(self, expr, source, declaration):
+        """A typing-only import needs the same stable import inside the factory."""
+        result = self.concrete(expr, declaration)
+        if result or not isinstance(expr, ast.Name):
+            return result
+        scopes = self.scopes(source)
+        declared = scopes.lookup(declaration, expr.id)
+        runtime = scopes.lookup(source, expr.id)
+        if (
+            not declared
+            or not runtime
+            or runtime[0].id != source.id
+            or len(declared[1]) != 1
+            or not scopes.stable(*runtime)
+        ):
+            return None
+        before, after = declared[1][0], runtime[1][0]
+        if not (
+            before.get("static_only")
+            and before.get("kind") == "type_checking_import_alias"
+            and after.get("kind") == "import_alias"
+        ):
+            return None
+        target = import_binding_target(before)
+        if target != import_binding_target(after):
+            return None
+        return self.concrete(expr, source)
+
     def generic(self, annotation: ast.AST, source: Node) -> bool:
         for part in ast.walk(annotation):
             if not isinstance(part, ast.Name):
@@ -281,9 +329,6 @@ class CallableContracts:
             module_name, member = name.rsplit(".", 1)
             module = self.by_name.get(module_name)
             if module is not None:
-                bindings = (
-                    self.scopes(module).bindings.get(module.id, {}).get(member, [])
-                )
-                if len(bindings) != 1 or bindings[0].get("kind") != "class_definition":
-                    return None
+                target = self.exported_class(name)
+                return target.removeprefix("class:") if target else None
         return name

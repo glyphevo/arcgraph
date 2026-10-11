@@ -166,6 +166,8 @@ class _CallResolutionContext:
         for binding in sorted(
             bindings, key=lambda b: (b.get("line", 0), b.get("column", 0)), reverse=True
         ):
+            if binding.get("kind") in {"global", "nonlocal"}:
+                continue  # A scope declaration is not a runtime write.
             point = (binding.get("line", 0), binding.get("column", 0))
             if span and point < (span[0], span[1]):
                 settled = True
@@ -219,6 +221,12 @@ class _CallResolutionContext:
         if not settled and span is None:
             owner = (source.qualname or "").rsplit(".", 1)[0]
             entry = self.class_instance_attrs.get(owner, {}).get(name.partition(".")[2])
+            if entry is None and any(b.get("kind") == "global" for b in bindings):
+                declared_global = self.module_type_refs_by_path.get(
+                    source.path, {}
+                ).get(name)
+                if declared_global and declared_global.get("strategy") == "annotation":
+                    entry = declared_global
             candidates.append(entry or unknown_union_result(name)["type_args"][0])
         if (
             candidates
@@ -269,9 +277,19 @@ class _CallResolutionContext:
             return fallback
         refs = self._typed_binding_refs(source, name)
         bindings = self._bindings_in_effect(source, name)
-        if not refs and not any(
-            b.get("kind") == "instance_attribute" and b.get("may_not_run")
-            for b in bindings
+        if (
+            not refs
+            and not any(
+                b.get("kind") == "instance_attribute" and b.get("may_not_run")
+                for b in bindings
+            )
+            and not (
+                any(b.get("kind") == "global" for b in bindings)
+                and any(
+                    b.get("kind") == "assignment" and b.get("may_not_run")
+                    for b in bindings
+                )
+            )
         ):
             return fallback
         if not bindings:
