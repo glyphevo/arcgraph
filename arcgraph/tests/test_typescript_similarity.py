@@ -598,7 +598,7 @@ def test_typescript_reindex_rejects_incompatible_similarity_profiles(
         (output_dir / "current.json").read_text(encoding="utf-8")
     )
     sqlite_path = output_dir / pointer_before["build_dir"] / "index.sqlite"
-    with sqlite3.connect(sqlite_path) as conn:
+    with sqlite3.connect(sqlite_path, detect_types=sqlite3.PARSE_DECLTYPES) as conn:
         rows = conn.execute("SELECT id, properties_json FROM nodes").fetchall()
         for node_id, properties_json in rows:
             properties = json.loads(properties_json)
@@ -697,7 +697,7 @@ def test_typescript_reindex_rejects_pre_similarity_index(tmp_path: Path) -> None
 
     sqlite_path = output_dir / pointer_before["build_dir"] / "index.sqlite"
     removed_profiles = 0
-    with sqlite3.connect(sqlite_path) as conn:
+    with sqlite3.connect(sqlite_path, detect_types=sqlite3.PARSE_DECLTYPES) as conn:
         rows = conn.execute("SELECT id, kind, properties_json FROM nodes").fetchall()
         for node_id, kind, properties_json in rows:
             if kind not in {"function", "method"}:
@@ -787,7 +787,7 @@ def test_reindex_keeps_profile_count_whole_index_and_still_fails_on_strip(
     )
     sqlite_path = output_dir / pointer_before["build_dir"] / "index.sqlite"
     removed = 0
-    with sqlite3.connect(sqlite_path) as conn:
+    with sqlite3.connect(sqlite_path, detect_types=sqlite3.PARSE_DECLTYPES) as conn:
         for node_id, kind, properties_json in conn.execute(
             "SELECT id, kind, properties_json FROM nodes"
         ).fetchall():
@@ -836,7 +836,7 @@ def test_reindex_rejects_partial_similarity_profile_strip(tmp_path: Path) -> Non
 
     sqlite_path = output_dir / pointer_before["build_dir"] / "index.sqlite"
     removed = 0
-    with sqlite3.connect(sqlite_path) as conn:
+    with sqlite3.connect(sqlite_path, detect_types=sqlite3.PARSE_DECLTYPES) as conn:
         for node_id, kind, properties_json in conn.execute(
             "SELECT id, kind, properties_json FROM nodes"
         ).fetchall():

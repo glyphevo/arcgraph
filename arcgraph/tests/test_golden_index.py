@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from arcgraph.core.graph_store import GraphStoreReader
+
 from arcgraph.pipeline.indexer import ArcGraphIndexer
 from arcgraph.core.scanner import SourceRoot
 
@@ -20,6 +22,7 @@ def test_fixture_index_matches_golden(tmp_path: Path) -> None:
         source_roots=[SourceRoot("src"), SourceRoot("tests", "tests")],
         enable_v2_call_resolution=False,
     ).build()
+    GraphStoreReader.from_build_path(build_dir).export_jsonl()
 
     assert metadata.warning_count == 0
     assert metadata.capabilities["receiver_resolution"] == "legacy"
@@ -56,6 +59,7 @@ def test_schema_0_6_platform_artifacts_match_golden(tmp_path: Path) -> None:
         source_roots=[SourceRoot("src"), SourceRoot("tests", "tests")],
         enable_v2_call_resolution=False,
     ).build()
+    GraphStoreReader.from_build_path(build_dir).export_jsonl()
 
     assert metadata.schema_version == "1.0.0"
     assert _schema_0_6_nodes(build_dir / "nodes.jsonl") == _schema_0_6_nodes(

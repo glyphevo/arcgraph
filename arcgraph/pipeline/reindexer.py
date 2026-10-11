@@ -38,6 +38,11 @@ from arcgraph.core.schemas import (
 from arcgraph.core.structural import generate_structural_hierarchy
 from arcgraph.pipeline.frontends import python_compat_pass_dispatcher
 from arcgraph.pipeline.indexer import ArcGraphIndexer, IndexContent
+from arcgraph.pipeline.python_reuse import (
+    appended_private_fragment,
+    closure_needs_global_context,
+    complete_python_generation,
+)
 from arcgraph.pipeline.typescript_frontend import (
     TYPESCRIPT_FILE_EXTENSIONS,
     TYPESCRIPT_FRONTEND_NAME,
@@ -206,36 +211,50 @@ class ArcGraphReindexer:
                 current_files, old_nodes, old_edges, changed_paths
             )
         )
-        if any(path.endswith(".py") for path in changed_paths):
-            # Conditional constructor/type evidence may change in a provider
-            # while the consumer text stays identical. Include unresolved
-            # inputs too, so a newly available class can recover the join.
-            changed_paths.update(
-                node.path
-                for node in old_nodes
-                if node.path
-                and (
-                    node.properties.get("conditional_type_input")
-                    or node.properties.get("union_type_input")
-                    or node.properties.get("inherited_type_input")
-                    or node.properties.get("comprehension_type_input")
-                    or node.properties.get("imported_type_input")
-                )
-            )
         self._assert_similarity_algorithms_compatible(
             nodes=old_nodes,
             edges=old_edges,
         )
+        reused = None
+        if complete_python_generation(old_files, old_nodes):
+            reused = appended_private_fragment(
+                indexer,
+                store,
+                [f for f in current_files if f.path in changed_paths],
+                old_nodes,
+                old_edges,
+                changed_paths,
+            )
+        if reused is None and any(path.endswith(".py") for path in changed_paths):
+            closure = self._python_dependent_paths(
+                old_files, current_files, old_nodes, old_edges, changed_paths
+            )
+            if closure is None:
+                # An incomplete generation cannot supply any reusable context.
+                changed_paths.update(f.path for f in [*old_files, *current_files])
+            elif closure_needs_global_context(old_nodes):
+                # Framework and fixture phase inputs are not persisted separately;
+                # reanalyze the whole Python generation, preserving lifecycle and
+                # externally supplied metadata through normal publication.
+                changed_paths.update(
+                    f.path
+                    for f in [*old_files, *current_files]
+                    if f.path.endswith(".py")
+                )
+            else:
+                changed_paths.update(closure)
 
         # Pytest providers do not require import edges. Refresh collected tests,
         # conftests and known provider files, rather than every Python file or any
         # source containing the word "fixture". Type-input refresh above remains
         # conservative and independent of pytest.
-        if any(path.endswith(".py") for path in changed_paths):
+        provider_paths = {
+            node.path for node in old_nodes if node.kind == "pytest_fixture"
+        }
+        if changed_paths & provider_paths or any(
+            Path(path).name == "conftest.py" for path in changed_paths
+        ):
             collection = PytestCollection.from_root(self.repo_root)
-            provider_paths = {
-                node.path for node in old_nodes if node.kind == "pytest_fixture"
-            }
             changed_paths.update(
                 file.path
                 for file in [*old_files, *current_files]
@@ -254,7 +273,9 @@ class ArcGraphReindexer:
         )
         python_changed = any(path.endswith(".py") for path in changed_paths)
         changed_old_node_ids = {
-            node.id for node in old_nodes if node.path in changed_paths
+            node.id
+            for node in old_nodes
+            if node.path in changed_paths and (reused is None or node.kind == "module")
         }
         previous_typescript_similarity_buckets: set[str] = set()
         previous_python_similarity_buckets: set[str] = set()
@@ -323,35 +344,45 @@ class ArcGraphReindexer:
         # unchanged profiles supplied as context. Cross-frontend feature
         # targets (for example a TS profile calling a Python route) must also
         # force a rescore when only the other language changed.
-        changed_content = indexer.analyze_files(
-            changed_existing_files,
-            warnings=list(scanner.warnings),
-            module_names=current_module_names,
-            call_context_nodes=unchanged_context_nodes,
-            frontends=active_frontends,
-            force_frontend_names=(
-                {
-                    frontend_name
-                    for frontend_name, refresh in (
-                        (TYPESCRIPT_FRONTEND_NAME, refresh_typescript_similarity),
-                        (COMPAT_FRONTEND_NAME, refresh_python_similarity),
-                    )
-                    if refresh
-                }
-                or None
-            ),
-            incremental_similarity_buckets_by_frontend={
-                TYPESCRIPT_FRONTEND_NAME: (
-                    previous_typescript_similarity_buckets
-                    if refresh_typescript_similarity
-                    else None
+        changed_content = (
+            IndexContent(
+                files=changed_existing_files,
+                nodes=reused.nodes,
+                edges=reused.edges,
+                warnings=[*scanner.warnings, *reused.warnings],
+                phase_timings={COMPAT_FRONTEND_NAME: reused.phase_timings},
+            )
+            if reused is not None
+            else indexer.analyze_files(
+                changed_existing_files,
+                warnings=list(scanner.warnings),
+                module_names=current_module_names,
+                call_context_nodes=unchanged_context_nodes,
+                frontends=active_frontends,
+                force_frontend_names=(
+                    {
+                        frontend_name
+                        for frontend_name, refresh in (
+                            (TYPESCRIPT_FRONTEND_NAME, refresh_typescript_similarity),
+                            (COMPAT_FRONTEND_NAME, refresh_python_similarity),
+                        )
+                        if refresh
+                    }
+                    or None
                 ),
-                COMPAT_FRONTEND_NAME: (
-                    previous_python_similarity_buckets
-                    if refresh_python_similarity
-                    else None
-                ),
-            },
+                incremental_similarity_buckets_by_frontend={
+                    TYPESCRIPT_FRONTEND_NAME: (
+                        previous_typescript_similarity_buckets
+                        if refresh_typescript_similarity
+                        else None
+                    ),
+                    COMPAT_FRONTEND_NAME: (
+                        previous_python_similarity_buckets
+                        if refresh_python_similarity
+                        else None
+                    ),
+                },
+            )
         )
         if refresh_typescript_similarity:
             extractor_failure = next(
@@ -581,6 +612,7 @@ class ArcGraphReindexer:
             coverage_metrics=content.coverage_metrics,
             runtime_metrics=content.runtime_metrics,
             phase_timings=content.phase_timings,
+            encoded_payloads=store.encoded_payloads,
         )
         return {
             "schema_version": metadata.schema_version,
@@ -1368,6 +1400,61 @@ class ArcGraphReindexer:
                     seen.add(importer)
                     pending.append(importer)
         return {modules[key] for key in seen}
+
+    @staticmethod
+    def _python_dependent_paths(old_files, files, nodes, edges, changed_paths):
+        """Reverse import/export/base closure, including static-only bindings.
+
+        Source generation completeness is required; missing module summaries or
+        ambiguous module ownership make the closure unknown. Existing cross-file
+        semantic relations cover providers reached without a direct import.
+        """
+        python_files = [f for f in old_files if f.path.endswith(".py")]
+        modules = {f.module: f.path for f in python_files}
+        if not complete_python_generation(old_files, nodes):
+            return None
+        for f in files:
+            if f.path.endswith(".py"):
+                if f.module in modules and modules[f.module] != f.path:
+                    return None
+                modules[f.module] = f.path
+        owners = {n.id: n.path for n in nodes if n.path}
+        reverse = {}
+
+        def depend(source, target):
+            if source and target and source != target:
+                reverse.setdefault(target, set()).add(source)
+
+        for edge in edges:
+            if edge.kind not in {"similar_to", "contains"}:
+                depend(owners.get(edge.source), owners.get(edge.target))
+        for node in nodes:
+            if not node.path or not node.path.endswith(".py"):
+                continue
+            for binding in node.properties.get("bindings", []):
+                if binding.get("kind") not in {
+                    "import_alias",
+                    "type_checking_import_alias",
+                    "star_import",
+                }:
+                    continue
+                # Retain all prefixes: adding a previously absent submodule can
+                # change the target selected from a package import.
+                for field in ("target_module", "value", "target_qualname"):
+                    value = binding.get(field)
+                    if not isinstance(value, str):
+                        continue
+                    parts = value.split(".")
+                    for i in range(1, len(parts) + 1):
+                        depend(node.path, modules.get(".".join(parts[:i])))
+        pending = list(changed_paths)
+        seen = set(changed_paths)
+        while pending:
+            for path in reverse.get(pending.pop(), ()):
+                if path not in seen:
+                    seen.add(path)
+                    pending.append(path)
+        return {p for p in seen if p.endswith(".py")}
 
     @staticmethod
     def _is_typescript_external(node: Node) -> bool:

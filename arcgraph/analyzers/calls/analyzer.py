@@ -142,7 +142,9 @@ class CallAnalyzer:
         context = _CallResolutionContext(nodes)
         context.project_environment = self.project_environment
         source_callsite_nodes = [
-            node for node in (source_nodes or nodes) if node.kind in SOURCE_KINDS
+            node
+            for node in (nodes if source_nodes is None else source_nodes)
+            if node.kind in SOURCE_KINDS
         ]
 
         generated_nodes: dict[str, Node] = {}
@@ -269,7 +271,11 @@ class CallAnalyzer:
                     )
 
         # --- Emit 'extends' edges for class inheritance hierarchy ---
-        class_nodes = [node for node in (source_nodes or nodes) if node.kind == "class"]
+        class_nodes = [
+            node
+            for node in (nodes if source_nodes is None else source_nodes)
+            if node.kind == "class"
+        ]
         for class_node in class_nodes:
             bases = class_node.properties.get("bases", [])
             if not isinstance(bases, list):

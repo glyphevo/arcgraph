@@ -68,6 +68,7 @@ class PythonGraphAnalyzer:
         module_names: set[str] | None = None,
         call_context_nodes: list[Node] | None = None,
         incremental_similarity_buckets: set[str] | None = None,
+        parsed_files_override: dict[str, ast.Module] | None = None,
     ) -> FrontendGraphFragment:
         """Run the full Python analysis pipeline.
 
@@ -90,7 +91,7 @@ class PythonGraphAnalyzer:
         """
         warnings = list(warnings or [])
         module_names = module_names or {file.module for file in files if file.module}
-        if call_context_nodes is not None:
+        if call_context_nodes is not None and parsed_files_override is None:
             current_paths = {file.path for file in files}
             call_context_nodes = [
                 node for node in call_context_nodes if node.path not in current_paths
@@ -101,6 +102,12 @@ class PythonGraphAnalyzer:
         t0 = time.monotonic()
         parsed_files: dict[str, ast.Module] = {}
         for file_record in files:
+            if parsed_files_override is not None:
+                tree = parsed_files_override.get(file_record.path)
+                if tree is not None:
+                    parsed_files[file_record.path] = tree
+                    tree._arcgraph_module = file_record.module
+                continue
             try:
                 source = Path(file_record.abs_path).read_text(encoding="utf-8-sig")
                 with warnings_module.catch_warnings():
@@ -178,14 +185,27 @@ class PythonGraphAnalyzer:
                 node for node in call_context_nodes if node.id not in current_ids
             ]
         type_context = (
-            self._dedupe_nodes([*call_context_nodes, *nodes])
+            self._dedupe_nodes(
+                [
+                    *(
+                        n
+                        for n in call_context_nodes
+                        if parsed_files_override is None or n.path not in parsed_files
+                    ),
+                    *nodes,
+                ]
+            )
             if call_context_nodes is not None
             else nodes
         )
         return_decorator_cache = type_ref_analyzer.prepare_return_analysis(
             type_context,
             parsed_files,
-            nominal_guard_trees=self._nominal_guard_trees(type_context, parsed_files),
+            nominal_guard_trees=(
+                parsed_files
+                if parsed_files_override is not None
+                else self._nominal_guard_trees(type_context, parsed_files)
+            ),
         )
         for file_record in files:
             tree = parsed_files.get(file_record.path)

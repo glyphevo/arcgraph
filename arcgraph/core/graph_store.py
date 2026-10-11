@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -9,6 +10,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
+from arcgraph.core.fact_storage import fact_properties
+from arcgraph.core.storage_codec import (
+    STORAGE_VERSION,
+    SchemaVersionError,
+    encode_json,
+    load_json,
+    reuse_encoder,
+)
 from arcgraph.core.ids import stable_callsite_subject_key
 from arcgraph.core.operation_lock import arcgraph_pid_file_lock
 from arcgraph.core.schemas import (
@@ -23,6 +32,7 @@ from arcgraph.core.schemas import (
     SchemaMigrationRecord,
     SemanticDiagnostic,
     SemanticFact,
+    FactEvidence,
 )
 from arcgraph.core.sharing_retry import retry_sharing_violation
 from arcgraph.core.utils import replace_text_file, symlink_below
@@ -97,6 +107,7 @@ class GraphStoreWriter:
         coverage_metrics: dict[str, Any] | None = None,
         runtime_metrics: dict[str, Any] | None = None,
         phase_timings: dict[str, Any] | None = None,
+        encoded_payloads: dict[str, bytes] | None = None,
     ) -> Path:
         semantic_facts = list(semantic_facts or [])
         diagnostics = list(diagnostics or [])
@@ -112,9 +123,6 @@ class GraphStoreWriter:
             build_dir = self.output_dir / "builds" / metadata.index_version
             build_dir.mkdir(parents=True, exist_ok=False)
 
-            self._write_jsonl(build_dir / "semantic_facts.jsonl", semantic_facts)
-            self._write_jsonl(build_dir / "nodes.jsonl", nodes)
-            self._write_jsonl(build_dir / "edges.jsonl", edges)
             self._write_jsonl(build_dir / "diagnostics.jsonl", diagnostics)
             if merge_metrics is not None:
                 self._write_json(build_dir / "merge_metrics.json", merge_metrics)
@@ -129,6 +137,14 @@ class GraphStoreWriter:
                 diagnostics,
                 merge_metrics,
                 schema_migrations,
+                encode=(
+                    reuse_encoder(encoded_payloads) if encoded_payloads else encode_json
+                ),
+                encode_properties=(
+                    reuse_encoder(encoded_payloads, ordered=True)
+                    if encoded_payloads
+                    else encode_json
+                ),
             )
             self._write_summary(
                 build_dir / "summary.json",
@@ -436,6 +452,8 @@ class GraphStoreWriter:
         diagnostics: list[SemanticDiagnostic],
         merge_metrics: MergeMetrics | None,
         schema_migrations: list[SchemaMigrationRecord],
+        encode=encode_json,
+        encode_properties=encode_json,
     ) -> None:
         # ``sqlite3.Connection.__exit__`` commits or rolls back but never closes,
         # so a plain ``with sqlite3.connect(...)`` leaks the file handle until the
@@ -443,10 +461,15 @@ class GraphStoreWriter:
         # semantics and closes on exit.
         with sqlite3.connect(path, factory=ClosingSQLiteConnection) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute(f"PRAGMA user_version={STORAGE_VERSION}")
             conn.executescript("""
                 CREATE TABLE index_metadata (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                );
+                CREATE TABLE python_sources (
+                    path TEXT PRIMARY KEY,
+                    source_json JSONZ NOT NULL
                 );
                 CREATE TABLE files (
                     path TEXT PRIMARY KEY,
@@ -459,6 +482,7 @@ class GraphStoreWriter:
                 );
                 CREATE TABLE semantic_facts (
                     fact_id TEXT PRIMARY KEY,
+                    schema_version TEXT NOT NULL,
                     repo_id TEXT NOT NULL,
                     index_version TEXT NOT NULL,
                     language TEXT,
@@ -474,17 +498,12 @@ class GraphStoreWriter:
                     path TEXT,
                     start_line INTEGER,
                     end_line INTEGER,
-                    resolution_json TEXT NOT NULL,
-                    evidence_json TEXT NOT NULL,
-                    properties_json TEXT NOT NULL,
+                    resolution_json JSONZ,
+                    evidence_json JSONZ,
+                    properties_json JSONZ,
+                    graph_edge_id INTEGER,
                     created_at TEXT NOT NULL
                 );
-                CREATE UNIQUE INDEX idx_semantic_facts_stable
-                ON semantic_facts(repo_id, index_version, fact_id);
-                CREATE INDEX idx_semantic_facts_edge_merge
-                ON semantic_facts(repo_id, index_version, source, target, edge_kind, semantic_role);
-                CREATE INDEX idx_semantic_facts_path ON semantic_facts(path);
-                CREATE INDEX idx_semantic_facts_edge_kind ON semantic_facts(edge_kind);
                 CREATE TABLE nodes (
                     id TEXT PRIMARY KEY,
                     kind TEXT NOT NULL,
@@ -494,7 +513,7 @@ class GraphStoreWriter:
                     start_line INTEGER,
                     end_line INTEGER,
                     canonical_identity TEXT,
-                    properties_json TEXT NOT NULL
+                    properties_json JSONZ NOT NULL
                 );
                 CREATE INDEX idx_nodes_path ON nodes(path);
                 CREATE INDEX idx_nodes_kind ON nodes(kind);
@@ -508,10 +527,10 @@ class GraphStoreWriter:
                     kind TEXT NOT NULL,
                     confidence TEXT NOT NULL,
                     semantic_role TEXT,
-                    resolution_json TEXT NOT NULL,
-                    confidence_sources_json TEXT NOT NULL,
-                    evidence_json TEXT NOT NULL,
-                    properties_json TEXT NOT NULL
+                    resolution_json JSONZ NOT NULL,
+                    confidence_sources_json JSONZ NOT NULL,
+                    evidence_json JSONZ NOT NULL,
+                    properties_json JSONZ NOT NULL
                 );
                 CREATE INDEX idx_edges_source_kind ON edges(source, kind);
                 CREATE INDEX idx_edges_target_kind ON edges(target, kind);
@@ -560,6 +579,20 @@ class GraphStoreWriter:
                     notes TEXT
                 );
                 """)
+            for file in files:
+                if not file.path.endswith(".py"):
+                    continue
+                try:
+                    raw = Path(file.abs_path).read_bytes()
+                    if hashlib.sha256(raw).hexdigest() != file.file_hash:
+                        continue
+                    source = raw.decode("utf-8-sig")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                conn.execute(
+                    "INSERT INTO python_sources VALUES (?, ?)",
+                    (file.path, encode(source)),
+                )
             for key, value in metadata.model_dump(mode="json").items():
                 conn.execute(
                     "INSERT INTO index_metadata(key, value) VALUES (?, ?)",
@@ -587,16 +620,17 @@ class GraphStoreWriter:
             conn.executemany(
                 """
                 INSERT INTO semantic_facts(
-                    fact_id, repo_id, index_version, language, frontend_name,
+                    fact_id, schema_version, repo_id, index_version, language, frontend_name,
                     frontend_version, fact_kind, node_id, source, target, edge_kind,
                     confidence, semantic_role, path, start_line, end_line,
-                    resolution_json, evidence_json, properties_json, created_at
+                    resolution_json, evidence_json, properties_json, graph_edge_id, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
                         fact.fact_id,
+                        fact.schema_version,
                         fact.repo_id,
                         fact.index_version,
                         fact.language,
@@ -612,17 +646,33 @@ class GraphStoreWriter:
                         fact.path,
                         fact.start_line,
                         fact.end_line,
-                        fact.resolution.model_dump_json(exclude_none=True),
-                        json.dumps(
-                            [
-                                item.model_dump(mode="json", exclude_none=True)
-                                for item in fact.evidence
-                            ]
+                        (
+                            None
+                            if reference is not None
+                            else encode(
+                                fact.resolution.model_dump(
+                                    mode="json", exclude_none=True
+                                )
+                            )
                         ),
-                        json.dumps(fact.properties, sort_keys=True),
+                        (
+                            None
+                            if reference is not None
+                            else encode(
+                                [
+                                    item.model_dump(mode="json", exclude_none=True)
+                                    for item in fact.evidence
+                                ]
+                            )
+                        ),
+                        properties,
+                        reference,
                         fact.created_at.isoformat(),
                     )
-                    for fact in semantic_facts
+                    for fact, (properties, reference) in zip(
+                        semantic_facts,
+                        fact_properties(semantic_facts, nodes, edges, encode),
+                    )
                 ],
             )
             conn.executemany(
@@ -640,7 +690,7 @@ class GraphStoreWriter:
                         node.start_line,
                         node.end_line,
                         node.canonical_identity,
-                        json.dumps(node.properties, sort_keys=True),
+                        encode_properties(node.properties),
                     )
                     for node in nodes
                 ],
@@ -660,15 +710,17 @@ class GraphStoreWriter:
                         edge.kind,
                         edge.confidence,
                         edge.semantic_role,
-                        edge.resolution.model_dump_json(exclude_none=True),
-                        json.dumps(edge.confidence_sources, sort_keys=True),
-                        json.dumps(
+                        encode(
+                            edge.resolution.model_dump(mode="json", exclude_none=True)
+                        ),
+                        encode(edge.confidence_sources),
+                        encode(
                             [
                                 item.model_dump(mode="json", exclude_none=True)
                                 for item in edge.evidence
                             ]
                         ),
-                        json.dumps(edge.properties, sort_keys=True),
+                        encode_properties(edge.properties),
                     )
                     for edge in edges
                 ],
@@ -770,6 +822,7 @@ class GraphStoreReader:
     def __init__(self, sqlite_path: Path, metadata: dict[str, Any]) -> None:
         self.sqlite_path = sqlite_path
         self.metadata = metadata
+        self.encoded_payloads = {}
 
     @classmethod
     def from_current(cls, output_dir: Path) -> "GraphStoreReader":
@@ -789,7 +842,7 @@ class GraphStoreReader:
                 f"No ArcGraph current index at {current_path}"
             ) from None
 
-        current = json.loads(current_text)
+        current = load_json(current_text)
         build_rel = Path(str(current["build_dir"]))
         if (
             build_rel.is_absolute()
@@ -835,7 +888,7 @@ class GraphStoreReader:
         if summary_path.is_symlink() or not summary_path.is_file():
             raise FileNotFoundError(f"ArcGraph summary is missing: {summary_path}")
         try:
-            metadata = json.loads(summary_path.read_text(encoding="utf-8"))
+            metadata = load_json(summary_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise FileNotFoundError(
                 f"ArcGraph summary cannot be read: {summary_path}"
@@ -844,11 +897,23 @@ class GraphStoreReader:
             raise FileNotFoundError(
                 f"ArcGraph summary is not an object: {summary_path}"
             )
-        return cls(sqlite_path, metadata)
+        reader = cls(sqlite_path, metadata)
+        with reader.connect() as conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version != STORAGE_VERSION:
+            raise SchemaVersionError(
+                f"ArcGraph storage version mismatch: index has {version}, "
+                f"runtime expects {STORAGE_VERSION}. Rebuild required. Run arcgraph build."
+            )
+        return reader
 
     def connect(self) -> sqlite3.Connection:
         try:
-            conn = sqlite3.connect(self.sqlite_path, factory=ClosingSQLiteConnection)
+            conn = sqlite3.connect(
+                self.sqlite_path,
+                factory=ClosingSQLiteConnection,
+                detect_types=sqlite3.PARSE_DECLTYPES,
+            )
             conn.execute("PRAGMA schema_version").fetchone()
         except sqlite3.OperationalError:
             try:
@@ -856,7 +921,12 @@ class GraphStoreReader:
             except UnboundLocalError:
                 pass
             uri = self.sqlite_path.resolve().as_uri() + "?mode=ro&immutable=1"
-            conn = sqlite3.connect(uri, uri=True, factory=ClosingSQLiteConnection)
+            conn = sqlite3.connect(
+                uri,
+                uri=True,
+                factory=ClosingSQLiteConnection,
+                detect_types=sqlite3.PARSE_DECLTYPES,
+            )
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -908,11 +978,14 @@ class GraphStoreReader:
     def read_nodes(self) -> list[Node]:
         with self.connect() as conn:
             rows = conn.execute("""
-                SELECT id, kind, name, qualname, path, start_line, end_line, canonical_identity, properties_json
+                SELECT id, kind, name, qualname, path, start_line, end_line, canonical_identity, properties_json, CAST(properties_json AS BLOB) AS original
                 FROM nodes
                 ORDER BY id
                 """).fetchall()
 
+        self.encoded_payloads.update(
+            {row["properties_json"]: row["original"] for row in rows}
+        )
         return [
             Node(
                 id=row["id"],
@@ -923,7 +996,7 @@ class GraphStoreReader:
                 start_line=row["start_line"],
                 end_line=row["end_line"],
                 canonical_identity=row["canonical_identity"],
-                properties=json.loads(row["properties_json"]),
+                properties=load_json(row["properties_json"]),
             )
             for row in rows
         ]
@@ -948,17 +1021,29 @@ class GraphStoreReader:
                     start_line=row["start_line"],
                     end_line=row["end_line"],
                     canonical_identity=row["canonical_identity"],
-                    properties=json.loads(row["properties_json"]),
+                    properties=load_json(row["properties_json"]),
                 )
 
     def read_edges(self) -> list[Edge]:
         with self.connect() as conn:
             rows = conn.execute("""
-                SELECT source, target, kind, confidence, semantic_role, resolution_json, confidence_sources_json, evidence_json, properties_json
+                SELECT source, target, kind, confidence, semantic_role, resolution_json, confidence_sources_json, evidence_json, properties_json,
+                    CAST(properties_json AS BLOB) AS original_properties,
+                    CAST(evidence_json AS BLOB) AS original_evidence,
+                    CAST(resolution_json AS BLOB) AS original_resolution,
+                    CAST(confidence_sources_json AS BLOB) AS original_sources
                 FROM edges
                 ORDER BY source, target, kind, semantic_role, confidence
                 """).fetchall()
 
+        for row in rows:
+            for field, original in (
+                ("properties_json", "original_properties"),
+                ("evidence_json", "original_evidence"),
+                ("resolution_json", "original_resolution"),
+                ("confidence_sources_json", "original_sources"),
+            ):
+                self.encoded_payloads[row[field]] = row[original]
         return [
             Edge(
                 source=row["source"],
@@ -967,14 +1052,14 @@ class GraphStoreReader:
                 confidence=row["confidence"],
                 semantic_role=row["semantic_role"],
                 resolution=FactResolution.model_validate(
-                    json.loads(row["resolution_json"])
+                    load_json(row["resolution_json"])
                 ),
-                confidence_sources=json.loads(row["confidence_sources_json"]),
+                confidence_sources=load_json(row["confidence_sources_json"]),
                 evidence=[
                     Evidence.model_validate(item)
-                    for item in json.loads(row["evidence_json"])
+                    for item in load_json(row["evidence_json"])
                 ],
-                properties=json.loads(row["properties_json"]),
+                properties=load_json(row["properties_json"]),
             )
             for row in rows
         ]
@@ -998,14 +1083,14 @@ class GraphStoreReader:
                     confidence=row["confidence"],
                     semantic_role=row["semantic_role"],
                     resolution=FactResolution.model_validate(
-                        json.loads(row["resolution_json"])
+                        load_json(row["resolution_json"])
                     ),
-                    confidence_sources=json.loads(row["confidence_sources_json"]),
+                    confidence_sources=load_json(row["confidence_sources_json"]),
                     evidence=[
                         Evidence.model_validate(item)
-                        for item in json.loads(row["evidence_json"])
+                        for item in load_json(row["evidence_json"])
                     ],
-                    properties=json.loads(row["properties_json"]),
+                    properties=load_json(row["properties_json"]),
                 )
 
     def read_warnings(self) -> list[BuildWarning]:
@@ -1061,7 +1146,7 @@ class GraphStoreReader:
                 first_seen_index=row["first_seen_index"],
                 last_seen_index=row["last_seen_index"],
                 seen_count=row["seen_count"],
-                properties=json.loads(row["properties_json"]),
+                properties=load_json(row["properties_json"]),
             )
             for row in rows
         ]
@@ -1095,5 +1180,79 @@ class GraphStoreReader:
                     first_seen_index=row["first_seen_index"],
                     last_seen_index=row["last_seen_index"],
                     seen_count=row["seen_count"],
-                    properties=json.loads(row["properties_json"]),
+                    properties=load_json(row["properties_json"]),
                 )
+
+    def iter_semantic_facts(self):
+        """Restore stored facts exactly, including their original timestamps."""
+        with self.connect() as conn:
+            for row in conn.execute(
+                "SELECT f.*, n.kind AS n_kind, n.name AS n_name, "
+                "n.qualname AS n_qualname, n.canonical_identity AS n_identity, "
+                "n.properties_json AS n_properties, e.properties_json AS e_properties, "
+                "e.confidence_sources_json AS e_sources, "
+                "e.resolution_json AS e_resolution, e.evidence_json AS e_evidence FROM semantic_facts f "
+                "LEFT JOIN nodes n ON n.id=f.node_id "
+                "LEFT JOIN edges e ON e.id=f.graph_edge_id "
+                "ORDER BY CASE f.fact_kind WHEN 'node' THEN 0 ELSE 1 END, "
+                "f.node_id, f.source, f.target, f.edge_kind, COALESCE(f.semantic_role, ''), f.confidence"
+            ):
+                fields = {
+                    k: row[k] for k in row.keys() if not k.startswith(("n_", "e_"))
+                }
+                reference = fields.pop("graph_edge_id")
+                properties = fields.pop("properties_json")
+                if properties is not None:
+                    fields["properties"] = load_json(properties)
+                elif fields["fact_kind"] == "node":
+                    fields["properties"] = {
+                        "kind": row["n_kind"],
+                        "name": row["n_name"],
+                        "qualname": row["n_qualname"],
+                        "canonical_identity": row["n_identity"],
+                        "node_properties": load_json(row["n_properties"]),
+                    }
+                elif reference is not None:
+                    fields["properties"] = {
+                        **load_json(row["e_properties"]),
+                        "confidence_sources": load_json(row["e_sources"]),
+                    }
+                for key in ("resolution", "evidence"):
+                    value = fields.pop(f"{key}_json")
+                    fields[key] = load_json(
+                        value if value is not None else row[f"e_{key}"]
+                    )
+                fields["evidence"] = [
+                    FactEvidence.model_validate(e) for e in fields["evidence"]
+                ]
+                yield SemanticFact.model_validate(fields)
+
+    def export_jsonl(self) -> Path:
+        """Export the current generation without changing its pointer or graph."""
+        build = self.sqlite_path.parent
+        for name, rows in (
+            ("nodes", self.iter_nodes()),
+            ("edges", self.iter_edges()),
+            ("semantic_facts", self.iter_semantic_facts()),
+        ):
+            path = build / f"{name}.jsonl"
+            if path.is_symlink():
+                raise RuntimeError(f"ArcGraph export path is a symlink: {path}")
+            temporary = build / f".{name}.jsonl.tmp"
+            if temporary.is_symlink():
+                raise RuntimeError(
+                    f"ArcGraph export temporary path is a symlink: {temporary}"
+                )
+            try:
+                GraphStoreWriter._write_jsonl(temporary, rows)
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return build
+
+    def python_source(self, path: str) -> str | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT source_json FROM python_sources WHERE path=?", (path,)
+            ).fetchone()
+        return load_json(row[0]) if row else None

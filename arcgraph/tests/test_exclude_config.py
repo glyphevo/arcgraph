@@ -125,6 +125,7 @@ def _graph(output: Path) -> dict:
             ("warnings", store.read_warnings()),
         )
     }
+    store.export_jsonl()
     facts = [
         json.loads(line)
         for line in (store.sqlite_path.parent / "semantic_facts.jsonl")

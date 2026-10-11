@@ -172,6 +172,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "`arcgraph init` detects source roots and adds a `[tool.arcgraph]` section to an existing `pyproject.toml`; use `--dry-run` to preview the config.",
                         "`arcgraph doctor` runs environment and index health checks (project config, source roots, index freshness, precision tools, Python version).",
                         "`arcgraph build [--root PATH] [--coverage PATH] [--runtime-trace PATH] [--scip-index PATH] [--pyright-export PATH] [--scip-graph-index PATH]` builds a fresh schema 1.0 index.",
+                        "`arcgraph export` writes nodes.jsonl, edges.jsonl and semantic_facts.jsonl into the current build; select it with `arcgraph --output-dir OUT export`. Default build/sync writes diagnostics.jsonl without those three graph exports.",
                         "Global `arcgraph --version` reports the installed ArcGraph package version and exits without requiring a subcommand.",
                         "`arcgraph version --json` reports the exact running source-checkout or installed-wheel identity; compare an installed `artifact_provenance.sha256` with the release manifest instead of treating the product version as a unique candidate id.",
                         "Pass global `--human` before a subcommand, for example `arcgraph --human build`, to print a readable summary instead of JSON.",

@@ -21,6 +21,7 @@ from arcgraph.core.confidence_profiles import (
 )
 from arcgraph.core.freshness import compute_freshness
 from arcgraph.core.graph_store import GraphStoreReader
+from arcgraph.core.storage_codec import SchemaVersionError
 from arcgraph.core.ids import (
     callsite_id,
     module_id,
@@ -139,10 +140,6 @@ def _route_query_aliases(query: str) -> list[str]:
     """Compatibility delegate to the unified route resolver."""
 
     return route_query_aliases(query)
-
-
-class SchemaVersionError(RuntimeError):
-    pass
 
 
 def _scip_reference_locations(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:

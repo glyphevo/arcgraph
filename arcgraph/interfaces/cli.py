@@ -131,6 +131,7 @@ from arcgraph.interfaces.cli_visual import (  # noqa: F401
 )
 from arcgraph.interfaces.cli_support import (  # noqa: F401
     output_location,
+    handle_export,
     print_json,
     python_checks,
     query_engine,
@@ -557,6 +558,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_legacy_roots_arg(build)
     build.set_defaults(handler=handle_build)
+    export = subparsers.add_parser("export", help="Export current graph JSONL files.")
+    export.set_defaults(handler=handle_export)
 
     reindex = subparsers.add_parser(
         "reindex", help="Incrementally reindex changed files."

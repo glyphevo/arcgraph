@@ -1728,7 +1728,7 @@ def test_schema_0_6_platform_tables_and_artifacts_exist(tmp_path: Path) -> None:
         source_roots=[SourceRoot("src"), SourceRoot("tests", "tests")],
     ).build()
 
-    assert (build_dir / "semantic_facts.jsonl").exists()
+    assert not (build_dir / "semantic_facts.jsonl").exists()
     assert (build_dir / "diagnostics.jsonl").exists()
     assert (build_dir / "merge_metrics.json").exists()
 
@@ -1775,7 +1775,8 @@ def test_schema_0_6_platform_tables_and_artifacts_exist(tmp_path: Path) -> None:
         "metrics_json",
         "created_at",
     } <= merge_metrics_columns
-    assert "idx_semantic_facts_edge_merge" in semantic_fact_indexes
+    # Fact projections need only their primary-key lookup; graph queries use nodes/edges.
+    assert "idx_semantic_facts_edge_merge" not in semantic_fact_indexes
     assert "idx_edges_source_kind_role" in edge_indexes
     assert "idx_edges_target_kind_role" in edge_indexes
     # Structural nodes now go through the merge pipeline (pre-merge),

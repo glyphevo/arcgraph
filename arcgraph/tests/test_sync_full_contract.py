@@ -64,6 +64,7 @@ def _strip_volatile(value: object) -> object:
 
 
 def _snapshot(output: Path) -> dict[str, list[object]]:
+    GraphStoreReader.from_current(output).export_jsonl()
     current = json.loads((output / "current.json").read_text(encoding="utf-8"))
     build = output / current["build_dir"]
     return {

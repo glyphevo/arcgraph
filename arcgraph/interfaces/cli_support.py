@@ -240,3 +240,14 @@ def _print_cli_error_payload(args: argparse.Namespace, exc: BaseException) -> No
             "error": {"code": code, "message": str(exc)},
         }
     )
+
+
+def handle_export(args):
+    """Write the authorized JSONL export into the selected current generation."""
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.operation_lock import arcgraph_operation_lock
+
+    out = (Path(args.repo_root).resolve() / args.output_dir).resolve()
+    with arcgraph_operation_lock(out):
+        build = GraphStoreReader.from_current(out).export_jsonl()
+    return {"build_dir": str(build)}
