@@ -1404,7 +1404,7 @@ class TypeRefAnalyzer:
             context.value_position = None
         injected = (
             dependency_result(value, node, context)
-            if binding.get("kind") == "parameter" or node.kind == "class"
+            if binding.get("kind") == "parameter"
             else None
         )
         source = injected or (

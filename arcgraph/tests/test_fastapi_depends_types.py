@@ -70,7 +70,8 @@ def use(session=Depends(provide)):
     )
 
 
-def test_depends_class_field_and_nested_dependency(tmp_path: Path):
+@pytest.mark.parametrize("marker", ["Depends", "Security"])
+def test_depends_class_field_and_nested_dependency(tmp_path: Path, marker):
     nodes, edges = build(
         tmp_path,
         "from fastapi import Depends\n"
@@ -78,20 +79,47 @@ def test_depends_class_field_and_nested_dependency(tmp_path: Path):
         + """def inner() -> Session: return Session()
 def outer(session=Depends(inner)) -> Session: return session
 """,
-        """from fastapi import Depends
+        f"""from fastapi import Depends, Security
 from .deps import Session, outer
+class Other:
+    def execute(self): pass
 class Controller:
-    session = Depends(outer)
+    session = {marker}(outer)
     def use(self): self.session.execute()
-def use(session=Depends(Session)):
+class AnnotatedController:
+    session: Other = {marker}(outer)
+    def use(self): self.session.execute()
+def use(session={marker}(Session)):
     session.execute()
 """,
     )
     targets = {(e.source, e.target) for e in edges}
-    assert (
-        "method:pkg.user.Controller.use",
-        "method:pkg.deps.Session.execute",
-    ) in targets
+    # CBV injection reads class annotations; an unannotated marker stays unknown.
+    # Compare both declarations together to guard annotation precedence as well.
+    fields = {}
+    calls = {}
+    for name in ("Controller", "AnnotatedController"):
+        cls = next(n for n in nodes if n.id == f"class:pkg.user.{name}")
+        fields[name] = [
+            (r.get("type_id"), r.get("strategy"), r.get("source_expression"))
+            for r in cls.properties.get("type_refs", [])
+            if r.get("name") == "session"
+        ]
+        calls[name] = {
+            e.target
+            for e in edges
+            if e.kind == "calls" and e.source == f"method:pkg.user.{name}.use"
+        }
+    assert (fields, calls) == (
+        {
+            "Controller": [],
+            "AnnotatedController": [("class:pkg.user.Other", "annotation", "Other")],
+        },
+        {
+            "Controller": set(),
+            "AnnotatedController": {"method:pkg.user.Other.execute"},
+        },
+    )
     assert ("fn:pkg.user.use", "method:pkg.deps.Session.execute") in targets
     outer = next(n for n in nodes if n.id == "fn:pkg.deps.outer")
     assert any(

@@ -1,8 +1,9 @@
 """Source-only dependency injection contracts evaluated before call resolution.
 
 These are framework binding facts, not the result of calling Depends in ordinary
-Python. Function defaults and class fields are supported; arbitrary dependency
-instances, dynamic factories, overloads and unannotated providers stay unknown.
+Python. Function defaults are supported; unannotated class fields, arbitrary
+dependency instances, dynamic factories, overloads and unannotated providers
+stay unknown. Annotated class fields retain their declared types.
 """
 
 from __future__ import annotations
