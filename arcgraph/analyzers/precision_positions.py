@@ -5,6 +5,65 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
+
+
+def rebase_scip_documents(payload, repo_root):
+    """Honor the SCIP root before merging or matching documents to source.
+
+    Legacy payloads without a root keep their repository-relative contract.
+    Declared roots and documents must stay inside the analyzed repository;
+    unsafe or remote roots cannot be repaired by suffix/name guessing.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return payload
+    key = "project_root" if "project_root" in metadata else "projectRoot"
+    value = metadata.get(key)
+    if not value:
+        return payload
+    if not isinstance(value, str):
+        raise ValueError("SCIP project root must be a local path or file URI")
+    parsed = urlparse(value)
+    if parsed.scheme == "file" and parsed.netloc in {"", "localhost"}:
+        root = Path(url2pathname(parsed.path))
+    elif parsed.scheme and not (
+        len(parsed.scheme) == 1 and value[1:3] in {":/", ":\\"}
+    ):
+        raise ValueError("SCIP project root must be a local path or file URI")
+    else:
+        root = Path(value)
+    repo = Path(repo_root).resolve()
+    root = (repo / root).resolve()
+    if not root.is_relative_to(repo):
+        raise ValueError("SCIP project root is outside the analyzed repository")
+    documents = []
+    for document in payload.get("documents", []):
+        if not isinstance(document, dict):
+            documents.append(document)
+            continue
+        doc = dict(document)
+        for field in ("relative_path", "relativePath", "path", "filename"):
+            path = doc.get(field)
+            if not isinstance(path, str) or not path:
+                continue
+            relative = Path(path.replace("\\", "/"))
+            target = (root / relative).resolve()
+            if relative.is_absolute() or not target.is_relative_to(root):
+                raise ValueError("SCIP document path escapes its project root")
+            doc[field] = target.relative_to(repo).as_posix()
+        documents.append(doc)
+    result = {**payload, "documents": documents}
+    if root != repo:
+        result["metadata"] = {
+            **metadata,
+            key: repo.as_uri(),
+            "index_project_root": value,
+        }
+    return result
 
 
 class PrecisionPositions:

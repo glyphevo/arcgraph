@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from arcgraph.analyzers.precision_positions import PrecisionPositions
+from arcgraph.analyzers.precision_positions import (
+    PrecisionPositions,
+    rebase_scip_documents,
+)
 from arcgraph.core.ids import callsite_id, class_id, module_id, type_ref_id
 from arcgraph.core.schemas import BuildWarning, Edge, Evidence, Node
 from arcgraph.core.utils import int_or_none
@@ -149,6 +152,21 @@ class PreciseReferenceAnalyzer:
                 path=path,
             )
 
+        try:
+            payload = rebase_scip_documents(payload, self.repo_root)
+        except ValueError as exc:
+            return _SourceAnalysis(
+                warnings=[
+                    BuildWarning(
+                        kind="scip_path_unmappable",
+                        path=self._display_path(path),
+                        message=str(exc),
+                    )
+                ],
+                metrics=self._empty_occurrence_metrics(),
+                status="partial",
+                path=path,
+            )
         edges, metrics, diagnostics = self._edges_from_scip_payload(
             payload, path, node_by_id, node_by_qualname
         )

@@ -18,6 +18,7 @@ from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
 
 from arcgraph.analyzers.imports import ImportAnalyzer
+from arcgraph.analyzers.precision_positions import rebase_scip_documents
 from arcgraph.analyzers.symbols import SymbolAnalyzer
 from arcgraph.core.ids import class_id, function_id, method_id, module_id
 from arcgraph.core.metadata import current_commit
@@ -53,6 +54,7 @@ def convert_scip_index_to_json(
         scip_index=scip_index,
         scip_command=scip_command,
     )
+    payload = rebase_scip_documents(payload, repo_root)
     payload = _with_arcgraph_metadata(
         payload,
         _artifact_metadata(
@@ -143,10 +145,13 @@ def generate_scip_python_json(
             part_index.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(default_index), str(part_index))
             payloads.append(
-                _run_scip_print_json(
-                    repo_root=repo_root,
-                    scip_index=part_index,
-                    scip_command=scip_command,
+                rebase_scip_documents(
+                    _run_scip_print_json(
+                        repo_root=repo_root,
+                        scip_index=part_index,
+                        scip_command=scip_command,
+                    ),
+                    repo_root,
                 )
             )
             scip_indices.append(str(part_index))
