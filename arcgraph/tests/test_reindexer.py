@@ -208,7 +208,15 @@ def test_reindex_changed_preserves_frontend_contract_metadata(tmp_path: Path) ->
     after = QueryEngine(output_dir).current()
 
     assert after["language_tiers"] == before["language_tiers"]
-    assert after["extractor_metadata"] == before["extractor_metadata"]
+    assert (
+        after["extractor_metadata"]["fixture-extractor"]
+        == before["extractor_metadata"]["fixture-extractor"]
+    )
+    environment = after["extractor_metadata"]["python-v1-compat-shim"][
+        "dependency_environment"
+    ]
+    assert environment["status"] == "unknown"
+    assert environment["reason"] == "project_environment_missing"
     assert after["toolchain_status"] == before["toolchain_status"]
     assert after["capabilities"]["language_tiers"] == "available"
     assert after["capabilities"]["external_toolchains"] == "available"

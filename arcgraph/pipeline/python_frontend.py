@@ -19,6 +19,7 @@ from arcgraph.adapters.common import AdapterRegistry
 from arcgraph.adapters.pytest_adapter import PytestAdapter
 from arcgraph.adapters.pytest_types import PytestTypeAnalyzer
 from arcgraph.analyzers.bindings import BindingAnalyzer
+from arcgraph.core.project_environment import ProjectEnvironment
 from arcgraph.analyzers.calls import CallAnalyzer
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.analyzers.similarity import SimilarityAnalyzer
@@ -52,9 +53,13 @@ class PythonGraphAnalyzer:
         *,
         enable_v2_call_resolution: bool = True,
         adapter_registry: AdapterRegistry | None = None,
+        repo_root: Path | None = None,
+        project_environment: Path | None = None,
     ) -> None:
         self.enable_v2_call_resolution = enable_v2_call_resolution
         self.adapter_registry = adapter_registry
+        self.repo_root = repo_root
+        self.project_environment = project_environment
 
     def analyze(
         self,
@@ -132,7 +137,14 @@ class PythonGraphAnalyzer:
         symbol_analyzer = SymbolAnalyzer()
         binding_analyzer = BindingAnalyzer()
         type_ref_analyzer = TypeRefAnalyzer()
-        call_analyzer = CallAnalyzer(enable_v2=self.enable_v2_call_resolution)
+        environment = ProjectEnvironment(self.repo_root, self.project_environment)
+        if self.project_environment is not None:
+            environment.metadata["explicit_path"] = str(
+                self.project_environment.resolve()
+            )
+        call_analyzer = CallAnalyzer(
+            enable_v2=self.enable_v2_call_resolution, project_environment=environment
+        )
 
         for file_record in files:
             tree = parsed_files.get(file_record.path)
@@ -253,6 +265,7 @@ class PythonGraphAnalyzer:
             external_packages=external_packages,
             parsed_files=parsed_files,
             phase_timings=phase_timings,
+            extractor_metadata={"dependency_environment": environment.metadata},
         )
 
     # ------------------------------------------------------------------

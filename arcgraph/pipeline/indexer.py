@@ -100,6 +100,7 @@ class ArcGraphIndexer:
         enable_v2_call_resolution: bool = True,
         adapter_registry: AdapterRegistry | None = None,
         frontend: PythonSemanticFrontend | None = None,
+        project_environment: Path | None = None,
         frontend_registry: FrontendRegistry | None = None,
         source_root_detection: SourceRootDetection | None = None,
     ) -> None:
@@ -127,6 +128,8 @@ class ArcGraphIndexer:
         self.frontend = frontend or PythonSemanticFrontend(
             enable_v2_call_resolution=self.enable_v2_call_resolution,
             adapter_registry=self.adapter_registry,
+            repo_root=self.repo_root,
+            project_environment=project_environment,
         )
         if frontend_registry is not None:
             self.frontend_registry = frontend_registry
@@ -137,6 +140,7 @@ class ArcGraphIndexer:
                 repo_root=self.repo_root,
                 enable_v2_call_resolution=self.enable_v2_call_resolution,
                 adapter_registry=self.adapter_registry,
+                project_environment=project_environment,
             )
         self.scip_protocol_frontend = (
             ScipProtocolFrontend(self.repo_root, self.scip_graph_index_path)

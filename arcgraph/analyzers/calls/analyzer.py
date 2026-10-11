@@ -132,13 +132,15 @@ class CallAnalyzer:
     resolution is opt-in until query profiles and golden fixtures are updated.
     """
 
-    def __init__(self, *, enable_v2: bool = False) -> None:
+    def __init__(self, *, enable_v2: bool = False, project_environment=None) -> None:
         self.enable_v2 = enable_v2
+        self.project_environment = project_environment
 
     def analyze(
         self, nodes: list[Node], source_nodes: list[Node] | None = None
     ) -> CallAnalysis:
         context = _CallResolutionContext(nodes)
+        context.project_environment = self.project_environment
         source_callsite_nodes = [
             node for node in (source_nodes or nodes) if node.kind in SOURCE_KINDS
         ]
@@ -155,6 +157,7 @@ class CallAnalyzer:
             for callsite in callsites:
                 if not isinstance(callsite, dict):
                     continue
+                context.dependency_reason = None
                 identified_callsite = self._with_stable_callsite_identity(
                     source,
                     callsite,
@@ -189,6 +192,13 @@ class CallAnalyzer:
                         continue
                     candidates = [resolved]
                 for resolved in candidates:
+                    if (
+                        context.dependency_reason
+                        and resolved.target.kind == "diagnostic"
+                    ):
+                        resolved.target.properties["dependency_reason"] = (
+                            context.dependency_reason
+                        )
                     raw_name = str(identified_callsite.get("name"))
                     edge_kind = self._edge_kind(source, identified_callsite, resolved)
                     if resolved.target.id.startswith(
@@ -1793,14 +1803,22 @@ class CallAnalyzer:
         if type_id in TESTCLIENT_TYPES:
             if type_id not in context.dependency_client_contracts:
                 context.dependency_client_contracts[type_id] = (
-                    installed_testclient_contract(type_id)
+                    installed_testclient_contract(type_id, context.project_environment)
+                    if context.project_environment is not None
+                    else None
                 )
             contract = context.dependency_client_contracts[type_id]
             if contract is None or method in contract["blocked"]:
+                if contract is None:
+                    context.dependency_reason = (
+                        context.project_environment.metadata.get("reason")
+                        if context.project_environment is not None
+                        else "project_environment_missing"
+                    ) or "dependency_source_unavailable"
                 return None
             if method in contract["methods"]:
                 owner = "starlette.testclient.TestClient"
-            elif method in GUESSED_METHODS_BY_OWNER.get("httpx.Client", ()):
+            elif method in contract["inherited_methods"]:
                 owner = contract["base"]
             else:
                 return None
@@ -1810,8 +1828,17 @@ class CallAnalyzer:
                 source="installed_dependency_definition",
             )
             target.properties.update(
-                dependency_version=contract["version"],
-                definition_source_sha256=contract["source_sha256"],
+                dependency_distribution=owner.split(".")[0],
+                dependency_version=(
+                    contract["version"]
+                    if method in contract["methods"]
+                    else contract["base_version"]
+                ),
+                definition_source_sha256=(
+                    contract["source_sha256"]
+                    if method in contract["methods"]
+                    else contract["base_source_sha256"]
+                ),
             )
             return target
         start = context.by_id.get(type_id or "")

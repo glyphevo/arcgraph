@@ -5,6 +5,20 @@ import pytest
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.tests.test_generator_and_dynamic_exports import _targets
 
+
+def _distribution(site, name):
+    path = site / (name + "-fixture.dist-info")
+    path.mkdir(exist_ok=True)
+    (path / "METADATA").write_text(
+        f"Name: {name}\nVersion: fixture\n", encoding="utf-8"
+    )
+    if name in {"httpx", "httpx2"}:
+        (site / name).mkdir(exist_ok=True)
+        (site / name / "_client.py").write_text(
+            "class Client:\n    def get(self,*args):pass\n", encoding="utf-8"
+        )
+
+
 PREFERRED = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import httpx2 as httpx\nelse:\n    try: import httpx2 as httpx\n    except ModuleNotFoundError: import httpx\nclass Client(httpx.Client): pass\ndef use(client: Client): client.get('/')\n"
 
 
@@ -44,9 +58,16 @@ def test_shadowed_or_inconsistent_imports_do_not_select_a_definition(tmp_path, p
 def test_external_testclient_constructor_uses_installed_source_definition(
     tmp_path, monkeypatch, imported, base, own
 ):
-    root = tmp_path / "installed"
+    root = tmp_path / "repo/.venv/lib/python3.14/site-packages"
+    root.mkdir(parents=True)
+    (tmp_path / "repo/.venv/pyvenv.cfg").write_text(
+        "version = 3.14.6\n", encoding="utf-8"
+    )
     (root / "starlette").mkdir(parents=True)
+    _distribution(root, "starlette")
     (root / "fastapi").mkdir()
+    _distribution(root, "fastapi")
+    _distribution(root, base)
     (root / "starlette/testclient.py").write_text(
         "import "
         + base
@@ -128,8 +149,13 @@ def test_dependency_source_without_a_stable_single_base_does_not_claim_members(
 ):
     import importlib.metadata
 
-    root = tmp_path / "installed"
+    root = tmp_path / "repo/.venv/lib/python3.14/site-packages"
+    root.mkdir(parents=True)
+    (tmp_path / "repo/.venv/pyvenv.cfg").write_text(
+        "version = 3.14.6\n", encoding="utf-8"
+    )
     (root / "starlette").mkdir(parents=True)
+    _distribution(root, "starlette")
     (root / "starlette/testclient.py").write_text(source, encoding="utf-8")
     monkeypatch.setattr(
         importlib.metadata,
@@ -221,12 +247,20 @@ def test_installed_conditional_client_uses_the_available_primary_or_fallback(
 ):
     import importlib.metadata
 
-    root = tmp_path / "installed"
+    root = tmp_path / "repo/.venv/lib/python3.14/site-packages"
+    root.mkdir(parents=True)
+    (tmp_path / "repo/.venv/pyvenv.cfg").write_text(
+        "version = 3.14.6\n", encoding="utf-8"
+    )
     (root / "starlette").mkdir(parents=True)
+    _distribution(root, "starlette")
     (root / "starlette/testclient.py").write_text(
         PREFERRED.replace("class Client", "class TestClient").split("def use")[0],
         encoding="utf-8",
     )
+
+    for name in available:
+        _distribution(root, name)
 
     def distribution(name):
         if name in {"httpx", "httpx2"} and name not in available:

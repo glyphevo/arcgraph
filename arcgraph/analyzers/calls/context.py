@@ -101,6 +101,7 @@ class _CallResolutionContext:
         # Each project class's method resolution order, once computed.
         self.method_resolution_orders: dict[str, list[Any] | None] = {}
         self.dependency_client_contracts = {}
+        self.project_environment = None
 
     def _typed_binding_refs(self, source: Node, name: str) -> list[dict[str, Any]]:
         recorded_refs: list[dict[str, Any]] = source.properties.get("type_refs", [])

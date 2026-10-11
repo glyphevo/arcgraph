@@ -108,7 +108,11 @@ class PythonSemanticFrontend(LanguageFrontend):
         *,
         enable_v2_call_resolution: bool = True,
         adapter_registry: object | None = None,
+        repo_root: Path | None = None,
+        project_environment: Path | None = None,
     ) -> None:
+        self._repo_root = repo_root
+        self._project_environment = project_environment
         self._enable_v2 = enable_v2_call_resolution
         self._adapter_registry = adapter_registry
 
@@ -193,6 +197,8 @@ class PythonSemanticFrontend(LanguageFrontend):
         analyzer = PythonGraphAnalyzer(
             enable_v2_call_resolution=self._enable_v2,
             adapter_registry=self._adapter_registry,
+            repo_root=self._repo_root,
+            project_environment=self._project_environment,
         )
         return analyzer.analyze(
             files,
@@ -422,12 +428,15 @@ def default_frontend_registry(
     typescript_timeout_seconds: float = 60,
     enable_v2_call_resolution: bool = True,
     adapter_registry: object | None = None,
+    project_environment: Path | None = None,
 ) -> FrontendRegistry:
     return FrontendRegistry(
         [
             PythonSemanticFrontend(
                 enable_v2_call_resolution=enable_v2_call_resolution,
                 adapter_registry=adapter_registry,
+                repo_root=repo_root,
+                project_environment=project_environment,
             ),
             TypeScriptSemanticFrontend(
                 repo_root=repo_root,

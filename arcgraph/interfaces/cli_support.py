@@ -18,6 +18,7 @@ from typing import Any
 from arcgraph import SCHEMA_VERSION
 from arcgraph.change.errors import ChangeSafetyError
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
+from arcgraph.core.project_environment import ProjectEnvironment
 from arcgraph.core.utils import replace_text_file
 
 # requires-python of ArcGraph itself, as pyproject.toml declares it;
@@ -77,6 +78,20 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
                 ),
             }
         ]
+    environment = ProjectEnvironment(repo_root)
+    checks.append(
+        {
+            "name": "project_dependency_environment",
+            "status": (
+                "pass" if environment.metadata["status"] == "available" else "warn"
+            ),
+            "message": (
+                f"Read-only dependency environment: {environment.metadata['path']} "
+                f"({environment.metadata['reason'] or 'available'})."
+            ),
+            "fix": "Use the project .venv or set tool.arcgraph.python_environment; no tool-host fallback.",
+        }
+    )
     project = project_minimum_python(repo_root)
     if project is None:
         return checks

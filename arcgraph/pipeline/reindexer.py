@@ -24,6 +24,7 @@ from arcgraph.core.scanner import (
     infer_source_roots,
 )
 from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
+from arcgraph.core.project_environment import dependency_environment_changed
 from arcgraph.core.schemas import (
     SCHEMA_VERSION,
     BuildWarning,
@@ -129,12 +130,29 @@ class ArcGraphReindexer:
         source_roots = self.source_roots or self._recover_source_roots(store.metadata)
 
         enable_v2_call_resolution = self._receiver_resolution_enabled(store.metadata)
+        environment = (
+            store.metadata.get("extractor_metadata", {})
+            .get("python-v1-compat-shim", {})
+            .get("dependency_environment", {})
+        )
+        explicit = environment.get("explicit_path")
         indexer = ArcGraphIndexer(
             self.repo_root,
             self.output_dir,
             source_roots,
             enable_v2_call_resolution=enable_v2_call_resolution,
+            project_environment=Path(explicit) if explicit else None,
         )
+        if dependency_environment_changed(store.metadata, self.repo_root):
+            metadata, build_dir = indexer._build_inner()
+            return {
+                "schema_version": metadata.schema_version,
+                "index_version": metadata.index_version,
+                "status": "reindexed",
+                "changed": {"added": [], "modified": [], "deleted": []},
+                "reason": "dependency_environment_changed",
+                "build_dir": str(build_dir),
+            }
         active_frontends = indexer._build_plan()
         scanner = FileScanner(
             self.repo_root,

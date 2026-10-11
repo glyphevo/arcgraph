@@ -13,6 +13,7 @@ from arcgraph.core.scanner import (
     infer_source_roots,
     logical_module_name,
 )
+from arcgraph.core.project_environment import dependency_environment_changed
 from arcgraph.core.schemas import Freshness
 from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
 
@@ -24,6 +25,10 @@ def fresh() -> Freshness:
 def compute_freshness(store: GraphStoreReader) -> Freshness:
     try:
         repo_root = Path(str(store.metadata["repo_root"]))
+        if dependency_environment_changed(store.metadata, repo_root):
+            return Freshness(
+                status="stale", stale=True, reason="dependency_environment_changed"
+            )
         source_roots = _source_roots_from_metadata(store.metadata)
         indexed_files = store.read_files()
         file_extensions = _indexed_file_extensions(

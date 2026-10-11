@@ -3,8 +3,7 @@
 from __future__ import annotations
 import ast
 import hashlib
-import importlib.metadata
-from pathlib import Path
+from arcgraph.core.project_environment import ProjectEnvironment
 
 TESTCLIENT_TYPES = {
     "extsym:starlette.testclient.TestClient",
@@ -69,7 +68,7 @@ def mark_preferred_imports(body, bindings):
                 row["preferred_typing_runtime_import"] = True
 
 
-def installed_testclient_contract(type_id):
+def installed_testclient_contract(type_id, environment: ProjectEnvironment):
     """Read installed source, including FastAPI's explicit re-export.
 
     Unsupported multiple bases, computed exports and missing source stay unknown.
@@ -78,13 +77,14 @@ def installed_testclient_contract(type_id):
     if type_id not in TESTCLIENT_TYPES:
         return None
     package = type_id.split(":", 1)[1].split(".")[0]
-    try:
-        distribution = importlib.metadata.distribution(package)
-        path = Path(distribution.locate_file(package + "/testclient.py"))
-        data = path.read_bytes()
-        tree = ast.parse(data)
-    except (importlib.metadata.PackageNotFoundError, OSError, SyntaxError):
+    data = environment.source(package, "testclient.py")
+    if data is None:
         return None
+    try:
+        tree = ast.parse(data)
+    except SyntaxError:
+        return None
+    distribution = environment.metadata["distributions"][package]
 
     def assigned_at_module(name):
         return any(
@@ -113,7 +113,9 @@ def installed_testclient_contract(type_id):
         ]
         if len(exports) != 1:
             return None
-        return installed_testclient_contract("extsym:starlette.testclient.TestClient")
+        return installed_testclient_contract(
+            "extsym:starlette.testclient.TestClient", environment
+        )
     classes = [
         n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "TestClient"
     ]
@@ -177,9 +179,7 @@ def installed_testclient_contract(type_id):
             return None
         ordered = [preferred[0], *sorted(candidates - {preferred[0]})]
         for candidate in ordered:
-            try:
-                importlib.metadata.distribution(candidate)
-            except importlib.metadata.PackageNotFoundError:
+            if candidate not in environment.metadata["distributions"]:
                 continue
             aliases[parts[0]] = candidate
             break
@@ -188,6 +188,31 @@ def installed_testclient_contract(type_id):
     base = ".".join([aliases[parts[0]], *parts[1:]])
     if base not in {"httpx.Client", "httpx2.Client"}:
         return None
+    base_package = base.split(".")[0]
+    base_data = environment.source(base_package, "_client.py")
+    inherited = set()
+    if base_data is not None:
+        try:
+            base_tree = ast.parse(base_data)
+        except SyntaxError:
+            return None
+        base_classes = [
+            n
+            for n in base_tree.body
+            if isinstance(n, ast.ClassDef) and n.name == "Client"
+        ]
+        if (
+            len(base_classes) != 1
+            or base_classes[0].decorator_list
+            or base_classes[0].keywords
+        ):
+            return None
+        inherited = {
+            n.name
+            for n in base_classes[0].body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and not n.decorator_list
+        }
     methods = {
         n.name
         for n in cls.body
@@ -208,8 +233,15 @@ def installed_testclient_contract(type_id):
     }
     return {
         "base": base,
+        "inherited_methods": inherited,
         "methods": methods,
         "blocked": blocked,
-        "version": distribution.version,
+        "version": distribution["version"],
+        "base_version": environment.metadata["distributions"]
+        .get(base_package, {})
+        .get("version"),
         "source_sha256": hashlib.sha256(data).hexdigest(),
+        "base_source_sha256": (
+            hashlib.sha256(base_data).hexdigest() if base_data else None
+        ),
     }
