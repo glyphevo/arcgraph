@@ -267,10 +267,19 @@ class SymbolAnalyzer:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 yield from self._definition_header_callsites(stmt)
                 continue
+            if type(stmt).__name__ == "TypeAlias":
+                yield from self._scope_callsites(
+                    "definition_default", *getattr(stmt, "type_params", ())
+                )
+                yield from self._scope_callsites("module_body", stmt.value)
+                continue
             yield from self._scope_callsites("module_body", stmt)
 
     def _class_body_callsites(self, stmt: ast.ClassDef) -> Iterable[dict[str, object]]:
         yield from self._scope_callsites("decorator", *stmt.decorator_list)
+        yield from self._scope_callsites(
+            "definition_default", *getattr(stmt, "type_params", ())
+        )
         yield from self._scope_callsites(
             "class_body",
             *stmt.bases,
@@ -278,9 +287,16 @@ class SymbolAnalyzer:
         )
         for child in stmt.body:
             if isinstance(child, ast.ClassDef):
+                yield from self._scope_callsites("definition_default", child)
                 continue
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 yield from self._definition_header_callsites(child)
+                continue
+            if type(child).__name__ == "TypeAlias":
+                yield from self._scope_callsites(
+                    "definition_default", *getattr(child, "type_params", ())
+                )
+                yield from self._scope_callsites("class_body", child.value)
                 continue
             yield from self._scope_callsites("class_body", child)
 
@@ -290,6 +306,7 @@ class SymbolAnalyzer:
         yield from self._scope_callsites("decorator", *stmt.decorator_list)
         yield from self._scope_callsites(
             "definition_default",
+            *getattr(stmt, "type_params", ()),
             *stmt.args.defaults,
             *(default for default in stmt.args.kw_defaults if default is not None),
         )
@@ -377,13 +394,34 @@ class _ScopedCallsiteVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        return None
+        # Nested classes have no separate symbol in this analyzer. Keep their
+        # type-parameter headers in the existing enclosing scope, including
+        # declarations inside them, without collecting their ordinary bodies.
+        for declaration in ast.walk(node):
+            if (
+                isinstance(
+                    declaration, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+                )
+                or type(declaration).__name__ == "TypeAlias"
+            ):
+                self._visit_type_parameters(declaration)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        return None
+        self._visit_type_parameters(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        return None
+        self._visit_type_parameters(node)
+
+    def visit_TypeAlias(self, node: ast.AST) -> None:
+        self._visit_type_parameters(node)
+        self.visit(node.value)
+
+    def _visit_type_parameters(self, node: ast.AST) -> None:
+        context = self.context
+        self.context = "definition_default"
+        for parameter in getattr(node, "type_params", ()):
+            self.visit(parameter)
+        self.context = context
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         return None

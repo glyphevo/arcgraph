@@ -13,6 +13,7 @@ import tomllib
 import warnings
 
 from arcgraph.core.project_environment import project_interpreter_path
+from arcgraph.core.scanner import FileScanner
 from arcgraph.core.schemas import BuildWarning
 
 STRUCTURE_FIX = (
@@ -23,11 +24,44 @@ MISSING_INTERPRETER = (
     "No project interpreter found; Python structure uses the ArcGraph host parser. "
     + STRUCTURE_FIX
 )
+PROJECT_ERRORS = (
+    OSError,
+    ValueError,
+    EOFError,
+    TypeError,
+    AttributeError,
+    IndexError,
+    KeyError,
+    RecursionError,
+    subprocess.SubprocessError,
+)
 
 
-def structure_state(root: Path, environment: Path | None = None) -> str:
+def structure_state(
+    root: Path,
+    environment: Path | None = None,
+    *,
+    previous: str | None = None,
+    paths: dict[str, Path] | None = None,
+    fallback: str | None = None,
+) -> str:
     """Private incremental cache key; never added to graph/export metadata."""
     view = StructureView(root, environment)
+    probe_paths = json.loads(previous).get("probe_paths") if previous else None
+    if (
+        paths is not None
+        and fallback
+        and fallback.startswith("Project interpreter failed")
+    ):
+        # Remember the actual failed workload, not an empty capability probe.
+        # On later syncs recheck these same blocks: stable failures don't rebuild,
+        # and recovery (even without executable changes) refreshes the graph.
+        probe_paths = {name: str(path.absolute()) for name, path in paths.items()}
+        view.reason = fallback
+    elif probe_paths is not None:
+        view.read({name: Path(path) for name, path in probe_paths.items()})
+    else:
+        view.probe()
     candidate = project_interpreter_path(root, environment=environment)
     identity = None
     if candidate is not None:
@@ -49,6 +83,7 @@ def structure_state(root: Path, environment: Path | None = None) -> str:
             "fallback": view.reason,
             "requirement": view.requirement,
             "host": list(sys.version_info[:3]),
+            **({"probe_paths": probe_paths} if probe_paths is not None else {}),
         },
         sort_keys=True,
     )
@@ -145,6 +180,8 @@ class StructureView:
         self.version = None
         self.reason = None
         self.requirement = python_requirement(root)
+        self.root = root
+        self.trace_available = False
         if root is None:
             return
         self.interpreter = project_interpreter_path(root, environment=environment)
@@ -153,6 +190,7 @@ class StructureView:
             return
         try:
             self._read_project({})
+            self.trace_available = True
             if self.requirement and not satisfies_python(
                 self.version, self.requirement
             ):
@@ -161,31 +199,62 @@ class StructureView:
                     f"requires-python {self.requirement}; Python structure uses "
                     f"the ArcGraph host parser. {STRUCTURE_FIX}"
                 )
-        except (
-            OSError,
-            ValueError,
-            EOFError,
-            TypeError,
-            subprocess.SubprocessError,
-        ) as exc:
+        except PROJECT_ERRORS as exc:
             self._failed(exc)
         if self.reason:
             self.interpreter = None
 
-    def _failed(self, exc):
-        self.reason = (
-            f"Project interpreter failed ({type(exc).__name__}); Python structure "
-            f"uses the ArcGraph host parser. {STRUCTURE_FIX}"
+    def _failed(self, exc, *, partial=False):
+        if isinstance(exc, subprocess.TimeoutExpired):
+            detail = f"timed out after {exc.timeout:g} seconds"
+        elif isinstance(exc, subprocess.CalledProcessError):
+            detail = f"exit code {exc.returncode}"
+        elif isinstance(exc, OSError):
+            detail = f"startup error: {type(exc).__name__}"
+        else:
+            detail = f"protocol error: {type(exc).__name__}"
+        scope = (
+            "uses the ArcGraph host parser for the affected block; other blocks "
+            "use the project interpreter."
+            if partial
+            else "uses the ArcGraph host parser."
         )
-        self.interpreter = None
+        self.reason = (
+            f"Project interpreter failed ({detail}); Python structure "
+            f"{scope} {STRUCTURE_FIX}"
+        )
+        if not partial:
+            self.interpreter = None
+
+    def probe(self, *, all_files=False):
+        """Doctor and healthy cache fingerprints exercise a real project file."""
+        if self.interpreter is not None and self.root is not None:
+            files = FileScanner(self.root).scan()
+            if files:
+                self.read(
+                    {
+                        file.path: Path(file.abs_path)
+                        for file in (files if all_files else files[:1])
+                    }
+                )
 
     def status(self) -> dict:
         """The effective parser, independently of analysis warnings."""
         return {
-            "status": "project" if self.interpreter is not None else "host_fallback",
-            "interpreter": str(self.interpreter or sys.executable),
+            "status": (
+                "project"
+                if self.interpreter is not None and not self.reason
+                else "host_fallback"
+            ),
+            "interpreter": str(
+                self.interpreter
+                if not self.reason and self.interpreter
+                else sys.executable
+            ),
             "version": (
-                self.version if self.interpreter is not None else sys.version.split()[0]
+                self.version
+                if self.interpreter is not None and not self.reason
+                else sys.version.split()[0]
             ),
             "reason": self.reason,
             "fix": STRUCTURE_FIX if self.reason else None,
@@ -209,11 +278,14 @@ class StructureView:
             check=True,
         )
         # Primitive structural transport; decoded objects are never executed.
-        protocol, self.version, definitions, records = marshal.loads(
+        protocol, version, definitions, records = marshal.loads(
             result.stdout
         )  # nosec B302
         if protocol != 1:
             raise ValueError("Unsupported project structure protocol")
+        if not isinstance(version, str) or not isinstance(records, dict):
+            raise ValueError("Invalid project structure response")
+        self.version = version
         types = []
         for name, fields, attributes, base in definitions:
             cls = getattr(ast, name, None)
@@ -228,29 +300,41 @@ class StructureView:
                 )
             singleton = cls() if not fields and not attributes else None
             types.append((cls, fields, attributes, singleton))
-        return {
+        if set(records) != set(paths):
+            raise ValueError("Incomplete project structure response")
+        decoded = {
             p: (_decode(types, tree) if tree is not None else None, error)
             for p, (tree, error) in records.items()
         }
+        if any(
+            (tree is not None and not isinstance(tree, ast.Module))
+            or (error is not None and not isinstance(error, str))
+            for tree, error in decoded.values()
+        ):
+            raise ValueError("Invalid project structure record")
+        return decoded
 
     def read(
         self, paths: dict[str, Path]
     ) -> tuple[dict[str, ast.Module], list[BuildWarning]]:
         paths = {name: str(path.absolute()) for name, path in paths.items()}
         if self.interpreter is not None:
-            try:
-                records = self._read_project(paths)
-                if set(records) != set(paths):
-                    raise ValueError("Incomplete project structure response")
-            except (
-                OSError,
-                ValueError,
-                EOFError,
-                TypeError,
-                subprocess.SubprocessError,
-            ) as exc:
-                self._failed(exc)
-                records = self._read_host(paths)
+            records = {}
+            failures = []
+            project_blocks = 0
+            items = list(paths.items())
+            # A block has its own budget. A slow/failed block cannot discard the
+            # project structures already read from other blocks.
+            for offset in range(0, len(items), 256):
+                block = dict(items[offset : offset + 256])
+                try:
+                    records.update(self._read_project(block))
+                    project_blocks += 1
+                except PROJECT_ERRORS as exc:
+                    failures.append(exc)
+                    records.update(self._read_host(block))
+            if failures:
+                self._failed(failures[0], partial=bool(project_blocks))
         else:
             records = self._read_host(paths)
         notices = []

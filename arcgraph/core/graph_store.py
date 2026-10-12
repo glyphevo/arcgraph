@@ -631,19 +631,22 @@ class GraphStoreWriter:
                 # Empty paths cannot name a scanned file. Reuse this private
                 # source-cache table without changing the storage schema or
                 # any exported graph/metadata field.
-                state = json.loads(
-                    structure_state(
-                        Path(metadata.repo_root), Path(explicit) if explicit else None
-                    )
-                )
                 actual = metadata.toolchain_status.get("python_structure")
-                if isinstance(actual, dict):
-                    state["fallback"] = actual.get("reason")
+                state = structure_state(
+                    Path(metadata.repo_root),
+                    Path(explicit) if explicit else None,
+                    paths={
+                        f.path: Path(f.abs_path)
+                        for f in files
+                        if f.path.endswith(".py")
+                    },
+                    fallback=actual.get("reason") if isinstance(actual, dict) else None,
+                )
                 conn.execute(
                     "INSERT INTO python_sources VALUES (?, ?)",
                     (
                         "",
-                        encode(json.dumps(state, sort_keys=True)),
+                        encode(state),
                     ),
                 )
             for key, value in metadata.model_dump(mode="json").items():

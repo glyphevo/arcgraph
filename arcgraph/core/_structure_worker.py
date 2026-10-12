@@ -47,14 +47,7 @@ def main():
                 tree = ast.parse(source, filename=name)
             records[name] = (encode(tree), None)
         except (OSError, SyntaxError, UnicodeError, RecursionError) as exc:
-            message = str(exc)
-            if isinstance(exc, SyntaxError):
-                message += (
-                    " (parsed with Python %s.%s; syntax added in a later Python "
-                    "needs a project interpreter on that version)"
-                    % sys.version_info[:2]
-                )
-            records[name] = (None, message)
+            records[name] = (None, str(exc))
     marshal.dump((1, sys.version.split()[0], types, records), sys.stdout.buffer, 4)
 
 

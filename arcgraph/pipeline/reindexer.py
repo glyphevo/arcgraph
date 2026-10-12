@@ -154,7 +154,9 @@ class ArcGraphReindexer:
         parser_changed = store.metadata.get("extractor_metadata", {}).get(
             "python-v1-compat-shim"
         ) and store.python_source("") != structure_state(
-            self.repo_root, Path(explicit) if explicit else None
+            self.repo_root,
+            Path(explicit) if explicit else None,
+            previous=store.python_source(""),
         )
         if (
             dependency_environment_changed(store.metadata, self.repo_root)
@@ -163,17 +165,16 @@ class ArcGraphReindexer:
             # Refresh the source generation without losing the previously
             # declared precision, coverage or runtime input paths.
             inputs = {
-                "precision_scip": "scip_index_path",
-                "precision_pyright": "pyright_export_path",
-                "coverage": "coverage_path",
-                "runtime_trace": "runtime_trace_path",
+                "scip_index_path": ("precision_metrics", "scip_index_path"),
+                "pyright_export_path": ("precision_metrics", "pyright_export_path"),
+                "coverage_path": ("coverage_metrics", "path"),
+                "runtime_trace_path": ("runtime_metrics", "trace_path"),
             }
-            for artifact in (store.metadata.get("evidence_manifest") or {}).get(
-                "artifacts", []
-            ):
-                field = inputs.get(artifact.get("kind"))
-                path = artifact.get("path")
-                if field and isinstance(path, str) and path:
+            # The manifest also lists suggested, unconfigured paths. Only
+            # restore inputs actually used by the previous analysis.
+            for field, (metrics, key) in inputs.items():
+                path = (store.metadata.get(metrics) or {}).get(key)
+                if isinstance(path, str) and path:
                     setattr(indexer, field, self.repo_root / path)
             metadata, build_dir = indexer._build_inner()
             return {
@@ -210,6 +211,13 @@ class ArcGraphReindexer:
                 "build_dir": str(store.sqlite_path.parent),
             }
         self._assert_incremental_module_identities_stable(old_files, current_files)
+        parser_state = json.loads(store.python_source("") or "{}")
+        if parser_state.get("probe_paths"):
+            # A block fallback depends on its workload, not just the edited file.
+            # Reanalyze the complete Python workload when its input changes.
+            changed_paths.update(
+                f.path for f in [*old_files, *current_files] if f.path.endswith(".py")
+            )
 
         old_nodes = store.read_nodes()
         old_edges = store.read_edges()

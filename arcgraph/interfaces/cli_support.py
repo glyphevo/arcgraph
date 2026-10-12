@@ -85,12 +85,15 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
     environment = ProjectEnvironment(repo_root)
     interpreter = project_interpreter_path(repo_root)
     structure = StructureView(repo_root)
+    structure.probe(all_files=True)
     checks.append(
         {
             "name": "project_trace_interpreter",
-            "status": "pass" if structure.interpreter else "warn",
+            "status": "pass" if structure.trace_available else "warn",
             "message": (
-                (
+                f"Project trace interpreter: {interpreter}."
+                if structure.trace_available
+                else (
                     f"Project trace interpreter: {interpreter}. "
                     if interpreter
                     else "No project interpreter found; trace run falls back to the ArcGraph host. "
@@ -121,7 +124,7 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
         return checks
     requires, minimum = project
     wanted = f"{minimum[0]}.{minimum[1]}"
-    if structure.version is not None:
+    if structure.version is not None or (interpreter and structure.reason):
         checks.append(
             {
                 "name": "project_python",
