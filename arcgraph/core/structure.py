@@ -37,6 +37,16 @@ PROJECT_ERRORS = (
 )
 
 
+def fallback_scope(partial):
+    """Describe the scope separately from an individual block's failure."""
+    return (
+        "uses the ArcGraph host parser for the affected block; other blocks "
+        "use the project interpreter."
+        if partial
+        else "uses the ArcGraph host parser."
+    )
+
+
 def _block_path_order(name):
     """Canonical directory traversal: local files before child directories."""
     parts = name.split("/")
@@ -230,12 +240,7 @@ class StructureView:
             detail = f"startup error: {type(exc).__name__}"
         else:
             detail = f"protocol error: {type(exc).__name__}"
-        scope = (
-            "uses the ArcGraph host parser for the affected block; other blocks "
-            "use the project interpreter."
-            if partial
-            else "uses the ArcGraph host parser."
-        )
+        scope = fallback_scope(partial)
         self.reason = (
             f"Project interpreter failed ({detail}); Python structure "
             f"{scope} {STRUCTURE_FIX}"

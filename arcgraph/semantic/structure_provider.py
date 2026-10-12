@@ -268,7 +268,7 @@ def admit_structure(
     )
 
 
-def project_read(parser, paths):
+def project_read(parser, paths, *, continue_project):
     """Observe host reads and keep D2's project attempts across semantic blocks."""
     hosted = set()
     original = getattr(parser, "_read_host", None)
@@ -286,7 +286,7 @@ def project_read(parser, paths):
 
     parser._read_host = read_host
     try:
-        trees, notices = parser.read(paths, continue_project=True)
+        trees, notices = parser.read(paths, continue_project=continue_project)
     finally:
         if had_override:
             parser._read_host = previous
@@ -300,12 +300,15 @@ def analyze(
 ):
     """Convert D2's ASTs, releasing each block; never start a second parser."""
     import ast
-    from arcgraph.core.structure import StructureView
+    from arcgraph.core.structure import StructureView, fallback_scope
     from .frozen import interpreter_identity
 
     verify(snapshot, root)
     parser = structure_view or StructureView(root, environment)
     status = parser.status()
+    # Only an entry-active project interpreter is trusted for this analysis.
+    # A view already using the host must not restore an unchecked candidate.
+    continue_project = status["status"] != "host_fallback"
     interpreter = interpreter_identity(root, executable=status["interpreter"])
     expected_interpreter = {
         key: value for key, value in snapshot.environment if key in interpreter
@@ -344,8 +347,16 @@ def analyze(
     hosted_files = set()
     for offset in range(0, len(manifest), 64):
         block = manifest[offset : offset + 64]
+        if (
+            continue_project
+            and str(getattr(parser, "_project_interpreter", status["interpreter"]))
+            != status["interpreter"]
+        ):
+            raise ValueError("interpreter_identity_mismatch")
         trees, notices, hosted = project_read(
-            parser, {f.path: root / f.path for f in block}
+            parser,
+            {f.path: root / f.path for f in block},
+            continue_project=continue_project,
         )
         hosted_files.update(hosted)
         errors = {w.path: w.message for w in notices}
@@ -424,6 +435,26 @@ def analyze(
             if len(hosted_files) == len(manifest)
             else "partial_fallback"
         )
+        # Keep each block's failure detail, but describe its scope using the
+        # complete analysis: an early failure may precede successful blocks.
+        partial = effective == "partial_fallback"
+        for index, file in enumerate(files):
+            if file.status == "host_fallback":
+                message = file.diagnostic["message"]
+                files[index] = file.model_copy(
+                    update={
+                        "diagnostic": {
+                            **file.diagnostic,
+                            "message": (
+                                message.replace(
+                                    fallback_scope(not partial), fallback_scope(partial)
+                                )
+                                if message
+                                else message
+                            ),
+                        }
+                    }
+                )
         producer = producer.model_copy(
             update={
                 "interpreter": tuple(
