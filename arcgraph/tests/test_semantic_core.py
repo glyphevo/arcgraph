@@ -58,7 +58,9 @@ def make_view(tmp_path, filename="policy-v2.txt", source=None):
         platform="Darwin",
         environment=(("dependencies", "none"),),
     )
-    bundle = structure_provider.analyze(snapshot, root, access_facts=True)
+    bundle = structure_provider.analyze(
+        snapshot, root, environment=Path(sys.prefix), access_facts=True
+    )
     assert bundle.complete, bundle.reasons
     return snapshot, root, View(bundle)
 

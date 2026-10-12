@@ -44,7 +44,7 @@ def make(tmp_path, source=None, environment=(("dependencies", "none"),)):
         platform="Darwin",
         environment=environment,
     )
-    view = View(analyze(snapshot, frozen))
+    view = View(analyze(snapshot, frozen, environment=Path(sys.prefix)))
     backend = producer("pyright", "1.1.414", (TARGET,), {"wrapper": "semantic/1"})
     return snapshot, frozen, view, backend
 
@@ -309,7 +309,7 @@ def test_source_root_module_mapping_binds_structure_to_default_graph(tmp_path):
     )
     mapped = snapshot.model_copy(update={"module_names": (("src/demo.py", "demo"),)})
     assert mapped.id != snapshot.id
-    view = View(analyze(mapped, root))
+    view = View(analyze(mapped, root, environment=Path(sys.prefix)))
     assert "demo.Concrete.run" in {d.qualname for d in view.definitions}
     assert not any(d.qualname.startswith("src.") for d in view.definitions)
     base = next(d for d in view.definitions if d.qualname == "demo.Base.run")

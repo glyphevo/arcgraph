@@ -45,7 +45,7 @@ class StructuralProducer(Model):
 class StructuralFile(Model):
     path: str
     raw_digest: str
-    status: Literal["parsed", "parse_error"]
+    status: Literal["parsed", "parse_error", "host_fallback"]
     diagnostic: dict | None = None
 
 
@@ -248,6 +248,10 @@ def admit_structure(
     except ValueError as exc:
         return False, str(exc)
     identity = dict(bundle.producer.interpreter)
+    if identity.get("parser_status") == "host_fallback" or (
+        bundle.files and all(f.status == "host_fallback" for f in bundle.files)
+    ):
+        return False, "host_fallback_not_semantic_evidence"
     if bundle.snapshot.id != expected.id:
         return False, "snapshot_identity_mismatch"
     if expected.target_python not in SUPPORTED:
@@ -262,6 +266,33 @@ def admit_structure(
         if bundle.availability == "partial"
         else "experimental_admitted"
     )
+
+
+def project_read(parser, paths):
+    """Observe D2's actual host reads without changing its parsing decisions."""
+    hosted = set()
+    original = getattr(parser, "_read_host", None)
+    if original is None:
+        trees, notices = parser.read(paths)
+        if parser.status()["status"] == "host_fallback":
+            hosted.update(paths)
+        return trees, notices, hosted
+    had_override = "_read_host" in parser.__dict__
+    previous = parser.__dict__.get("_read_host")
+
+    def read_host(host_paths):
+        hosted.update(host_paths)
+        return original(host_paths)
+
+    parser._read_host = read_host
+    try:
+        trees, notices = parser.read(paths)
+    finally:
+        if had_override:
+            parser._read_host = previous
+        else:
+            del parser._read_host
+    return trees, notices, hosted
 
 
 def analyze(
@@ -279,7 +310,11 @@ def analyze(
     expected_interpreter = {
         key: value for key, value in snapshot.environment if key in interpreter
     }
-    if expected_interpreter and expected_interpreter != interpreter:
+    if (
+        status["status"] != "host_fallback"
+        and expected_interpreter
+        and expected_interpreter != interpreter
+    ):
         raise ValueError("interpreter_identity_mismatch")
     target = ".".join(status["version"].split(".")[:2])
     if target != snapshot.target_python:
@@ -306,21 +341,40 @@ def analyze(
     records, files = [], []
     modules = dict(snapshot.module_names)
     manifest = [f for f in snapshot.files if f.path.endswith(".py")]
+    hosted_files = set()
     for offset in range(0, len(manifest), 64):
         block = manifest[offset : offset + 64]
-        trees, notices = parser.read({f.path: root / f.path for f in block})
+        trees, notices, hosted = project_read(
+            parser, {f.path: root / f.path for f in block}
+        )
+        hosted_files.update(hosted)
         errors = {w.path: w.message for w in notices}
         for file in block:
-            tree = trees.get(file.path)
+            tree = trees.get(file.path) if file.path not in hosted else None
             files.append(
                 StructuralFile(
                     path=file.path,
                     raw_digest=file.raw_digest,
-                    status="parsed" if tree is not None else "parse_error",
+                    status=(
+                        "host_fallback"
+                        if file.path in hosted
+                        else "parsed" if tree is not None else "parse_error"
+                    ),
                     diagnostic=(
                         None
                         if tree is not None
-                        else {"reason": "parse_error", "message": errors.get(file.path)}
+                        else {
+                            "reason": (
+                                "host_fallback"
+                                if file.path in hosted
+                                else "parse_error"
+                            ),
+                            "message": (
+                                parser.status().get("reason")
+                                if file.path in hosted
+                                else errors.get(file.path)
+                            ),
+                        }
                     ),
                 )
             )
@@ -364,10 +418,43 @@ def analyze(
     verify(snapshot, root)
     if interpreter_identity(root, executable=status["interpreter"]) != interpreter:
         raise ValueError("input_changed_during_run: selected interpreter changed")
+    if hosted_files:
+        effective = (
+            "host_fallback"
+            if len(hosted_files) == len(manifest)
+            else "partial_fallback"
+        )
+        producer = producer.model_copy(
+            update={
+                "interpreter": tuple(
+                    sorted(
+                        {
+                            **dict(producer.interpreter),
+                            "parser_status": effective,
+                            "d2_parser_status": parser.status()["status"],
+                        }.items()
+                    )
+                )
+            }
+        )
+        generation_id = digest((snapshot.id, producer.id))
+        for index, record in enumerate(records):
+            records[index] = record.model_copy(
+                update={
+                    "envelope": record.envelope.model_copy(
+                        update={
+                            "generation": generation_id,
+                            "producer": producer.id,
+                            "record_id": digest((generation_id, record.id)),
+                        }
+                    )
+                }
+            )
     bundle = StructuralGeneration(
         id=generation_id,
         snapshot=snapshot,
         producer=producer,
+        reasons=("host_fallback_files_uncovered",) if hosted_files else (),
         availability=(
             "partial" if any(f.status != "parsed" for f in files) else "available"
         ),

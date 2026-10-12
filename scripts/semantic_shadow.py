@@ -128,7 +128,7 @@ def stage_structure(args, evidence):
     from arcgraph.semantic.contract import Snapshot
     from arcgraph.semantic.journal import write_structure
     from arcgraph.semantic.snapshot import canonical, native_position
-    from arcgraph.semantic.structure_provider import analyze
+    from arcgraph.semantic.structure_provider import analyze, admit_structure
     from arcgraph.semantic.frozen import verify_interpreter
 
     environment = load(evidence / "environment.json")
@@ -142,6 +142,20 @@ def stage_structure(args, evidence):
     verify_interpreter(
         args.repo_root, environment["interpreter"], args.project_environment
     )
+    allowed, reason = admit_structure(bundle, snapshot)
+    save(
+        evidence / "structure-admission.json",
+        {
+            "allowed": allowed,
+            "reason": reason,
+            "uncovered_files": [
+                f.model_dump(mode="json") for f in bundle.files if f.status != "parsed"
+            ],
+        },
+    )
+    if not allowed:
+        write_structure(bundle, evidence / "structure.jsonl")
+        raise RuntimeError("Semantic structure refused: " + reason)
     view = View(bundle)
     texts = {f.path: canonical((root / f.path).read_bytes()) for f in snapshot.files}
     plan = {
