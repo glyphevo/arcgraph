@@ -1,6 +1,7 @@
 """Shadow policy 0.3: open targets and evidence-backed declaration relations."""
 
 from collections import Counter
+import time
 from .anchors import View, BackendRun, admit
 
 POLICY = "shadow-open-targets/0.3"
@@ -29,7 +30,15 @@ def gradual(annotation):
     )
 
 
-def project(view: View, primary: BackendRun, fallback: BackendRun, expected_producers):
+def project(
+    view: View,
+    primary: BackendRun,
+    fallback: BackendRun,
+    expected_producers,
+    *,
+    timings=None,
+):
+    started = time.perf_counter()
     snapshot = view.bundle.snapshot
     admission = []
     active = []
@@ -45,6 +54,7 @@ def project(view: View, primary: BackendRun, fallback: BackendRun, expected_prod
     primary_answers = (
         {a.subject: a for a in primary.answers} if primary in active else {}
     )
+    admitted = time.perf_counter()
     supports, decisions = {}, []
     for run in active:
         for answer in run.answers:
@@ -108,7 +118,7 @@ def project(view: View, primary: BackendRun, fallback: BackendRun, expected_prod
     def pairs(keys):
         return {(view.sites[s].owner, t, d, p) for s, t, d, p in keys}
 
-    return {
+    result = {
         "policy": POLICY,
         "admission": admission,
         "edges": [
@@ -133,3 +143,8 @@ def project(view: View, primary: BackendRun, fallback: BackendRun, expected_prod
             for run in (primary, fallback)
         },
     }
+    if timings is not None:
+        timings.update(
+            admission=admitted - started, projection=time.perf_counter() - admitted
+        )
+    return result
