@@ -28,7 +28,7 @@ def add_setup_parser(subparsers: Any) -> None:
         "setup",
         help="Build/refresh an index and connect a client, or preview with --dry-run.",
     )
-    parser.add_argument("--client", choices=CLIENTS, required=True)
+    parser.add_argument("--client", choices=CLIENTS)
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -46,6 +46,33 @@ def add_setup_parser(subparsers: Any) -> None:
         help="Positive per-step timeout in seconds.",
     )
     parser.set_defaults(handler=handle_setup)
+    parser.namespace_validator = _validate_setup_namespace
+    children = parser.add_subparsers(dest="setup_command")
+    semantic = children.add_parser(
+        "semantic", help="Install the locked pyright semantic backend."
+    )
+    semantic.add_argument(
+        "--from",
+        dest="from_tgz",
+        type=Path,
+        help="Install from a local archive without network access.",
+    )
+    semantic.set_defaults(handler=handle_semantic_setup)
+
+
+def _validate_setup_namespace(parser, args):
+    if args.setup_command is None and args.client is None:
+        parser.error("the following arguments are required: --client")
+    if args.setup_command == "semantic" and (
+        args.client is not None or args.dry_run or args.client_config is not None
+    ):
+        parser.error("setup semantic cannot be combined with client setup options")
+
+
+def handle_semantic_setup(args):
+    from arcgraph.semantic.install import install
+
+    return install(args.from_tgz)
 
 
 # An NTFS junction redirects a directory like a symlink, but is_symlink() is

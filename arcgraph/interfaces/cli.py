@@ -202,6 +202,13 @@ class _ArgumentParserError(ValueError):
 class _ArcGraphArgumentParser(argparse.ArgumentParser):
     """Let ``main`` preserve the structured Change CLI error contract."""
 
+    def parse_known_args(self, args=None, namespace=None):
+        result, remaining = super().parse_known_args(args, namespace)
+        validator = getattr(self, "namespace_validator", None)
+        if validator is not None:
+            validator(self, result)
+        return result, remaining
+
     def error(self, message: str) -> None:
         raise _ArgumentParserError(self, message)
 
