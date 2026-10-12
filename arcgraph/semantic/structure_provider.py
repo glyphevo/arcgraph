@@ -270,10 +270,17 @@ def analyze(
     """Convert D2's ASTs, releasing each block; never start a second parser."""
     import ast
     from arcgraph.core.structure import StructureView
+    from .frozen import interpreter_identity
 
     verify(snapshot, root)
     parser = structure_view or StructureView(root, environment)
     status = parser.status()
+    interpreter = interpreter_identity(root, executable=status["interpreter"])
+    expected_interpreter = {
+        key: value for key, value in snapshot.environment if key in interpreter
+    }
+    if expected_interpreter and expected_interpreter != interpreter:
+        raise ValueError("interpreter_identity_mismatch")
     target = ".".join(status["version"].split(".")[:2])
     if target != snapshot.target_python:
         raise ValueError("interpreter_identity_mismatch")
@@ -287,6 +294,7 @@ def analyze(
                     "version": status["version"],
                     "target": target,
                     "parser_status": status["status"],
+                    **interpreter,
                 }.items()
             )
         ),
@@ -354,6 +362,8 @@ def analyze(
             del visitor, tree
         del trees
     verify(snapshot, root)
+    if interpreter_identity(root, executable=status["interpreter"]) != interpreter:
+        raise ValueError("input_changed_during_run: selected interpreter changed")
     bundle = StructuralGeneration(
         id=generation_id,
         snapshot=snapshot,

@@ -5,8 +5,12 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import sys
 
-from arcgraph.core.project_environment import project_environment_path
+from arcgraph.core.project_environment import (
+    project_environment_path,
+    project_interpreter_path,
+)
 from arcgraph.core.scanner import FileScanner, TYPESCRIPT_FILE_EXTENSIONS
 from .contract import digest
 from .snapshot import capture, sha
@@ -28,7 +32,7 @@ def dependency_files(environment):
             base = Path(directory)
             for name in sorted(files):
                 path = base / name
-                if path.suffix in (".py", ".pyi") or name in (
+                if path.suffix in (".py", ".pyi", ".pth") or name in (
                     "py.typed",
                     "METADATA",
                     "top_level.txt",
@@ -67,6 +71,38 @@ def verify_environment(environment, expected):
         raise ValueError("input_changed_during_run: frozen dependency changed")
 
 
+def interpreter_identity(root, environment=None, *, executable=None):
+    """Bind selection, symlink destination and bytes without executing Python."""
+    path = (
+        Path(executable)
+        if executable is not None
+        else (
+            project_interpreter_path(root, environment=environment)
+            or Path(sys.executable)
+        )
+    )
+    path = path.absolute()
+    resolved = path.resolve(strict=True)
+    if not stat.S_ISREG(resolved.stat().st_mode):
+        raise ValueError("Selected semantic interpreter is not a regular file")
+    checksum = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(block)
+    if path.resolve(strict=True) != resolved:
+        raise ValueError("input_changed_during_run: interpreter changed while hashing")
+    return {
+        "interpreter_path": str(path),
+        "interpreter_real_path": str(resolved),
+        "interpreter_sha256": checksum.hexdigest(),
+    }
+
+
+def verify_interpreter(root, expected, environment=None):
+    if interpreter_identity(root, environment) != expected:
+        raise ValueError("input_changed_during_run: selected interpreter changed")
+
+
 def verify_live_sources(snapshot, root, expected):
     from .snapshot import verify
 
@@ -80,8 +116,8 @@ def freeze_dependencies(environment, destination):
     for name, source in dependency_files(environment):
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        # .pth and interpreter binaries are deliberately absent: no computed
-        # paths or Python execution is part of this static search profile.
+        # .pth bytes are static search inputs. No Python interpreter is copied
+        # or executed; its selection and bytes are bound independently.
         shutil.copyfile(source, target)
         rows.append((name, sha(target.read_bytes())))
     return digest(rows)
@@ -106,6 +142,7 @@ def freeze_build(reader, source_root, destination, python_status, *, environment
         if (source_root / name).is_file()
     )
     selected = project_environment_path(source_root, environment)
+    interpreter = interpreter_identity(source_root, selected)
     frozen_environment = destination.parent / "environment"
     dependency_digest = freeze_dependencies(selected, frozen_environment)
     original_digest, rows = environment_identity(selected)
@@ -120,10 +157,11 @@ def freeze_build(reader, source_root, destination, python_status, *, environment
         environment=(
             ("dependencies", dependency_digest),
             ("python_version", python_status["version"]),
-            ("search_profile", "frozen-site-packages-no-pth/1"),
+            ("search_profile", "frozen-site-packages/2"),
             ("source_roots", digest(reader.metadata["source_roots"])),
             ("source_scope", source_digest),
-        ),
+        )
+        + tuple(sorted(interpreter.items())),
     )
     snapshot = snapshot.model_copy(
         update={
@@ -144,5 +182,6 @@ def freeze_build(reader, source_root, destination, python_status, *, environment
             "dependency_digest": dependency_digest,
             "dependency_file_count": len(rows),
             "source_digest": source_digest,
+            "interpreter": interpreter,
         },
     )

@@ -73,10 +73,13 @@ def usage():
 def stage_build(args, evidence):
     from arcgraph.pipeline.indexer import ArcGraphIndexer
     from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.semantic.frozen import interpreter_identity, verify_interpreter
 
+    interpreter = interpreter_identity(args.repo_root, args.project_environment)
     metadata, build = ArcGraphIndexer(
         args.repo_root, args.output_dir, project_environment=args.project_environment
     ).build()
+    verify_interpreter(args.repo_root, interpreter, args.project_environment)
     reader = GraphStoreReader.from_current(args.output_dir)
     reader.export_jsonl()
     save(evidence / "default-current.json", load(args.output_dir / "current.json"))
@@ -86,16 +89,18 @@ def stage_build(args, evidence):
             "index_version": metadata.index_version,
             "build_dir": str(build),
             "python_status": metadata.toolchain_status["python_structure"],
+            "interpreter": interpreter,
         },
     )
 
 
 def stage_freeze(args, evidence):
     from arcgraph.core.graph_store import GraphStoreReader
-    from arcgraph.semantic.frozen import freeze_build
+    from arcgraph.semantic.frozen import freeze_build, verify_interpreter
     from arcgraph.semantic.runtime import configuration
 
     default = load(evidence / "default.json")
+    verify_interpreter(args.repo_root, default["interpreter"], args.project_environment)
     reader = GraphStoreReader.from_build(args.output_dir, default["index_version"])
     snapshot, environment, detail = freeze_build(
         reader,
@@ -104,6 +109,7 @@ def stage_freeze(args, evidence):
         default["python_status"],
         environment=args.project_environment,
     )
+    verify_interpreter(args.repo_root, default["interpreter"], args.project_environment)
     config = configuration(
         evidence / "snapshot",
         default["python_status"]["version"],
@@ -123,11 +129,19 @@ def stage_structure(args, evidence):
     from arcgraph.semantic.journal import write_structure
     from arcgraph.semantic.snapshot import canonical, native_position
     from arcgraph.semantic.structure_provider import analyze
+    from arcgraph.semantic.frozen import verify_interpreter
 
+    environment = load(evidence / "environment.json")
+    verify_interpreter(
+        args.repo_root, environment["interpreter"], args.project_environment
+    )
     snapshot = Snapshot.model_validate(load(evidence / "snapshot.json"))
     root = evidence / "snapshot"
     parser = StructureView(args.repo_root, args.project_environment)
     bundle = analyze(snapshot, root, structure_view=parser)
+    verify_interpreter(
+        args.repo_root, environment["interpreter"], args.project_environment
+    )
     view = View(bundle)
     texts = {f.path: canonical((root / f.path).read_bytes()) for f in snapshot.files}
     plan = {
@@ -302,13 +316,16 @@ def stage_write(args, evidence):
         environment_identity,
         verify_environment,
         verify_live_sources,
+        verify_interpreter,
     )
     from arcgraph.semantic.snapshot import sha, verify
 
+    environment = load(evidence / "environment.json")
+    selected_environment = getattr(args, "project_environment", None)
+    verify_interpreter(args.repo_root, environment["interpreter"], selected_environment)
     snapshot = Snapshot.model_validate(load(evidence / "snapshot.json"))
     verify_write_inputs(evidence)
     verify(snapshot, evidence / "snapshot")
-    environment = load(evidence / "environment.json")
     verify_environment(evidence / "environment", environment["dependency_digest"])
     verify_live_sources(snapshot, args.repo_root, environment["source_digest"])
     reader = GraphStoreReader.from_build(
@@ -367,6 +384,9 @@ def stage_write(args, evidence):
 
         def _publish_current(self, metadata, build_dir):
             # Recheck at the transaction's final publication point as well.
+            verify_interpreter(
+                args.repo_root, environment["interpreter"], selected_environment
+            )
             verify_write_inputs(evidence)
             verify_environment(
                 evidence / "environment", environment["dependency_digest"]
