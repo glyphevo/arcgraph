@@ -779,6 +779,10 @@ class TypeRefAnalyzer:
                     module, tree, nodes, resolver=self._callable_contracts
                 )
         self._prepared_nodes = nodes
+        # Foreign declaration annotations use no consumer-file imports. Their
+        # structural inputs are fixed for this prepared generation; retain only
+        # those results, while each defining file keeps its own resolution.
+        self._foreign_return_types = {}
         self._non_suppressing_managers = self._manager_exit_contracts(
             nodes, annotation_trees or {}
         )
@@ -868,6 +872,7 @@ class TypeRefAnalyzer:
                 if cache is not None
                 else None
             ),
+            self._foreign_return_types if cache is not None else None,
         )
         analysis = TypeRefAnalysis()
         context.attach_type_traits()
@@ -1871,10 +1876,12 @@ class _TypeContext:
         callable_contracts: CallableContracts | None = None,
         property_fields: dict[str, str] | None = None,
         nominal_guard_classes: set[str] | None = None,
+        foreign_return_types: dict | None = None,
     ) -> None:
         self._return_decorator_cache = (
             return_decorator_cache if return_decorator_cache is not None else {}
         )
+        self._foreign_return_types = foreign_return_types
         self.file_record = file_record
         self.tree = tree
         self.value_position = None
@@ -3072,7 +3079,13 @@ class _TypeContext:
                 isinstance(returns, str) and returns
             ):
                 continue
-            resolved = self.callable_return_type(node)
+            cache = self._foreign_return_types
+            if cache is not None and node.path != self.file_record.path:
+                if node.id not in cache:
+                    cache[node.id] = self.callable_return_type(node)
+                resolved = cache[node.id]
+            else:
+                resolved = self.callable_return_type(node)
             if resolved is None:
                 continue
             if (

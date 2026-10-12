@@ -318,7 +318,16 @@ class ArcGraphIndexer:
             if fragment.extractor_metadata:
                 extractor_metadata[frontend.name] = fragment.extractor_metadata
             if fragment.toolchain_status:
-                toolchain_status[frontend.name] = fragment.toolchain_status
+                status = dict(fragment.toolchain_status)
+                if (
+                    frontend.name == "python-v1-compat-shim"
+                    and "python_structure" in status
+                ):
+                    toolchain_status["python_structure"] = status.pop(
+                        "python_structure"
+                    )
+                if status:
+                    toolchain_status[frontend.name] = status
 
         warnings = combined_warnings
 
@@ -483,7 +492,7 @@ class ArcGraphIndexer:
         metadata.extractor_metadata = content.extractor_metadata
         metadata.toolchain_status = content.toolchain_status
         metadata.capabilities["language_tiers"] = "available"
-        if content.toolchain_status:
+        if any(key != "python_structure" for key in content.toolchain_status):
             metadata.capabilities["external_toolchains"] = "available"
         self._update_precision_capability(metadata, content)
         self._update_coverage_capability(metadata, content)

@@ -9,9 +9,7 @@ keeping the indexer as a pure orchestration layer.
 from __future__ import annotations
 
 import ast
-import sys
 import time
-import warnings as warnings_module
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +18,7 @@ from arcgraph.adapters.pytest_adapter import PytestAdapter
 from arcgraph.adapters.pytest_types import PytestTypeAnalyzer
 from arcgraph.analyzers.bindings import BindingAnalyzer
 from arcgraph.core.project_environment import ProjectEnvironment
+from arcgraph.core.structure import StructureView
 from arcgraph.analyzers.calls import CallAnalyzer
 from arcgraph.analyzers.imports import ImportAnalyzer
 from arcgraph.analyzers.similarity import SimilarityAnalyzer
@@ -101,6 +100,12 @@ class PythonGraphAnalyzer:
         # --- Phase 1: Parse ---
         t0 = time.monotonic()
         parsed_files: dict[str, ast.Module] = {}
+        self._structure = StructureView(self.repo_root, self.project_environment)
+        if parsed_files_override is None:
+            parsed_files, notices = self._structure.read(
+                {f.path: Path(f.abs_path) for f in files}
+            )
+            warnings.extend(notices)
         for file_record in files:
             if parsed_files_override is not None:
                 tree = parsed_files_override.get(file_record.path)
@@ -108,31 +113,8 @@ class PythonGraphAnalyzer:
                     parsed_files[file_record.path] = tree
                     tree._arcgraph_module = file_record.module
                 continue
-            try:
-                source = Path(file_record.abs_path).read_text(encoding="utf-8-sig")
-                with warnings_module.catch_warnings():
-                    warnings_module.simplefilter("ignore", SyntaxWarning)
-                    parsed_files[file_record.path] = ast.parse(
-                        source, filename=file_record.path
-                    )
-                    parsed_files[file_record.path]._arcgraph_module = file_record.module
-            except (OSError, SyntaxError, UnicodeDecodeError) as exc:
-                message = str(exc)
-                if isinstance(exc, SyntaxError):
-                    # The parser is that of the Python running ArcGraph, so
-                    # syntax added later reads as an error here.
-                    message += (
-                        f" (parsed with Python {sys.version_info[0]}."
-                        f"{sys.version_info[1]}; syntax added in a later Python "
-                        "needs ArcGraph to run on that version)"
-                    )
-                warnings.append(
-                    BuildWarning(
-                        kind="parse_error",
-                        message=message,
-                        path=file_record.path,
-                    )
-                )
+            if file_record.path in parsed_files:
+                parsed_files[file_record.path]._arcgraph_module = file_record.module
         phase_timings["parse"] = time.monotonic() - t0
 
         # --- Phase 2: Structural (imports + symbols) ---
@@ -288,6 +270,7 @@ class PythonGraphAnalyzer:
             parsed_files=parsed_files,
             phase_timings=phase_timings,
             extractor_metadata={"dependency_environment": environment.metadata},
+            toolchain_status={"python_structure": self._structure.status()},
         )
 
     def _nominal_guard_trees(
@@ -307,14 +290,11 @@ class PythonGraphAnalyzer:
             for node in nodes
             if node.kind == "class" and node.path and node.path not in trees
         }
-        for path in sorted(paths):
-            try:
-                source = (self.repo_root / path).read_text(encoding="utf-8-sig")
-                with warnings_module.catch_warnings():
-                    warnings_module.simplefilter("ignore", SyntaxWarning)
-                    trees[path] = ast.parse(source, filename=path)
-            except (OSError, SyntaxError, UnicodeDecodeError):
-                continue
+        if paths:
+            extra, _ = self._structure.read(
+                {path: self.repo_root / path for path in sorted(paths)}
+            )
+            trees.update(extra)
         return trees
 
     # ------------------------------------------------------------------

@@ -26,6 +26,7 @@ from arcgraph.core.scanner import (
 )
 from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
 from arcgraph.core.project_environment import dependency_environment_changed
+from arcgraph.core.structure import structure_state
 from arcgraph.core.schemas import (
     SCHEMA_VERSION,
     BuildWarning,
@@ -150,7 +151,15 @@ class ArcGraphReindexer:
             enable_v2_call_resolution=enable_v2_call_resolution,
             project_environment=Path(explicit) if explicit else None,
         )
-        if dependency_environment_changed(store.metadata, self.repo_root):
+        parser_changed = store.metadata.get("extractor_metadata", {}).get(
+            "python-v1-compat-shim"
+        ) and store.python_source("") != structure_state(
+            self.repo_root, Path(explicit) if explicit else None
+        )
+        if (
+            dependency_environment_changed(store.metadata, self.repo_root)
+            or parser_changed
+        ):
             # Refresh the source generation without losing the previously
             # declared precision, coverage or runtime input paths.
             inputs = {
@@ -457,6 +466,9 @@ class ArcGraphReindexer:
         content.adapter_metrics = self._preserve_incremental_summary_metrics(
             store.metadata.get("adapter_metrics"),
             content.adapter_metrics,
+            complete=all(
+                f.path in changed_paths for f in current_files if f.path.endswith(".py")
+            ),
         )
         content.precision_metrics = self._preserve_incremental_summary_metrics(
             store.metadata.get("precision_metrics"),
@@ -559,7 +571,7 @@ class ArcGraphReindexer:
             metadata.capabilities["precise_references"] = "available"
         if metadata.language_tiers:
             metadata.capabilities["language_tiers"] = "available"
-        if metadata.toolchain_status:
+        if any(key != "python_structure" for key in metadata.toolchain_status):
             metadata.capabilities["external_toolchains"] = "available"
         ArcGraphIndexer._update_precision_capability(metadata, content)
         ArcGraphIndexer._update_coverage_capability(metadata, content)
@@ -863,7 +875,11 @@ class ArcGraphReindexer:
     def _preserve_incremental_summary_metrics(
         previous: Any,
         current: dict[str, Any],
+        *,
+        complete: bool = False,
     ) -> dict[str, Any]:
+        if complete:
+            return current
         if isinstance(previous, dict) and previous:
             return previous
         return current
@@ -892,16 +908,10 @@ class ArcGraphReindexer:
             target = old_nodes_by_id.get(edge.target)
             if source is None or source.path in changed_paths:
                 continue
-            # Exclusion intentionally removes a hierarchy member. Its contains
-            # relation was regenerated above, so it is not an unrefreshed
-            # consumer. Preserve the legacy diagnostics for physical deletions
-            # and for other relations whose source still needs reanalysis.
-            if (
-                edge.kind == "contains"
-                and source.kind in {"source_root", "package"}
-                and target is not None
-                and target.path in (excluded_paths or set())
-            ):
+            # Hierarchy membership is regenerated on every full rescan. A
+            # removed contains target is therefore already accounted for, not
+            # an unrefreshed semantic consumer, for both deletion and exclusion.
+            if edge.kind == "contains" and source.kind in {"source_root", "package"}:
                 continue
             if target is not None and target.path not in changed_paths:
                 continue

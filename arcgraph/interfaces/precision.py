@@ -255,7 +255,7 @@ def generate_pyright_json(
         for file_record in scanner.scan()
         if _file_matches_targets(file_record, targets)
     ]
-    nodes, trees = _symbol_context(files)
+    nodes, trees = _symbol_context(files, repo_root)
     type_info, lsp_probe = _pyright_type_info_records(
         repo_root=repo_root,
         files=files,
@@ -891,17 +891,17 @@ def _file_matches_targets(file_record: FileRecord, targets: list[str]) -> bool:
 
 def _symbol_context(
     files: list[FileRecord],
+    repo_root: Path | None = None,
 ) -> tuple[list[Node], dict[str, ast.Module]]:
+    from arcgraph.core.structure import StructureView
+
     symbol_analyzer = SymbolAnalyzer()
     nodes: list[Node] = []
-    trees: dict[str, ast.Module] = {}
+    trees, _ = StructureView(repo_root).read({f.path: Path(f.abs_path) for f in files})
     for file_record in files:
-        try:
-            source = Path(file_record.abs_path).read_text(encoding="utf-8-sig")
-            tree = ast.parse(source, filename=file_record.path)
-        except (OSError, SyntaxError, UnicodeDecodeError):
+        tree = trees.get(file_record.path)
+        if tree is None:
             continue
-        trees[file_record.path] = tree
         module_name = file_record.module.rsplit(".", 1)[-1]
         nodes.append(
             Node(

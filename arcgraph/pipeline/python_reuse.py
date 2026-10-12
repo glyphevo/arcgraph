@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from arcgraph.pipeline.python_frontend import PythonGraphAnalyzer
+from arcgraph.core.structure import StructureView
 
 
 def appended_private_fragment(indexer, store, files, nodes, edges, changed):
@@ -34,9 +35,20 @@ def appended_private_fragment(indexer, store, files, nodes, edges, changed):
         # Preserve every location, even when the old source has no final newline.
         if not previous.endswith("\n"):
             return None
-        ast.parse(previous, filename=file.path)
-        suffix = source[len(previous) :]
-        tree = ast.parse("\n" * previous.count("\n") + suffix, filename=file.path)
+        parsed, notices = StructureView(
+            indexer.repo_root, indexer.frontend._project_environment
+        ).read({file.path: Path(file.abs_path)})
+        whole = parsed.get(file.path)
+        if whole is None:
+            return None
+        boundary = previous.count("\n")
+        # Appending must not complete or alter a previous top-level statement.
+        if any(n.lineno <= boundary < n.end_lineno for n in whole.body):
+            return None
+        tree = ast.Module(
+            body=[n for n in whole.body if n.lineno > boundary],
+            type_ignores=whole.type_ignores,
+        )
     except (OSError, SyntaxError, UnicodeDecodeError):
         return None
     if not tree.body or any(
@@ -127,6 +139,7 @@ def appended_private_fragment(indexer, store, files, nodes, edges, changed):
         project_environment=indexer.frontend._project_environment,
     ).analyze(
         files,
+        warnings=notices,
         module_names={n.qualname for n in nodes if n.kind == "module"},
         call_context_nodes=nodes,
         incremental_similarity_buckets={

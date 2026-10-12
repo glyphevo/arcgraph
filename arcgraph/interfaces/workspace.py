@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from dataclasses import dataclass
@@ -1025,9 +1026,11 @@ def _merge_resolve_matches(matches: list[dict[str, Any]]) -> list[dict[str, Any]
                 "",
             ):
                 existing[field] = match[field]
-        existing["warnings"] = sorted(
-            set(existing.get("warnings", [])) | set(match.get("warnings", []))
-        )
+        warnings = {
+            json.dumps(warning, sort_keys=True, ensure_ascii=False): warning
+            for warning in [*existing.get("warnings", []), *match.get("warnings", [])]
+        }
+        existing["warnings"] = [warnings[key] for key in sorted(warnings)]
         if match.get("reason") and match.get("reason") not in existing["reason"]:
             existing["reason"] = f"{existing['reason']} {match['reason']}"
     return list(merged.values())

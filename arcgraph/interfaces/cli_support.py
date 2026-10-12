@@ -23,6 +23,7 @@ from arcgraph.core.project_environment import (
     project_interpreter_path,
 )
 from arcgraph.core.utils import replace_text_file
+from arcgraph.core.structure import StructureView, STRUCTURE_FIX
 
 # requires-python of ArcGraph itself, as pyproject.toml declares it;
 # test_cli_doctor checks the two agree.
@@ -83,14 +84,21 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
         ]
     environment = ProjectEnvironment(repo_root)
     interpreter = project_interpreter_path(repo_root)
+    structure = StructureView(repo_root)
     checks.append(
         {
             "name": "project_trace_interpreter",
-            "status": "pass" if interpreter else "warn",
+            "status": "pass" if structure.interpreter else "warn",
             "message": (
-                f"Project trace interpreter: {interpreter}."
-                if interpreter
-                else "No project interpreter found; trace run falls back to the ArcGraph host."
+                (
+                    f"Project trace interpreter: {interpreter}. "
+                    if interpreter
+                    else "No project interpreter found; trace run falls back to the ArcGraph host. "
+                )
+                + (
+                    structure.reason
+                    or f"Python structure uses project interpreter Python {structure.version} with -I -S."
+                )
             ),
             "fix": "Use the project .venv, tool.arcgraph.python_environment, or trace run --python.",
         }
@@ -113,6 +121,20 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
         return checks
     requires, minimum = project
     wanted = f"{minimum[0]}.{minimum[1]}"
+    if structure.version is not None:
+        checks.append(
+            {
+                "name": "project_python",
+                "status": "warn" if structure.reason else "pass",
+                "message": structure.reason
+                or (
+                    f"The project requires Python {requires}; Python structure uses "
+                    f"project interpreter Python {structure.version} with -I -S."
+                ),
+                **({"fix": STRUCTURE_FIX} if structure.reason else {}),
+            }
+        )
+        return checks
     if running >= minimum:
         checks.append(
             {

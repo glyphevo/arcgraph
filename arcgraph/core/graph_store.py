@@ -35,6 +35,7 @@ from arcgraph.core.schemas import (
     FactEvidence,
 )
 from arcgraph.core.sharing_retry import retry_sharing_violation
+from arcgraph.core.structure import structure_state
 from arcgraph.core.utils import replace_text_file, symlink_below
 
 
@@ -214,13 +215,26 @@ class GraphStoreWriter:
         warning_truncated_count = max(0, len(warnings) - 200)
         diagnostic_truncated_count = max(0, len(diagnostics) - 200)
         truncated_count = warning_truncated_count + diagnostic_truncated_count
-        payload["warnings"] = [
-            warning.model_dump(mode="json", exclude_none=True)
-            for warning in warnings[:200]
+        warning_records = [
+            warning.model_dump(mode="json", exclude_none=True) for warning in warnings
         ]
+        # Retained and freshly emitted records can arrive in different orders.
+        # Sort semantic content before selecting the bounded sample, leaving
+        # the authoritative SQLite/JSONL records and their lifecycle unchanged.
+        warning_records.sort(
+            key=lambda w: (
+                w.get("path") or "",
+                w["kind"],
+                w["message"],
+                w.get("frontend_name") or "",
+            )
+        )
+        payload["warnings"] = warning_records[:200]
         payload["diagnostics"] = [
             diagnostic.model_dump(mode="json", exclude_none=True)
-            for diagnostic in diagnostics[:200]
+            for diagnostic in sorted(
+                diagnostics, key=GraphStoreWriter._summary_diagnostic_key
+            )[:200]
         ]
         payload["truncated_count"] = truncated_count
         payload["summary_truncation"] = {
@@ -250,6 +264,23 @@ class GraphStoreWriter:
         if phase_timings:
             payload["phase_timings"] = phase_timings
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    @staticmethod
+    def _summary_diagnostic_key(diagnostic: SemanticDiagnostic):
+        properties = {
+            k: v
+            for k, v in diagnostic.properties.items()
+            if k != "diagnostic_lifecycle_status"
+        }
+        return (
+            diagnostic.path or "",
+            diagnostic.start_line or 0,
+            diagnostic.diagnostic_kind,
+            diagnostic.frontend_name or "",
+            diagnostic.severity,
+            diagnostic.message,
+            json.dumps(properties, sort_keys=True, ensure_ascii=False),
+        )
 
     def _apply_diagnostic_lifecycle(
         self,
@@ -592,6 +623,28 @@ class GraphStoreWriter:
                 conn.execute(
                     "INSERT INTO python_sources VALUES (?, ?)",
                     (file.path, encode(source)),
+                )
+            python = metadata.extractor_metadata.get("python-v1-compat-shim", {})
+            if python:
+                environment = python.get("dependency_environment", {})
+                explicit = environment.get("explicit_path")
+                # Empty paths cannot name a scanned file. Reuse this private
+                # source-cache table without changing the storage schema or
+                # any exported graph/metadata field.
+                state = json.loads(
+                    structure_state(
+                        Path(metadata.repo_root), Path(explicit) if explicit else None
+                    )
+                )
+                actual = metadata.toolchain_status.get("python_structure")
+                if isinstance(actual, dict):
+                    state["fallback"] = actual.get("reason")
+                conn.execute(
+                    "INSERT INTO python_sources VALUES (?, ?)",
+                    (
+                        "",
+                        encode(json.dumps(state, sort_keys=True)),
+                    ),
                 )
             for key, value in metadata.model_dump(mode="json").items():
                 conn.execute(

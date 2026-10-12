@@ -299,6 +299,10 @@ def summarize_toolchain_status(
     required_unavailable: list[str] = []
     optional_unavailable: list[str] = []
     for frontend_name, status in sorted(toolchains.items()):
+        if frontend_name == "python_structure":
+            # The built-in parser status is informational, not an external
+            # extractor requirement or an external-toolchain CI counter.
+            continue
         state = str(status.get("status", "unknown"))
         by_status[state] = by_status.get(state, 0) + 1
         if state in unavailable_states:

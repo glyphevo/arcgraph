@@ -188,7 +188,8 @@ def test_reindex_changed_preserves_frontend_contract_metadata(tmp_path: Path) ->
         "fixture-extractor": {"language": "fixture", "version": "1"}
     }
     summary["toolchain_status"] = {
-        "fixture-extractor": {"status": "available", "version": "1"}
+        **summary.get("toolchain_status", {}),
+        "fixture-extractor": {"status": "available", "version": "1"},
     }
     summary["capabilities"]["external_toolchains"] = "available"
     summary_path.write_text(
@@ -237,24 +238,14 @@ def test_reindex_changed_removes_deleted_file_edges(tmp_path: Path) -> None:
     stale_check = next(
         check for check in ci_result["checks"] if check["name"] == "stale_target_edges"
     )
-    stale_properties = _diagnostic_properties(
-        Path(result["build_dir"]) / "index.sqlite",
-        "stale_target",
-    )
 
     assert result["changed"]["deleted"] == ["src/pkg/service.py"]
     assert engine.symbol("pkg.service.build_message")["matches"] == []
     assert _dangling_edge_count(Path(result["build_dir"]) / "index.sqlite") == 0
-    assert stats["metrics"]["by_diagnostic_kind"]["stale_target"] == 1
-    assert any("target_stale:" in warning for warning in stats["warnings"])
-    assert stale_properties["stale_edges_count"] > 0
-    # Imported annotation consumers and explicitly collected pytest files are
-    # refreshed automatically. Both must match a full build; still-unrefreshed
-    # structural consumers retain the warning.
-    assert "src/pkg/api.py" not in stale_properties["reanalysis_recommended_paths"]
-    assert (
-        "tests/service_cases.py" not in stale_properties["reanalysis_recommended_paths"]
-    )
+    assert stats["metrics"]["by_diagnostic_kind"].get("stale_target", 0) == 0
+    assert not any("target_stale:" in warning for warning in stats["warnings"])
+    # Annotation consumers, pytest providers and regenerated hierarchy edges
+    # now all match a full build. A deleted contains target is accounted for.
     full_output = tmp_path / "full"
     ArcGraphIndexer(repo_root, full_output, roots).build()
 
@@ -272,11 +263,8 @@ def test_reindex_changed_removes_deleted_file_edges(tmp_path: Path) -> None:
         )
 
     assert api_calls(output_dir) == api_calls(full_output)
-    assert stale_check["status"] == "warn"
-    assert (
-        stale_check["details"]["stale_edges_count"]
-        == stale_properties["stale_edges_count"]
-    )
+    assert stale_check["status"] == "pass"
+    assert stale_check["details"]["stale_edges_count"] == 0
 
 
 def test_reindex_changed_prunes_unreferenced_pathless_external_symbols(

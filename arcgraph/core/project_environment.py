@@ -45,7 +45,9 @@ def _name(value: str) -> str:
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
-def project_interpreter_path(repo_root: Path, explicit=None) -> Path | None:
+def project_interpreter_path(
+    repo_root: Path, explicit=None, *, environment: Path | None = None
+) -> Path | None:
     """Locate, but never execute, a project interpreter using the shared path.
 
     Preserve the venv executable path: resolving its symlink to the base Python
@@ -56,7 +58,7 @@ def project_interpreter_path(repo_root: Path, explicit=None) -> Path | None:
         if not candidate.is_file() or not os.access(candidate, os.X_OK):
             raise RuntimeError(f"Project interpreter is unavailable: {candidate}")
         return candidate
-    environment = project_environment_path(repo_root)
+    environment = project_environment_path(repo_root, environment)
     if environment is None or not (environment / "pyvenv.cfg").is_file():
         return None
     candidate = environment / (
