@@ -47,6 +47,11 @@ def test_deleted_pytest_file_summary_matches_same_history_full(tmp_path, field):
         (tests / f"test_{name}.py").write_text(
             f"def test_{name}(value):\n    assert value == 1\n", encoding="utf-8"
         )
+    (root / "widget.vue").write_text(
+        '<script setup lang="ts">const title = "ok";</script>\n'
+        "<template><p>{{ title }}</p></template>\n",
+        encoding="utf-8",
+    )
     output = tmp_path / "sync"
     reference = tmp_path / "reference"
     roots = [SourceRoot(".")]

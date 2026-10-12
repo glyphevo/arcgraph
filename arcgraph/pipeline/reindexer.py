@@ -466,10 +466,19 @@ class ArcGraphReindexer:
         content.adapter_metrics = self._preserve_incremental_summary_metrics(
             store.metadata.get("adapter_metrics"),
             content.adapter_metrics,
-            complete=all(
-                f.path in changed_paths for f in current_files if f.path.endswith(".py")
-            ),
         )
+        if any(f.path.endswith(".py") for f in old_files) and all(
+            f.path in changed_paths for f in current_files if f.path.endswith(".py")
+        ):
+            # Only Python was refreshed completely. Other frontends may emit
+            # empty/local framework counts on a Python-only change.
+            content.adapter_metrics = dict(content.adapter_metrics)
+            if "adapters" in changed_content.adapter_metrics:
+                content.adapter_metrics["adapters"] = changed_content.adapter_metrics[
+                    "adapters"
+                ]
+            else:
+                content.adapter_metrics.pop("adapters", None)
         content.precision_metrics = self._preserve_incremental_summary_metrics(
             store.metadata.get("precision_metrics"),
             content.precision_metrics,
@@ -875,11 +884,7 @@ class ArcGraphReindexer:
     def _preserve_incremental_summary_metrics(
         previous: Any,
         current: dict[str, Any],
-        *,
-        complete: bool = False,
     ) -> dict[str, Any]:
-        if complete:
-            return current
         if isinstance(previous, dict) and previous:
             return previous
         return current
