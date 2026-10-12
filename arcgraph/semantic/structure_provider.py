@@ -269,7 +269,7 @@ def admit_structure(
 
 
 def project_read(parser, paths):
-    """Observe D2's actual host reads without changing its parsing decisions."""
+    """Observe host reads and keep D2's project attempts across semantic blocks."""
     hosted = set()
     original = getattr(parser, "_read_host", None)
     if original is None:
@@ -286,7 +286,7 @@ def project_read(parser, paths):
 
     parser._read_host = read_host
     try:
-        trees, notices = parser.read(paths)
+        trees, notices = parser.read(paths, continue_project=True)
     finally:
         if had_override:
             parser._read_host = previous

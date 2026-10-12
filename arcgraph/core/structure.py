@@ -195,6 +195,9 @@ class StructureView:
         self.requirement = python_requirement(root)
         self.root = root
         self.trace_available = False
+        self._project_interpreter = None
+        self._project_blocks = 0
+        self._project_failure = None
         if root is None:
             return
         self.interpreter = project_interpreter_path(root, environment=environment)
@@ -216,6 +219,7 @@ class StructureView:
             self._failed(exc)
         if self.reason:
             self.interpreter = None
+        self._project_interpreter = self.interpreter
 
     def _failed(self, exc, *, partial=False):
         if isinstance(exc, subprocess.TimeoutExpired):
@@ -322,13 +326,19 @@ class StructureView:
         return decoded
 
     def read(
-        self, paths: dict[str, Path]
+        self, paths: dict[str, Path], *, continue_project=False
     ) -> tuple[dict[str, ast.Module], list[BuildWarning]]:
+        # Semantic conversion streams multiple reads through this view. Retry
+        # its selected interpreter after a workload failure and retain successes
+        # across calls; startup/version failures never become retry candidates.
+        # Default build/sync keep their existing per-read fallback policy.
+        if continue_project:
+            self.interpreter = self._project_interpreter
         paths = {name: str(path.absolute()) for name, path in paths.items()}
         if self.interpreter is not None:
             records = {}
             failures = []
-            project_blocks = 0
+            project_blocks = self._project_blocks if continue_project else 0
             items = [
                 (name, paths[name]) for name in sorted(paths, key=_block_path_order)
             ]
@@ -342,7 +352,13 @@ class StructureView:
                 except PROJECT_ERRORS as exc:
                     failures.append(exc)
                     records.update(self._read_host(block))
-            if failures:
+            if continue_project:
+                self._project_blocks = project_blocks
+                if failures:
+                    self._project_failure = failures[0]
+                if self._project_failure is not None:
+                    self._failed(self._project_failure, partial=bool(project_blocks))
+            elif failures:
                 self._failed(failures[0], partial=bool(project_blocks))
         else:
             records = self._read_host(paths)
