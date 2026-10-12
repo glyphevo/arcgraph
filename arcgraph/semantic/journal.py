@@ -57,6 +57,9 @@ class JournalReplay:
             raise ValueError("journal snapshot mismatch")
         self.checksum = hashlib.sha256()
         self.count = 0
+        self.initialize_count = 0
+        self.initialize_params = None
+        self.encoding = None
 
     def notify(self, method, params):
         pass
@@ -66,10 +69,39 @@ class JournalReplay:
 
         row_bytes = next(self.handle)
         row = json.loads(row_bytes)
+        while method != "initialize" and row.get("method") == "initialize":
+            # The semantic mapper replays one logical workspace, while the
+            # collector used multiple physical sessions. Verify every handshake
+            # before consuming it, including its bytes in the journal checksum.
+            from .runtime import capabilities
+            from .install import InstallError
+
+            try:
+                unit = capabilities(row.get("result"))
+            except (InstallError, TypeError, AttributeError) as exc:
+                raise ValueError("journal restarted handshake invalid") from exc
+
+            if (
+                row.get("params") != self.initialize_params
+                or "error" in row
+                or unit != self.encoding
+            ):
+                raise ValueError("journal restarted handshake mismatch")
+            self.checksum.update(row_bytes.encode())
+            self.count += 1
+            self.initialize_count += 1
+            row_bytes = next(self.handle)
+            row = json.loads(row_bytes)
         if row.get("method") != method or row.get("params") != params:
             raise ValueError("journal request mismatch or incomplete run")
         self.checksum.update(row_bytes.encode())
         self.count += 1
+        if method == "initialize":
+            self.initialize_params = params
+            self.encoding = ((row.get("result") or {}).get("capabilities") or {}).get(
+                "positionEncoding", "utf-16"
+            )
+            self.initialize_count += 1
         if "error" in row:
             if row["error"]["kind"] == "timeout":
                 raise TimeoutError(row["error"]["message"])

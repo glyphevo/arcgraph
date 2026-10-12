@@ -338,6 +338,8 @@ def pyright_records(
         requests["error"] or requests["timeout"] or records.data["parse_failures"]
     )
     query_seconds = time.perf_counter() - query_start
+    if hasattr(peer, "initialize_count"):
+        requests["initialize"] = peer.initialize_count
     return records.finish(
         unit=unit, availability="partial" if partial else "available"
     ), {

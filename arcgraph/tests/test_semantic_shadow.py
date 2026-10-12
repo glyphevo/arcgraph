@@ -122,7 +122,7 @@ def test_collection_restarts_without_shrinking_scope_or_losing_journal_rows(
     assert calls.count("initialize") == 3
     assert calls.count("textDocument/didOpen") == 3
     assert calls.count("callHierarchy/outgoingCalls") == 3
-    assert rows[-1]["complete"] and rows[-1]["count"] == 7
+    assert rows[-1]["complete"] and rows[-1]["count"] == 9
 
 
 def test_frozen_dependencies_live_scope_and_artifacts_reject_drift(tmp_path):

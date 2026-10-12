@@ -22,6 +22,7 @@ def collect(plan_path, root, config, output):
     durations = {"initialize": 0.0, "prepare": 0.0, "outgoing": 0.0}
     launch_seconds = 0.0
     first_prepare_seconds = 0.0
+    restart_initialize_seconds = 0.0
     with (
         (output / "lsp.jsonl").open("w", encoding="utf-8") as transcript,
         pending.open("w", encoding="utf-8") as journal,
@@ -78,10 +79,10 @@ def collect(plan_path, root, config, output):
                     )
                     launch_seconds += time.perf_counter() - launch_started
                     tick = time.perf_counter()
-                    next_initialize = peer.request(
-                        "initialize", initialize_params(root)
+                    next_initialize = request(
+                        "initialize", initialize_params(root), "initialize"
                     )
-                    durations["initialize"] += time.perf_counter() - tick
+                    restart_initialize_seconds += time.perf_counter() - tick
                     if capabilities(next_initialize) != unit:
                         raise ValueError(
                             "Position encoding changed across pyright sessions"
@@ -137,6 +138,7 @@ def collect(plan_path, root, config, output):
         startup_seconds=startup,
         launch_seconds=launch_seconds,
         first_prepare_seconds=first_prepare_seconds,
+        restart_initialize_seconds=restart_initialize_seconds,
         indexing_measurement="Indexing is lazy and coupled to requests; first prepare per session is a latency proxy, not independent total indexing time.",
         request_seconds=durations,
         requests=counters,
