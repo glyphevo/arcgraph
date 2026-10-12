@@ -96,6 +96,9 @@ def declaration_evidence(records):
                 continue
             for parent in ancestors(cls):
                 for base in methods.get((parent, name), ()):
-                    if base.payload.get("stub_body") and base.id not in evidence:
+                    if (
+                        base.payload.get("stub_body") == "not_implemented"
+                        and base.id not in evidence
+                    ):
                         evidence[base.id] = ("overridden_stub", override.id)
     return evidence

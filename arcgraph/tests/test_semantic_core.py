@@ -596,13 +596,16 @@ def test_overridden_stub_methods_are_declarations_but_noops_are_execution(tmp_pa
         for e in report["edges"]
         if e["relation"] == "declaration_dependency"
     }
-    assert set(dependencies) == {f"demo.Base.{name}" for name in stubs}
+    assert set(dependencies) == {"demo.Base.raises"}
     for edge in dependencies.values():
         support = edge["supports"][0]
         assert support["decision"] == "retain_declaration_dependency:overridden_stub"
         assert support["evidence"][-2] == "overridden_stub"
         assert view.defs[support["evidence"][-1]].owner == find(view, "Concrete").id
     assert {view.defs[k[1]].qualname for k in report["projected_calls"]} == {
+        "demo.Base.empty",
+        "demo.Base.documented",
+        "demo.Base.ellipsis",
         "demo.Base.effect",
         "demo.Base.unoverridden",
         "demo.Concrete.raises",
@@ -648,7 +651,7 @@ def test_stub_override_can_follow_unambiguous_import_aliases(
     tmp_path, import_line, base
 ):
     source = (
-        f"{import_line}\nclass Base:\n    def f(self): ...\n"
+        f"{import_line}\nclass Base:\n    def f(self): raise NotImplementedError()\n"
         f"class Child({base}):\n    def f(self): return 1\n"
     )
     _, _, view = make_view(tmp_path, source=source)
@@ -705,3 +708,10 @@ def test_ambiguous_base_names_do_not_select_the_first_definition(tmp_path):
     # Both conditional definitions are possible. An arbitrary first match
     # cannot establish an override relationship with either base method.
     assert not {d.id for d in methods}.intersection(view.declaration_evidence)
+
+
+def test_only_notimplemented_base_with_concrete_override_is_declaration(tmp_path):
+    _, _, view = make_view(tmp_path, filename="policy-v3.txt")
+    assert find(view, "Base.raises").id in view.declaration_evidence
+    for name in ("empty", "documented", "ellipsis", "effect", "unoverridden"):
+        assert find(view, "Base." + name).id not in view.declaration_evidence
