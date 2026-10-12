@@ -37,6 +37,12 @@ PROJECT_ERRORS = (
 )
 
 
+def _block_path_order(name):
+    """Canonical directory traversal: local files before child directories."""
+    parts = name.split("/")
+    return tuple((1, part) for part in parts[:-1]) + ((0, parts[-1]),)
+
+
 def structure_state(
     root: Path,
     environment: Path | None = None,
@@ -56,10 +62,17 @@ def structure_state(
         # Remember the actual failed workload, not an empty capability probe.
         # On later syncs recheck these same blocks: stable failures don't rebuild,
         # and recovery (even without executable changes) refreshes the graph.
-        probe_paths = {name: str(path.absolute()) for name, path in paths.items()}
+        # JSON object key sorting must not change the original block boundaries.
+        probe_paths = [
+            [name, str(paths[name].absolute())]
+            for name in sorted(paths, key=_block_path_order)
+        ]
         view.reason = fallback
     elif probe_paths is not None:
-        view.read({name: Path(path) for name, path in probe_paths.items()})
+        # An old dictionary cache refreshes once into the ordered representation.
+        if isinstance(probe_paths, dict):
+            probe_paths = list(probe_paths.items())
+        view.read({name: Path(path) for name, path in probe_paths})
     else:
         view.probe()
     candidate = project_interpreter_path(root, environment=environment)
@@ -242,19 +255,13 @@ class StructureView:
         """The effective parser, independently of analysis warnings."""
         return {
             "status": (
-                "project"
-                if self.interpreter is not None and not self.reason
+                ("partial_fallback" if self.reason else "project")
+                if self.interpreter is not None
                 else "host_fallback"
             ),
-            "interpreter": str(
-                self.interpreter
-                if not self.reason and self.interpreter
-                else sys.executable
-            ),
+            "interpreter": str(self.interpreter or sys.executable),
             "version": (
-                self.version
-                if self.interpreter is not None and not self.reason
-                else sys.version.split()[0]
+                self.version if self.interpreter is not None else sys.version.split()[0]
             ),
             "reason": self.reason,
             "fix": STRUCTURE_FIX if self.reason else None,
@@ -322,7 +329,9 @@ class StructureView:
             records = {}
             failures = []
             project_blocks = 0
-            items = list(paths.items())
+            items = [
+                (name, paths[name]) for name in sorted(paths, key=_block_path_order)
+            ]
             # A block has its own budget. A slow/failed block cannot discard the
             # project structures already read from other blocks.
             for offset in range(0, len(items), 256):
