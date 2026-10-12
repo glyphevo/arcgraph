@@ -54,7 +54,7 @@ def project_minimum_python(repo_root: Path) -> tuple[str, tuple[int, int]] | Non
     return (requires.strip(), max(bounds)) if bounds else None
 
 
-def python_checks(repo_root: Path) -> list[dict[str, Any]]:
+def python_checks(repo_root: Path, *, semantic_state=None) -> list[dict[str, Any]]:
     """doctor's checks of the Python that runs ArcGraph."""
 
     version = platform.python_version()
@@ -86,6 +86,8 @@ def python_checks(repo_root: Path) -> list[dict[str, Any]]:
     interpreter = project_interpreter_path(repo_root)
     structure = StructureView(repo_root)
     structure.probe(all_files=True)
+    if semantic_state is not None:
+        semantic_state.update(structure.status())
     checks.append(
         {
             "name": "project_trace_interpreter",
