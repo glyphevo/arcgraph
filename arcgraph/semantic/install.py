@@ -28,22 +28,31 @@ class InstallError(RuntimeError):
 
 def cache_root():
     if sys.platform == "darwin":
-        return Path.home() / "Library/Caches/arcgraph"
-    if sys.platform == "win32":
+        root = Path.home() / "Library/Caches/arcgraph"
+    elif sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA")
         if not local:
             raise InstallError("Semantic cache unavailable: LOCALAPPDATA is not set.")
-        return Path(local) / "arcgraph"
-    return (
-        Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "arcgraph"
-    )
+        root = Path(local) / "arcgraph"
+    else:
+        root = (
+            Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+            / "arcgraph"
+        )
+    # HOME/cache roots are trusted anchors, including macOS filesystem aliases.
+    # All subsequent installation paths are anchored in this resolved directory.
+    return root.resolve()
 
 
 def installation_root():
     return cache_root() / "semantic" / ("pyright-" + VERSION)
 
 
-def no_links(path):
+def no_links(path, *, boundary=None):
+    boundary = (boundary or cache_root()).resolve()
+    path = path.absolute()
+    if not path.is_relative_to(boundary):
+        raise InstallError("Semantic content escapes its trusted directory.")
     for item in (path, *path.parents):
         if (
             item.is_symlink()
@@ -51,6 +60,8 @@ def no_links(path):
             == 0xA0000003
         ):
             raise InstallError(f"Semantic cache path passes through a link: {item}")
+        if item == boundary:
+            break
 
 
 def check_hash(path):
@@ -119,12 +130,13 @@ def validate_installation():
         raise InstallError(f"Pyright {VERSION} is missing or invalid: {exc}") from exc
 
 
-def validate_content(target):
+def validate_content(target, *, trusted_root=None):
     """Verify either an installed generation or its private runtime copy."""
     try:
-        no_links(target)
+        boundary = trusted_root or cache_root()
+        no_links(target, boundary=boundary)
         archive_path = target / "archive.tgz"
-        no_links(archive_path)
+        no_links(archive_path, boundary=boundary)
         if not stat.S_ISREG(archive_path.stat().st_mode):
             raise InstallError("Semantic archive is not a regular file.")
         check_hash(archive_path)

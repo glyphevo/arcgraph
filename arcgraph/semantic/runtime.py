@@ -90,12 +90,12 @@ def session(root, config, *, transcript=None):
         raise InstallError("Node is missing; install Node.js (version 14 or newer).")
     node = Path(located).resolve()
     with tempfile.TemporaryDirectory(prefix="arcgraph-semantic-") as temporary:
-        private = Path(temporary)
+        private = Path(temporary).resolve()
         # Node reads an independently verified private generation, not mutable
         # cache files that could be replaced after the initial check.
         copied = private / "installation"
         shutil.copytree(package.parent, copied, symlinks=True)
-        package = validate_content(copied)
+        package = validate_content(copied, trusted_root=private)
         env = isolated_environment(private / "state", node)
         version = subprocess.run(  # nosec B603
             [str(node), "--version"],
@@ -144,7 +144,7 @@ def semantic_core_check(repo_root, *, python_version, environment=None):
         with tempfile.TemporaryDirectory(
             prefix="arcgraph-semantic-doctor-"
         ) as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             config = configuration(repo_root, python_version, environment)
             config["include"] = []
             with session(root, config) as (peer, detail):
