@@ -93,13 +93,9 @@ def stub_body(node):
         for s in body
     ):
         return "empty"
-    if len(body) == 1 and isinstance(body[0], ast.Raise) and body[0].cause is None:
+    if len(body) == 1 and isinstance(body[0], ast.Raise):
         exc = body[0].exc
         if isinstance(exc, ast.Call):
-            if not all(isinstance(a, ast.Constant) for a in exc.args) or not all(
-                isinstance(k.value, ast.Constant) for k in exc.keywords
-            ):
-                return None
             exc = exc.func
         if isinstance(exc, ast.Name) and exc.id == "NotImplementedError":
             return "not_implemented"
