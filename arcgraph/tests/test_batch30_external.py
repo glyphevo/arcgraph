@@ -92,6 +92,7 @@ def test_stub_identity_is_kept_as_declaration_and_never_aliases_an_implementatio
     result = definition(capture.files[path.as_uri()], target, "utf-16")
     assert result["id"] == "extsym:example.Client.ping"
     assert result["declaration_only"] is True
+
     row = dict(
         capture.files[path.as_uri()],
         origin="typeshed",
@@ -105,6 +106,91 @@ def test_stub_identity_is_kept_as_declaration_and_never_aliases_an_implementatio
     result = definition(row, item(path, "get"), "utf-16")
     assert result["id"] == "extsym:collections.abc.Mapping.get"
     assert result["declaration_only"] is True
+
+
+def test_known_concrete_override_marks_external_stub_as_declaration(tmp_path):
+    root, config, path = dependency(tmp_path)
+    path.write_text(
+        "class Client:\n    def ping(self): raise NotImplementedError\nclass Concrete(Client):\n    def ping(self): return 1\n",
+        encoding="utf-8",
+    )
+    capture = Capture(root, config)
+    target = item(path)
+    capture.item(target, {})
+    result = definition(capture.files[path.as_uri()], target, "utf-16")
+    assert result["id"] == "extsym:example.Client.ping"
+    assert result["declaration_only"] is True
+    path.write_text(
+        "class Client:\n    def ping(self): raise NotImplementedError\n",
+        encoding="utf-8",
+    )
+    capture = Capture(root, config)
+    capture.item(target, {})
+    assert (
+        definition(capture.files[path.as_uri()], target, "utf-16")["declaration_only"]
+        is False
+    )
+
+
+def test_definition_lookup_reuses_only_the_current_checked_capture(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from arcgraph.semantic import external_targets
+
+    root, config, path = dependency(tmp_path)
+    capture = Capture(root, config)
+    capture.item(item(path), {})
+    registry = Registry(capture.files, digest(capture.files))
+    original = external_targets.definition
+    calls = []
+
+    def counted(*args):
+        calls.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(external_targets, "definition", counted)
+    records = SimpleNamespace(
+        generation_id="generation",
+        producer_id="producer",
+        snapshot_id="snapshot",
+        view=SimpleNamespace(defs={}),
+    )
+    first = registry.lookup(item(path), "utf-16", records)
+    assert registry.lookup(item(path), "utf-16", records) == first
+    assert len(calls) == 1
+
+
+def test_factory_interface_stub_is_not_projected_as_the_runtime_implementation(
+    prepared, tmp_path
+):
+    project, environment, _, _ = prepared
+    package = next(environment.glob("lib/python*/site-packages")) / "example.py"
+    package.write_text(
+        "class Client:\n    def __new__(cls) -> 'Client': return Concrete()\n    def ping(self): raise NotImplementedError\nclass Concrete(Client):\n    def __new__(cls): return object.__new__(cls)\n    def ping(self): return 1\n",
+        encoding="utf-8",
+    )
+    (project / "demo.py").write_text(
+        "from example import Client\ndef f(client: Client): return client.ping()\n",
+        encoding="utf-8",
+    )
+    configure(project)
+    metadata, directory = ArcGraphIndexer(project, tmp_path / "out").build()
+    assert metadata.toolchain_status["semantic_core"]["status"] == "active"
+    primary = load(generation_directory(directory) / "pyright.json")
+    candidates = [
+        c
+        for a in primary["answers"]
+        for c in a["candidates"]
+        if c["target"] == "extsym:example.Client.ping"
+    ]
+    assert candidates and all(c["semantics"] == "declaration" for c in candidates)
+    assert not any(
+        e.source == "fn:demo.f"
+        and e.target == "extsym:example.Client.ping"
+        and any(x.kind == "type_inference" for x in e.evidence)
+        for e in GraphStoreReader.from_current(tmp_path / "out").read_edges()
+    )
 
 
 def test_external_capture_changes_and_registry_corruption_are_rejected(tmp_path):

@@ -158,6 +158,117 @@ def module_name(relative, origin):
     return ".".join(parts) if parts and all(p.isidentifier() for p in parts) else None
 
 
+def overridden_stubs(tree, module):
+    """Apply the existing same-file concrete-override declaration convention."""
+    from collections import defaultdict
+    from .structure_facts import stub_body
+
+    classes = defaultdict(list)
+    rebound = set()
+
+    def collect(body, prefix):
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                name = prefix + "." + node.name
+                classes[name].append(node)
+                collect(node.body, name)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                rebound.add(prefix + "." + node.name)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                for target in targets:
+                    rebound.update(
+                        prefix + "." + value.id
+                        for value in ast.walk(target)
+                        if isinstance(value, ast.Name)
+                    )
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                rebound.update(
+                    prefix + "." + (alias.asname or alias.name.split(".")[0])
+                    for alias in node.names
+                )
+            elif isinstance(
+                node, (ast.If, ast.Try, ast.For, ast.While, ast.With, ast.Match)
+            ):
+                for possible in ast.walk(node):
+                    if isinstance(
+                        possible, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+                    ):
+                        rebound.add(prefix + "." + possible.name)
+                    elif isinstance(possible, ast.Name) and isinstance(
+                        possible.ctx, ast.Store
+                    ):
+                        rebound.add(prefix + "." + possible.id)
+                    elif isinstance(possible, (ast.Import, ast.ImportFrom)):
+                        rebound.update(
+                            prefix + "." + (alias.asname or alias.name.split(".")[0])
+                            for alias in possible.names
+                        )
+
+    collect(tree.body, module)
+    unique = {name: values[0] for name, values in classes.items() if len(values) == 1}
+    parents = defaultdict(set)
+    methods = {}
+    shadowed = any(
+        isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "NotImplementedError"
+        or isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == "NotImplementedError"
+        or isinstance(node, ast.arg)
+        and node.arg == "NotImplementedError"
+        or isinstance(node, (ast.Import, ast.ImportFrom))
+        and any(
+            (alias.asname or alias.name.split(".")[0]) == "NotImplementedError"
+            for alias in node.names
+        )
+        for node in ast.walk(tree)
+    )
+    for name, cls in unique.items():
+        prefix = name.rsplit(".", 1)[0]
+        methods[name] = {
+            method.name: method
+            for method in cls.body
+            if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for base in cls.bases:
+            expression = base.value if isinstance(base, ast.Subscript) else base
+            if isinstance(expression, ast.Name):
+                target = prefix + "." + expression.id
+                if (
+                    target in unique
+                    and target not in rebound
+                    and unique[target].lineno < cls.lineno
+                ):
+                    parents[name].add(target)
+    declarations = set()
+    for name, overrides in methods.items():
+        seen, pending = set(), list(parents[name])
+        while pending:
+            parent = pending.pop()
+            if parent in seen:
+                continue
+            seen.add(parent)
+            pending.extend(parents[parent] - seen)
+            for method, override in overrides.items():
+                base = methods[parent].get(method)
+                if (
+                    base is None
+                    or shadowed
+                    or stub_body(override) is not None
+                    or any(
+                        ast.unparse(d).split(".")[-1] == "abstractmethod"
+                        for d in override.decorator_list
+                    )
+                ):
+                    continue
+                if stub_body(base) == "not_implemented":
+                    declarations.add(parent + "." + method)
+    return declarations
+
+
 class Capture:
     def __init__(self, root, config):
         self.root = root.resolve()
@@ -288,7 +399,9 @@ def definition(row, item, unit):
         "symbol_kind": "class" if isinstance(node, ast.ClassDef) else "function",
         "owner": "extsym:" + qualname.rsplit(".", 1)[0],
         "decorators": decorators,
-        "declaration_only": row["relative"].endswith(".pyi") or abstract,
+        "declaration_only": row["relative"].endswith(".pyi")
+        or abstract
+        or qualname in overridden_stubs(tree, row["module"]),
     }
     if (
         names.count(qualname) != 1
@@ -310,13 +423,17 @@ class Registry:
         self.checksum = checksum
         self.definitions = {}
         self.proofs = {}
+        self.parsed = {}
 
     def lookup(self, item, unit, records):
         row = self.files.get(item.get("uri"))
         if row is None:
             return None
         try:
-            value = definition(row, item, unit)
+            key = (item["uri"], item["name"], digest(item["selectionRange"]), unit)
+            if key not in self.parsed:
+                self.parsed[key] = definition(row, item, unit)
+            value = self.parsed[key]
         except (SyntaxError, UnicodeError, KeyError, TypeError, ValueError):
             return None
         if value is None:
