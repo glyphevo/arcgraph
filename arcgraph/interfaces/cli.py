@@ -1872,7 +1872,9 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
     from arcgraph.semantic.runtime import semantic_core_check
 
     checks.append(
-        semantic_core_check(repo_root, python_version=semantic_state["version"])
+        semantic_core_check(
+            repo_root, python_version=semantic_state["version"], output_dir=output_dir
+        )
     )
 
     if "node" in project_languages:

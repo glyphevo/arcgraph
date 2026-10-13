@@ -638,9 +638,15 @@ class ArcGraphIndexer:
     ) -> None:
         if ArcGraphIndexer._has_precision_evidence(content.edges):
             metadata.capabilities["precise_references"] = "available"
-        status = precision_health_status(metadata.evidence_manifest) or (
-            content.precision_metrics.get("status")
-        )
+        if (
+            content.toolchain_status.get("semantic_core", {}).get("status", "disabled")
+            != "disabled"
+        ):
+            status = content.precision_metrics.get("status")
+        else:
+            status = precision_health_status(metadata.evidence_manifest) or (
+                content.precision_metrics.get("status")
+            )
         if status == "available":
             metadata.capabilities["precision"] = "precision_available"
         elif status == "partial":

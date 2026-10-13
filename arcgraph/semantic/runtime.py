@@ -172,10 +172,46 @@ def session(root, config, *, transcript=None):
             peer.close()
 
 
-def semantic_core_check(repo_root, *, python_version, environment=None):
+def semantic_core_check(
+    repo_root, *, python_version, environment=None, output_dir=None
+):
     """Probe only the semantic toolchain; a supplied D2 version is never reprobed."""
     fix = "Run arcgraph setup semantic; install Node.js 14 or newer if Node is missing."
     try:
+        build_state = {}
+        if semantic_core_enabled(repo_root):
+            from arcgraph.core.graph_store import GraphStoreReader
+
+            output = (
+                Path(output_dir)
+                if output_dir is not None
+                else Path(repo_root) / "output/arcgraph"
+            )
+            try:
+                store = GraphStoreReader.from_current(output)
+                build_state = store.metadata.get("toolchain_status", {}).get(
+                    "semantic_core", {}
+                )
+            except FileNotFoundError:
+                pass
+            except (OSError, ValueError, RuntimeError) as exc:
+                return {
+                    "name": "semantic_core",
+                    "status": "warn",
+                    "message": "Cannot read the published semantic build: " + str(exc),
+                    "fix": "Run arcgraph build to replace the missing or incompatible index.",
+                }
+            if build_state.get("status") in ("unavailable", "partial"):
+                return {
+                    "name": "semantic_core",
+                    "status": "warn",
+                    "message": "The current build uses semantic_core="
+                    + build_state["status"]
+                    + ": "
+                    + str(build_state.get("reason") or "not fully covered"),
+                    "fix": str(build_state.get("fix") or fix)
+                    + " Run arcgraph build to retry semantic analysis.",
+                }
         with tempfile.TemporaryDirectory(
             prefix="arcgraph-semantic-doctor-"
         ) as temporary:
@@ -192,7 +228,8 @@ def semantic_core_check(repo_root, *, python_version, environment=None):
         return {
             "name": "semantic_core",
             "status": "pass",
-            "message": "Pyright 1.1.414 and Node are verified; isolated callHierarchy is available.",
+            "message": "Pyright 1.1.414 and Node are verified; isolated callHierarchy is available."
+            + (" " + build_state["reason"] if build_state.get("reason") else ""),
             "details": detail,
         }
     except (
