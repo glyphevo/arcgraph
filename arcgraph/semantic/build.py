@@ -32,7 +32,7 @@ from .runtime import configuration, semantic_core_status
 from .snapshot import canonical, native_position, sha, verify
 from .structure_provider import admit_structure, analyze
 from .transport import collect
-from .external_targets import Registry
+from .external_targets import Registry, native_identity
 from .artifact_inputs import FrozenInputs
 
 PROFILE = "semantic-core/1"
@@ -377,7 +377,9 @@ class SemanticBuild:
             raw = materialize_owners(view, raw)
             known_nodes = {n.id: n for n in content.nodes}
             for target in view.external.definitions.values():
-                if not target.declaration_only:
+                if not target.declaration_only or native_identity(
+                    target, self.snapshot.target_python
+                ):
                     raw["nodes"].append(
                         (
                             known_nodes[target.id]

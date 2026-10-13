@@ -142,6 +142,11 @@ class Records:
         evidence = [raw_id, *("decorator:" + x for x in target.decorators)]
         if target.id.startswith("extsym:"):
             evidence.extend(target.envelope.provenance)
+            from .external_targets import native_identity
+
+            if native_identity(target, self.snapshot.target_python):
+                semantics = "implementation"
+                evidence.append("native_runtime_identity:" + target.id)
         if semantics == "logical_body":
             evidence.append("wrapper_execution_unknown")
         relation = "not_applicable"

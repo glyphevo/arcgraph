@@ -12,6 +12,44 @@ from .contract import Definition, Envelope, Span, digest
 from .snapshot import canonical, native_span, sha
 
 
+def native_identity(target, python_version=None):
+    """A concrete builtin method has an existing, tested runtime symbol identity.
+
+    Its source declaration remains a stub. This proof never rewrites a protocol
+    or abstract declaration to a builtin implementation, nor imports a project.
+    """
+    from arcgraph.analyzers.calls.constants import (
+        BUILTIN_METHODS_BY_TYPE,
+        BUILTIN_TYPE_ATTRIBUTE_METHODS,
+    )
+
+    path = target["path"] if isinstance(target, dict) else target.path
+    qualname = target["qualname"] if isinstance(target, dict) else target.qualname
+    if path != "typeshed/stdlib/builtins.pyi":
+        return False
+    parts = qualname.split(".")
+    minimum = {
+        "builtins.int.is_integer": (3, 12),
+        "builtins.bytearray.resize": (3, 14),
+        "builtins.float.from_number": (3, 14),
+    }.get(qualname)
+    if (
+        minimum is not None
+        and python_version is not None
+        and tuple(int(p) for p in python_version.split(".")[:2]) < minimum
+    ):
+        return False
+    return (
+        len(parts) == 3
+        and parts[0] == "builtins"
+        and parts[2]
+        in (
+            BUILTIN_METHODS_BY_TYPE.get(parts[1], set())
+            | BUILTIN_TYPE_ATTRIBUTE_METHODS.get(parts[1], set())
+        )
+    )
+
+
 def file_path(uri):
     """Accept only local, absolute file URIs with unambiguous escaping."""
     if not isinstance(uri, str) or re.search(r"%(?![0-9a-fA-F]{2})", uri):
@@ -187,12 +225,18 @@ def definition(row, item, unit):
     tree = ast.parse(row["text"])
     choices = []
     names = []
+    overloads = []
 
     def visit(body, parents=(), declaration=False):
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 qualified = ".".join((row["module"], *parents, node.name))
                 names.append(qualified)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+                    ast.unparse(d).split(".")[-1] == "overload"
+                    for d in node.decorator_list
+                ):
+                    overloads.append(qualified)
                 span = Span(
                     start=(node.lineno - 1, node.col_offset),
                     end=(node.end_lineno - 1, node.end_col_offset),
@@ -231,10 +275,10 @@ def definition(row, item, unit):
                 visit(node.orelse, parents, declaration)
 
     visit(tree.body)
-    if len(choices) != 1 or names.count(choices[0][2]) != 1:
+    if len(choices) != 1:
         return None
     node, span, qualname, decorators, abstract = choices[0]
-    return {
+    value = {
         "id": "extsym:" + qualname,
         "path": row["origin"] + "/" + row["relative"],
         "span": span,
@@ -246,6 +290,16 @@ def definition(row, item, unit):
         "decorators": decorators,
         "declaration_only": row["relative"].endswith(".pyi") or abstract,
     }
+    if (
+        names.count(qualname) != 1
+        and not native_identity(value)
+        and not (
+            value["declaration_only"]
+            and overloads.count(qualname) == names.count(qualname)
+        )
+    ):
+        return None
+    return value
 
 
 class Registry:
@@ -279,6 +333,17 @@ class Registry:
         )
         old = self.definitions.get(target.id)
         if old is not None and old != target:
+            if native_identity(old) and native_identity(target):
+                # Keep the declaration proof; the journal preserves every raw
+                # overload range, which all name this one existing native symbol.
+                return old
+            if (
+                old.declaration_only
+                and target.declaration_only
+                and any(d.split(".")[-1] == "overload" for d in old.decorators)
+                and any(d.split(".")[-1] == "overload" for d in target.decorators)
+            ):
+                return old
             return None
         self.definitions[target.id] = target
         self.proofs[target.id] = (item, unit)
@@ -304,4 +369,27 @@ class Registry:
                 or target.envelope.generation != run.id
             ):
                 return False
+        mapped = {row.raw_id: row for row in run.mapping if row.stage == "mapped"}
+        for answer in run.answers:
+            for candidate in answer.candidates:
+                if candidate.target not in self.definitions:
+                    continue
+                target = self.definitions[candidate.target]
+                native = native_identity(target, run.snapshot.target_python)
+                if target.declaration_only and candidate.semantics != (
+                    "implementation" if native else "declaration"
+                ):
+                    return False
+                if (
+                    native
+                    and "native_runtime_identity:" + target.id not in candidate.evidence
+                ):
+                    return False
+                raw = mapped.get(candidate.evidence[0]) if candidate.evidence else None
+                if (
+                    raw is None
+                    or raw.subject != answer.subject
+                    or raw.target != target.id
+                ):
+                    return False
         return True
