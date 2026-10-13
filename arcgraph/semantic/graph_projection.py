@@ -116,6 +116,8 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
     for node in nodes.values():
         if node["kind"] == "module":
             symbols["module:" + node["path"]] = node["id"]
+        elif node["kind"] == "external_symbol" and node["id"] in view.defs:
+            symbols[node["id"]] = node["id"]
     symbols.update(
         {owner: identity for identity, owner in raw.get("owner_symbols", {}).items()}
     )

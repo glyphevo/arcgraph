@@ -95,6 +95,7 @@ class View:
         from .declaration_policy import declaration_evidence
 
         self.bundle = bundle
+        self.external = None
         self.declaration_evidence = declaration_evidence(bundle.records)
         self.records = (
             bundle.records.by_id
@@ -274,6 +275,11 @@ def admit(run: BackendRun, view: View, expected: Snapshot, producer: Producer):
             return False, "structure_subject_mismatch"
         if any(c.target not in view.defs for a in run.answers for c in a.candidates):
             return False, "unmapped_candidate"
+        if any(
+            c.target.startswith("extsym:") for a in run.answers for c in a.candidates
+        ):
+            if view.external is None or not view.external.admitted(run, view):
+                return False, "external_definition_unverified"
         for m in run.mapping:
             if (
                 m.subject is not None
@@ -300,6 +306,7 @@ class AnchoredRecords(Records):
         self.generation_id = digest((snapshot.id, backend.id, view.bundle.checksum))
         self.snapshot_id, self.producer_id = snapshot.id, backend.id
         self.data = view.data
+        self.external = getattr(view, "external", None)
         self.definitions, self.callsites = view.definitions, view.callsites
         self.defs, self.sites = view.defs, view.sites
         self.candidates, self.reasons = defaultdict(list), defaultdict(set)

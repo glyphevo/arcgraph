@@ -103,6 +103,9 @@ class Records:
     def lookup(self, item: dict, unit: str) -> Definition | None:
         path = self.path(item["uri"])
         if path not in self.texts:
+            external = getattr(self, "external", None)
+            if external is not None:
+                return external.lookup(item, unit, self)
             return None
         span = self.range(path, item["selectionRange"], unit)
         choices = self.by_definition[(path, span.start, item["name"])]
@@ -137,6 +140,8 @@ class Records:
         )
         annotation = site.receiver_annotation
         evidence = [raw_id, *("decorator:" + x for x in target.decorators)]
+        if target.id.startswith("extsym:"):
+            evidence.extend(target.envelope.provenance)
         if semantics == "logical_body":
             evidence.append("wrapper_execution_unknown")
         relation = "not_applicable"

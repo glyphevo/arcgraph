@@ -167,6 +167,7 @@ def session(root, config, *, transcript=None):
                 "node": str(node),
                 "node_version": version,
                 "pyright_version": VERSION,
+                "typeshed": str(package / "dist/typeshed-fallback"),
             }
         finally:
             peer.close()

@@ -8,6 +8,8 @@ import time
 from .journal import dump, load, wire_line
 from .lsp import LspError
 from .runtime import capabilities, initialize_params, session
+from .external_targets import Capture
+from .contract import digest
 
 SESSION_DEFINITIONS = 512
 
@@ -21,6 +23,7 @@ def collect(plan_path, root, config, output):
     counters = {"initialize": 0, "prepare": 0, "outgoing": 0, "error": 0, "timeout": 0}
     durations = {"initialize": 0.0, "prepare": 0.0, "outgoing": 0.0}
     launch_seconds = 0.0
+    external = Capture(root, config)
     first_prepare_seconds = 0.0
     restart_initialize_seconds = 0.0
     with (
@@ -49,6 +52,9 @@ def collect(plan_path, root, config, output):
                 row = {"method": method, "params": params}
                 try:
                     result = peer.request(method, params)
+                    if method == "callHierarchy/outgoingCalls":
+                        for entry in result or ():
+                            external.item(entry["to"], current_detail)
                     row["result"] = result
                     return result
                 except (LspError, OSError, TimeoutError) as exc:
@@ -65,6 +71,7 @@ def collect(plan_path, root, config, output):
                     count += 1
 
             initialize = request("initialize", initialize_params(root), "initialize")
+            current_detail = detail
             unit = capabilities(initialize)
             peer.notify("initialized", {})
             startup = time.perf_counter() - started
@@ -78,6 +85,7 @@ def collect(plan_path, root, config, output):
                         session(root, config, transcript=Transcript())
                     )
                     launch_seconds += time.perf_counter() - launch_started
+                    current_detail = next_detail
                     tick = time.perf_counter()
                     next_initialize = request(
                         "initialize", initialize_params(root), "initialize"
@@ -134,6 +142,7 @@ def collect(plan_path, root, config, output):
         os.fsync(journal.fileno())
     os.replace(pending, output / "responses.jsonl")
     (output / "pyright-stderr.txt").write_bytes(stderr)
+    dump(external.files, output / "external-targets.json")
     detail.update(
         startup_seconds=startup,
         launch_seconds=launch_seconds,
@@ -145,6 +154,7 @@ def collect(plan_path, root, config, output):
         encoding=unit,
         sessions=sessions,
         total_seconds=time.perf_counter() - started,
+        external_capture=digest(external.files),
     )
     dump(detail, output / "transport.json")
     return detail

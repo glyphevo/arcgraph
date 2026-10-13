@@ -26,12 +26,13 @@ from .frozen import (
     verify_interpreter,
 )
 from .graph_projection import project_graph, public_edges
-from .journal import JournalReplay, dump, write_structure
+from .journal import JournalReplay, dump, load, write_structure
 from .projection import project
 from .runtime import configuration, semantic_core_status
 from .snapshot import canonical, native_position, sha, verify
 from .structure_provider import admit_structure, analyze
 from .transport import collect
+from .external_targets import Registry
 
 PROFILE = "semantic-core/1"
 LEGACY_PROFILE = "legacy/1"
@@ -321,6 +322,20 @@ class SemanticBuild:
                 raise ValueError(
                     "Pyright requests failed or timed out; retaining the existing analyzer results."
                 )
+            view.external = Registry(
+                load(self.generation / "external-targets.json"),
+                detail["external_capture"],
+            )
+            primary_producer = producer(
+                "pyright",
+                "1.1.414",
+                (self.snapshot.target_python,),
+                {
+                    "configuration": config,
+                    "wrapper": wrapper,
+                    "external_capture": detail["external_capture"],
+                },
+            )
             replay = JournalReplay(
                 self.generation / "responses.jsonl", self.snapshot.id
             )
@@ -348,6 +363,25 @@ class SemanticBuild:
             from .public_owners import materialize_owners
 
             raw = materialize_owners(view, raw)
+            known_nodes = {n.id: n for n in content.nodes}
+            for target in view.external.definitions.values():
+                if not target.declaration_only:
+                    raw["nodes"].append(
+                        (
+                            known_nodes[target.id]
+                            if target.id in known_nodes
+                            else Node(
+                                id=target.id,
+                                kind="external_symbol",
+                                name=target.name,
+                                qualname=target.qualname,
+                                properties={
+                                    "source": "semantic_core",
+                                    "boundary": "external",
+                                },
+                            )
+                        ).model_dump(mode="json")
+                    )
             fallback = wrap_graph(
                 self.snapshot, self.root, fallback_producer, view, raw
             )
@@ -395,7 +429,8 @@ class SemanticBuild:
             content.edges = public_edges(
                 [*out_of_scope, *(Edge.model_validate(e) for e in graph)]
             )
-            content.nodes = [n for n in content.nodes if n.id not in ids] + [
+            projected_ids = {n["id"] for n in raw["nodes"]}
+            content.nodes = [n for n in content.nodes if n.id not in projected_ids] + [
                 Node.model_validate(n) for n in raw["nodes"]
             ]
             uncovered = [f for f in self.bundle.files if f.status != "parsed"]
