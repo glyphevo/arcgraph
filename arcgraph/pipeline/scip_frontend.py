@@ -7,6 +7,7 @@ import json
 import time
 from collections import Counter
 from pathlib import Path
+from arcgraph.core.artifact_inputs import input_exists, input_text
 from typing import Any
 from urllib.parse import quote
 
@@ -181,7 +182,7 @@ class ScipProtocolFrontend(LanguageFrontend):
 
     def _discover_document_extensions(self) -> tuple[str, ...]:
         try:
-            payload = json.loads(self.scip_graph_index_path.read_text(encoding="utf-8"))
+            payload = json.loads(input_text(self, self.scip_graph_index_path))
         except (OSError, json.JSONDecodeError):
             return _COMMON_SCIP_SOURCE_EXTENSIONS
         if not isinstance(payload, dict):
@@ -197,7 +198,7 @@ class ScipProtocolFrontend(LanguageFrontend):
         return tuple(extensions or _COMMON_SCIP_SOURCE_EXTENSIONS)
 
     def _load_payload(self, warnings: list[BuildWarning]) -> dict[str, Any] | None:
-        if not self.scip_graph_index_path.exists():
+        if not input_exists(self, self.scip_graph_index_path):
             warnings.append(
                 BuildWarning(
                     kind="scip_protocol_missing",
@@ -210,7 +211,7 @@ class ScipProtocolFrontend(LanguageFrontend):
             )
             return None
         try:
-            payload = json.loads(self.scip_graph_index_path.read_text(encoding="utf-8"))
+            payload = json.loads(input_text(self, self.scip_graph_index_path))
         except json.JSONDecodeError as exc:
             warnings.append(
                 BuildWarning(

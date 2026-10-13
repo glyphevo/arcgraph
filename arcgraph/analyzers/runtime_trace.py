@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from arcgraph.core.artifact_inputs import input_exists, input_text, input_stat
 from typing import Any
 
 from arcgraph.core.schemas import BuildWarning, Edge, Evidence, FactResolution, Node
@@ -96,7 +97,7 @@ class RuntimeTraceImporter:
         if path is None:
             return RuntimeTraceAnalysis(metrics=self._base_metrics("unavailable"))
         absolute = self._absolute_path(path)
-        if not absolute.exists():
+        if not input_exists(self, absolute):
             return RuntimeTraceAnalysis(
                 warnings=[
                     BuildWarning(
@@ -108,7 +109,7 @@ class RuntimeTraceImporter:
                 metrics=self._base_metrics("partial", trace_path=absolute),
                 status="partial",
             )
-        if absolute.stat().st_size > self.config.max_file_bytes:
+        if input_stat(self, absolute).st_size > self.config.max_file_bytes:
             return RuntimeTraceAnalysis(
                 warnings=[
                     BuildWarning(
@@ -125,7 +126,7 @@ class RuntimeTraceImporter:
             )
 
         try:
-            payload = json.loads(absolute.read_text(encoding="utf-8"))
+            payload = json.loads(input_text(self, absolute))
         except (OSError, json.JSONDecodeError) as exc:
             return RuntimeTraceAnalysis(
                 warnings=[

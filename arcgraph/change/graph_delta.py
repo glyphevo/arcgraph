@@ -24,6 +24,8 @@ from arcgraph.change.contracts import (
 )
 from arcgraph.change.errors import GraphDeltaIncomplete, StableIdentityCollision
 from arcgraph.change.identities import (
+    anonymous_owner_profile,
+    build_projection_profile,
     assert_current_build_matches_code,
     diagnostic_lifecycle_projection,
     diagnostic_semantic_projection,
@@ -133,6 +135,7 @@ class _NodeIdentityIndex:
         nodes: Iterable[Node],
     ) -> list[dict[str, Any]]:
         unknowns: list[dict[str, Any]] = []
+        ambiguous = set()
         with self._connection:
             for node in nodes:
                 try:
@@ -152,6 +155,17 @@ class _NodeIdentityIndex:
                     )
                     continue
                 stable_identity = str(identity["stable_identity"])
+                if stable_identity in ambiguous:
+                    unknowns.append(
+                        {
+                            "code": "NODE_IDENTITY_UNRESOLVED",
+                            "reason": "ambiguous repeated anonymous expression",
+                            "snapshot": snapshot,
+                            "node_id": node.id,
+                            "blocking": True,
+                        }
+                    )
+                    continue
                 profile = canonical_json(identity["stability_profile"])
                 payload = canonical_json(
                     stable_projection(node.model_dump(mode="json"))
@@ -168,6 +182,25 @@ class _NodeIdentityIndex:
                     )
                     self._add_embedded_identities(snapshot, node)
                 except sqlite3.IntegrityError as exc:
+                    if (
+                        identity["stability_profile"].get("identity_source")
+                        == "python_anonymous_owner_v1"
+                    ):
+                        ambiguous.add(stable_identity)
+                        self._connection.execute(
+                            "DELETE FROM node_identities WHERE snapshot = ? AND stable_identity = ?",
+                            (snapshot, stable_identity),
+                        )
+                        unknowns.append(
+                            {
+                                "code": "NODE_IDENTITY_UNRESOLVED",
+                                "reason": "ambiguous repeated anonymous expression",
+                                "snapshot": snapshot,
+                                "node_id": node.id,
+                                "blocking": True,
+                            }
+                        )
+                        continue
                     existing_by_id = self._connection.execute(
                         """
                         SELECT stable_identity, stability_profile
@@ -420,6 +453,31 @@ class GraphDeltaEngine:
         protected_surface_changes: list[dict[str, Any]] | None = None,
     ) -> GraphDelta:
         """Build a complete delta or explicitly mark truncation as unsafe."""
+
+        profiles = []
+        for reader, identity in (
+            (baseline_reader, baseline_build_identity),
+            (current_reader, current_build_identity),
+        ):
+            profile = build_projection_profile(
+                reader.sqlite_path.parent, reader.metadata
+            )
+            bound = identity.freshness.get("projection_profile", "legacy/1")
+            if bound != profile["projection_profile"]:
+                raise GraphDeltaIncomplete(
+                    "projection profile is not bound to this baseline; rebuild the change-safety baseline"
+                )
+            if identity.freshness.get("projection_profile_digest") != profile.get(
+                "projection_profile_digest"
+            ):
+                raise GraphDeltaIncomplete(
+                    "projection profile binding changed; rebuild the change-safety baseline"
+                )
+            profiles.append(bound)
+        if profiles[0] != profiles[1]:
+            raise GraphDeltaIncomplete(
+                "projection profiles differ; rebuild the change-safety baseline with the same semantic_core configuration"
+            )
 
         _validate_repo_ids(
             repo_id,
@@ -963,6 +1021,19 @@ def _node_semantic_projection(
         node.properties,
         relationship_resolver=relationship_resolver,
     )
+    properties = {
+        key: value
+        for key, value in properties.items()
+        if key not in ("scope_body_positions", "line_count")
+    }
+    if anonymous_owner_profile(node) is not None:
+        properties = {
+            **properties,
+            "callsites": [
+                _stable_callsite_fact(fact, source=node.id)
+                for fact in properties["callsites"]
+            ],
+        }
     if "stable_callsite_subject" in properties:
         properties = {
             key: value for key, value in properties.items() if key != "callsite_id"
@@ -1188,7 +1259,7 @@ _CALLSITE_LINE_KEYS = frozenset({"column", "line"})
 _CALLSITE_POSITION_KEYS = _CALLSITE_LINE_KEYS | {"callsite_id"}
 
 
-def _stable_callsite_fact(fact: Any) -> Any:
+def _stable_callsite_fact(fact: Any, *, source=None) -> Any:
     if not isinstance(fact, dict):
         return fact
     dropped = (
@@ -1196,7 +1267,18 @@ def _stable_callsite_fact(fact: Any) -> Any:
         if "stable_callsite_subject" in fact
         else _CALLSITE_LINE_KEYS
     )
-    return {key: value for key, value in fact.items() if key not in dropped}
+    value = {key: value for key, value in fact.items() if key not in dropped}
+    subject = value.get("stable_callsite_subject")
+    if (
+        isinstance(subject, dict)
+        and source is not None
+        and "#" in source
+        and subject.get("source_scope") == source
+    ):
+        value["stable_callsite_subject"] = {
+            key: field for key, field in subject.items() if key != "source_scope"
+        }
+    return value
 
 
 def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
@@ -1208,13 +1290,18 @@ def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
             key: value for key, value in resolution.items() if key != "callsite_id"
         }
     if isinstance(callsite, dict):
-        properties = {**properties, "callsite": _stable_callsite_fact(callsite)}
+        properties = {
+            **properties,
+            "callsite": _stable_callsite_fact(callsite, source=edge.source),
+        }
     facts = properties.get("callsites")
     if isinstance(facts, list):
         # Every call a merged edge stands for, as its first call is above.
         properties = {
             **properties,
-            "callsites": [_stable_callsite_fact(fact) for fact in facts],
+            "callsites": [
+                _stable_callsite_fact(fact, source=edge.source) for fact in facts
+            ],
         }
     return {
         "confidence": edge.confidence,

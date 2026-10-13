@@ -173,21 +173,27 @@ class ArcGraphIndexer:
         commit_sha = current_commit(self.repo_root)
         index_version = make_index_version(commit_sha)
         self.semantic_revision = index_version
-        active_frontends = self._build_plan(index_version)
-        scanner = FileScanner(
-            self.repo_root,
-            self.source_roots,
-            self.ignore_rules,
-            file_extensions=self._file_extensions_for(active_frontends),
-        )
         semantic = None
-        frontend_roots = []
         if enabled:
             from arcgraph.semantic.build import SemanticBuild
 
             semantic = SemanticBuild(self)
-            scanner.capture_directory = semantic.root
+        self._frozen_inputs = semantic.inputs if semantic is not None else None
+        for frontend in (self.scip_protocol_frontend, self.openapi_protocol_frontend):
+            if frontend is not None:
+                frontend._frozen_inputs = self._frozen_inputs
+        active_frontends = []
+        frontend_roots = []
         try:
+            active_frontends = self._build_plan(index_version)
+            scanner = FileScanner(
+                self.repo_root,
+                self.source_roots,
+                self.ignore_rules,
+                file_extensions=self._file_extensions_for(active_frontends),
+            )
+            if semantic is not None:
+                scanner.capture_directory = semantic.root
             files = scanner.scan()
             if semantic is not None:
                 semantic.capture(files)
@@ -206,6 +212,13 @@ class ArcGraphIndexer:
                 semantic,
             )
         finally:
+            self._frozen_inputs = None
+            for frontend in (
+                self.scip_protocol_frontend,
+                self.openapi_protocol_frontend,
+            ):
+                if frontend is not None:
+                    frontend._frozen_inputs = None
             if semantic is not None:
                 for frontend, root in frontend_roots:
                     frontend._repo_root = root
@@ -226,6 +239,7 @@ class ArcGraphIndexer:
         )
         if semantic is not None:
             semantic.apply(content)
+            semantic.inputs.verify()
         else:
             from arcgraph.semantic.runtime import semantic_core_status
 
@@ -244,6 +258,7 @@ class ArcGraphIndexer:
             pyright_export_path=self.pyright_export_path,
             coverage_path=self.coverage_path,
             runtime_trace_path=self.runtime_trace_path,
+            frozen_inputs=semantic.inputs if semantic is not None else None,
         )
 
         # Generate structural hierarchy BEFORE merge so structural nodes
@@ -401,20 +416,24 @@ class ArcGraphIndexer:
         edges.extend(precise_analysis.edges)
         warnings.extend(precise_analysis.warnings)
 
-        coverage_analysis = CoverageCollector(
+        coverage_collector = CoverageCollector(
             self.repo_root,
             self.coverage_path,
-        ).analyze(nodes)
+        )
+        coverage_collector._frozen_inputs = getattr(self, "_frozen_inputs", None)
+        coverage_analysis = coverage_collector.analyze(nodes)
         nodes.extend(coverage_analysis.nodes)
         edges.extend(coverage_analysis.edges)
         warnings.extend(coverage_analysis.warnings)
 
-        runtime_analysis = RuntimeTraceImporter(
+        runtime_importer = RuntimeTraceImporter(
             self.repo_root,
             self.runtime_trace_path,
             commit_sha=trace_commit_sha,
             index_version=trace_index_version,
-        ).analyze(nodes)
+        )
+        runtime_importer._frozen_inputs = getattr(self, "_frozen_inputs", None)
+        runtime_analysis = runtime_importer.analyze(nodes)
         nodes.extend(runtime_analysis.nodes)
         edges.extend(runtime_analysis.edges)
         warnings.extend(runtime_analysis.warnings)

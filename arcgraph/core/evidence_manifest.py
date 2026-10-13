@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -92,6 +93,7 @@ def build_evidence_manifest(
     coverage_path: str | Path | None = None,
     runtime_trace_path: str | Path | None = None,
     write_live: bool = True,
+    frozen_inputs=None,
 ) -> dict[str, Any]:
     """Build and optionally persist the live manifest used by a new index."""
 
@@ -118,6 +120,7 @@ def build_evidence_manifest(
             source_roots=source_root_values,
             tool_name="scip",
             payload_kind="json",
+            frozen_inputs=frozen_inputs,
         ),
         _artifact_record(
             kind="precision_pyright",
@@ -135,6 +138,7 @@ def build_evidence_manifest(
             source_roots=source_root_values,
             tool_name="pyright-langserver",
             payload_kind="json",
+            frozen_inputs=frozen_inputs,
         ),
         _artifact_record(
             kind="coverage",
@@ -152,6 +156,7 @@ def build_evidence_manifest(
             source_roots=source_root_values,
             tool_name=str(_dict_value(coverage_metrics, "format") or "coverage"),
             payload_kind="coverage",
+            frozen_inputs=frozen_inputs,
         ),
         _artifact_record(
             kind="runtime_trace",
@@ -175,6 +180,7 @@ def build_evidence_manifest(
                 _dict_value(runtime_metrics, "commit_sha")
             ),
             payload_kind="json",
+            frozen_inputs=frozen_inputs,
         ),
     ]
     manifest = {
@@ -419,11 +425,14 @@ def _artifact_record(
     payload_kind: str,
     tool_version: str | None = None,
     artifact_commit_sha: str | None = None,
+    frozen_inputs=None,
 ) -> dict[str, Any]:
     record = {
         "kind": kind,
         "path": _display_path(repo_root, path),
-        "exists": path.exists(),
+        "exists": (
+            frozen_inputs.exists(path) if frozen_inputs is not None else path.exists()
+        ),
         "hash": None,
         "bytes": 0,
         "status": _metric_status(metric_status),
@@ -435,20 +444,25 @@ def _artifact_record(
         "generated_at": None,
         "scope": "repository",
     }
-    if not path.exists():
+    if not record["exists"]:
         record["status"] = "missing"
         record["reason"] = "artifact_missing"
         return record
 
-    record["hash"] = _sha256(path)
-    record["bytes"] = path.stat().st_size
-    payload, invalid_reason = _read_payload(path, payload_kind)
+    if frozen_inputs is not None:
+        raw = frozen_inputs.read_bytes(path)
+        record["hash"] = hashlib.sha256(raw).hexdigest()
+        record["bytes"] = len(raw)
+    else:
+        record["hash"] = _sha256(path)
+        record["bytes"] = path.stat().st_size
+    payload, invalid_reason = _read_payload(path, payload_kind, frozen_inputs)
     if invalid_reason is not None:
         record["status"] = "invalid"
         record["reason"] = invalid_reason
         return record
     _merge_payload_metadata(record, payload)
-    sidecar_payload, sidecar_invalid_reason = _read_sidecar_payload(path)
+    sidecar_payload, sidecar_invalid_reason = _read_sidecar_payload(path, frozen_inputs)
     if sidecar_invalid_reason is not None:
         record["status"] = "invalid"
         record["reason"] = sidecar_invalid_reason
@@ -808,24 +822,50 @@ def _metric_reason(value: Any) -> str | None:
     return None
 
 
-def _read_payload(path: Path, payload_kind: str) -> tuple[Any | None, str | None]:
+def _read_payload(
+    path: Path, payload_kind: str, frozen_inputs=None
+) -> tuple[Any | None, str | None]:
     try:
         if payload_kind == "coverage" and path.suffix.lower() == ".xml":
-            ET.parse(path)
+            ET.parse(
+                BytesIO(frozen_inputs.read_bytes(path))
+                if frozen_inputs is not None
+                else path
+            )
             return None, None
         if payload_kind in {"json", "coverage"}:
-            return json.loads(path.read_text(encoding="utf-8")), None
+            return (
+                json.loads(
+                    frozen_inputs.read_bytes(path).decode("utf-8")
+                    if frozen_inputs is not None
+                    else path.read_text(encoding="utf-8")
+                ),
+                None,
+            )
     except (OSError, json.JSONDecodeError, ET.ParseError) as exc:
         return None, f"parse_error:{type(exc).__name__}"
     return None, None
 
 
-def _read_sidecar_payload(path: Path) -> tuple[Any | None, str | None]:
+def _read_sidecar_payload(
+    path: Path, frozen_inputs=None
+) -> tuple[Any | None, str | None]:
     sidecar_path = evidence_sidecar_path(path)
-    if not sidecar_path.exists():
+    if not (
+        frozen_inputs.exists(sidecar_path)
+        if frozen_inputs is not None
+        else sidecar_path.exists()
+    ):
         return None, None
     try:
-        return json.loads(sidecar_path.read_text(encoding="utf-8")), None
+        return (
+            json.loads(
+                frozen_inputs.read_bytes(sidecar_path).decode("utf-8")
+                if frozen_inputs is not None
+                else sidecar_path.read_text(encoding="utf-8")
+            ),
+            None,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         return None, f"sidecar_parse_error:{type(exc).__name__}"
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 from typing import Any, Iterable, Mapping, Sequence
@@ -369,7 +370,11 @@ def capture_build_identity(
         "evidence_manifest_digest": evidence_digest,
         "index_sqlite_sha256": sha256_file(sqlite_path),
         "index_sqlite_size": sqlite_path.stat().st_size,
-        "freshness": {"status": "unknown", "source": "build-summary"},
+        "freshness": {
+            "status": "unknown",
+            "source": "build-summary",
+            **build_projection_profile(build_dir, metadata),
+        },
     }
     created_at = _datetime_or_none(metadata.get("created_at"))
     if created_at is not None:
@@ -419,6 +424,20 @@ def verify_build_identity(output_dir: Path, identity: BuildIdentity) -> None:
         or summary.get("schema_version") != identity.schema_version
     ):
         raise BaselineIntegrityMismatch("baseline summary identity does not match")
+    actual_profile = build_projection_profile(build_dir, summary)
+    if (
+        identity.freshness.get("projection_profile", "legacy/1")
+        != actual_profile["projection_profile"]
+    ):
+        raise BaselineIntegrityMismatch(
+            "baseline projection profile changed; rebuild the change-safety baseline"
+        )
+    if identity.freshness.get("projection_profile_digest") != actual_profile.get(
+        "projection_profile_digest"
+    ):
+        raise BaselineIntegrityMismatch(
+            "baseline projection profile binding changed; rebuild the change-safety baseline"
+        )
     if identity.evidence_manifest_digest is not None:
         evidence_manifest = summary.get("evidence_manifest")
         if not isinstance(evidence_manifest, dict):
@@ -506,6 +525,78 @@ def assert_current_build_matches_code(
         )
 
 
+def build_projection_profile(build_dir, metadata):
+    """Read the immutable build's profile; older default builds are legacy."""
+    from arcgraph.core.utils import symlink_below
+    from arcgraph.semantic.build import PROFILE, LEGACY_PROFILE
+
+    enabled = metadata.get("toolchain_status", {}).get("semantic_core", {}).get(
+        "status"
+    ) in ("active", "partial", "unavailable")
+    expected = PROFILE if enabled else LEGACY_PROFILE
+    path = build_dir / "projection-profile.json"
+    if symlink_below(build_dir.parent.parent, path):
+        raise BaselineIntegrityMismatch("build projection profile is unsafe")
+    if path.exists():
+        try:
+            raw = path.read_bytes()
+            value = json.loads(raw)
+        except (OSError, ValueError) as exc:
+            raise BaselineIntegrityMismatch(
+                "build projection profile is unreadable"
+            ) from exc
+        if value != {"projection_profile": expected}:
+            raise BaselineIntegrityMismatch(
+                "build projection profile does not match the snapshot; rebuild required"
+            )
+        return {
+            "projection_profile": expected,
+            "projection_profile_digest": hashlib.sha256(raw).hexdigest(),
+        }
+    if enabled:
+        raise BaselineIntegrityMismatch(
+            "build projection profile is missing; rebuild required"
+        )
+    return {"projection_profile": LEGACY_PROFILE}
+
+
+def anonymous_owner_profile(node):
+    if node.kind != "function" or node.name not in (
+        "<lambda>",
+        "<genexpr>",
+        "<ListComp>",
+        "<SetComp>",
+        "<DictComp>",
+    ):
+        return None
+    if (
+        not node.path
+        or not node.qualname
+        or not re.fullmatch(
+            re.escape("fn:" + node.qualname) + r"#[0-9a-f]{64}", node.id
+        )
+    ):
+        raise StableIdentityCollision(
+            "anonymous owner lacks a structural definition identity"
+        )
+    facts = node.properties.get("callsites")
+    if (
+        not isinstance(facts, list)
+        or not facts
+        or any(not isinstance(f, dict) or not f.get("call_expression") for f in facts)
+    ):
+        raise StableIdentityCollision("anonymous owner lacks call expression witnesses")
+    return {
+        "identity_profile_version": NODE_IDENTITY_PROFILE_VERSION,
+        "identity_source": "python_anonymous_owner_v1",
+        "kind": node.kind,
+        "path": node.path,
+        "qualname": node.qualname,
+        "params": node.properties.get("params", []),
+        "expressions": sorted((f["call_expression"], f.get("context")) for f in facts),
+    }
+
+
 def stable_node_identity(repo_id: str, node: Node) -> dict[str, Any]:
     """Create the Change-Safety identity without using canonical_identity.
 
@@ -518,6 +609,16 @@ def stable_node_identity(repo_id: str, node: Node) -> dict[str, Any]:
     """
 
     prefix = _typed_node_id_prefix(node)
+    anonymous = anonymous_owner_profile(node)
+    if anonymous is not None:
+        stable_node_id = "profile:" + canonical_digest(anonymous)
+        return {
+            "repo_id": repo_id,
+            "stable_node_id": stable_node_id,
+            "stable_identity": f"{repo_id}:{stable_node_id}",
+            "identity_profile_version": NODE_IDENTITY_PROFILE_VERSION,
+            "stability_profile": anonymous,
+        }
     frontend_name = node.properties.get("frontend_name")
     if frontend_name is not None and not isinstance(frontend_name, str):
         raise StableIdentityCollision(

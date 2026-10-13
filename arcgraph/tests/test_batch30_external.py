@@ -2,7 +2,6 @@
 
 from contextlib import contextmanager
 import json
-from pathlib import Path
 
 import pytest
 
@@ -64,14 +63,16 @@ def test_capture_never_reads_outside_the_allowed_directory_or_through_links(
     link.symlink_to(outside)
     linked_dir = path.parent / "linked"
     linked_dir.symlink_to(tmp_path, target_is_directory=True)
-    original = Path.read_bytes
+    from arcgraph.semantic import external_targets
+
+    original = external_targets.read_allowed
     reads = []
 
-    def read(self):
-        reads.append(self)
-        return original(self)
+    def read(path, root):
+        reads.append(path)
+        return original(path, root)
 
-    monkeypatch.setattr(Path, "read_bytes", read)
+    monkeypatch.setattr(external_targets, "read_allowed", read)
     capture = Capture(root, config)
     for value in (outside, link, linked_dir / "secret.py"):
         capture.item(item(value), {})
@@ -116,6 +117,29 @@ def test_external_capture_changes_and_registry_corruption_are_rejected(tmp_path)
     path.write_text("class Client:\n    def ping(self): return 2\n", encoding="utf-8")
     with pytest.raises(ValueError, match="external definition changed"):
         capture.item(item(path), {})
+
+
+def test_link_swap_after_boundary_check_cannot_redirect_the_opened_file(
+    tmp_path, monkeypatch
+):
+    from arcgraph.semantic import external_targets
+
+    root, config, path = dependency(tmp_path)
+    outside = tmp_path / "secret.py"
+    outside.write_text("secret", encoding="utf-8")
+    original = external_targets.safe_file
+
+    def swap(value, allowed):
+        result = original(value, allowed)
+        if result:
+            value.unlink()
+            value.symlink_to(outside)
+        return result
+
+    monkeypatch.setattr(external_targets, "safe_file", swap)
+    capture = Capture(root, config)
+    capture.item(item(path), {})
+    assert capture.files == {}
 
 
 def test_transport_captures_before_a_private_session_is_destroyed(

@@ -5,6 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from arcgraph.core.artifact_inputs import (
+    input_exists,
+    input_text,
+    input_xml,
+    input_stat,
+)
 from typing import Any
 from urllib.parse import unquote, urlparse
 
@@ -50,7 +56,7 @@ class CoverageCollector:
                     "reason": "not_configured",
                 }
             )
-        if not path.exists():
+        if not input_exists(self, path):
             return CoverageAnalysis(
                 status="partial",
                 warnings=[
@@ -79,13 +85,13 @@ class CoverageCollector:
             return self._absolute_path(self.coverage_path)
         for candidate in self.DEFAULT_CANDIDATES:
             path = self.repo_root / candidate
-            if path.exists():
+            if input_exists(self, path):
                 return path
         return None
 
     def _analyze_json(self, path: Path, nodes: list[Node]) -> CoverageAnalysis:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(input_text(self, path))
         except (OSError, json.JSONDecodeError) as exc:
             return CoverageAnalysis(
                 status="partial",
@@ -546,7 +552,7 @@ class CoverageCollector:
 
     def _analyze_xml(self, path: Path, nodes: list[Node]) -> CoverageAnalysis:
         try:
-            root = ET.parse(path).getroot()
+            root = ET.parse(input_xml(self, path)).getroot()
         except (OSError, ET.ParseError) as exc:
             return CoverageAnalysis(
                 status="partial",
@@ -700,7 +706,7 @@ class CoverageCollector:
 
     def _stale_paths(self, coverage_path: Path, edges: list[Edge]) -> list[str]:
         try:
-            coverage_mtime = coverage_path.stat().st_mtime
+            coverage_mtime = input_stat(self, coverage_path).st_mtime
         except OSError:
             return []
 

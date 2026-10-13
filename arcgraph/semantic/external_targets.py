@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 from urllib.parse import unquote, urlsplit
 
 from .contract import Definition, Envelope, Span, digest
@@ -44,6 +45,62 @@ def safe_file(path, root):
         if current.is_symlink():
             return False
     return path.is_file() and path.resolve() == path
+
+
+def read_allowed(path, root):
+    """Open beneath a directory descriptor, so link swaps cannot redirect reads."""
+    if os.open in os.supports_dir_fd:
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            parts = path.relative_to(root).parts
+            for name in parts[:-1]:
+                child = os.open(
+                    name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+                )
+                os.close(directory)
+                directory = child
+            descriptor = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory
+            )
+        finally:
+            os.close(directory)
+    elif os.name == "nt":
+        descriptor = os.open(path, os.O_RDONLY | os.O_BINARY)
+        try:
+            # Check the opened handle's resolved name before reading any byte.
+            import ctypes
+            import msvcrt
+
+            function = ctypes.WinDLL(
+                "kernel32", use_last_error=True
+            ).GetFinalPathNameByHandleW
+            function.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_wchar_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+            ]
+            function.restype = ctypes.c_uint32
+            buffer = ctypes.create_unicode_buffer(32768)
+            length = function(msvcrt.get_osfhandle(descriptor), buffer, len(buffer), 0)
+            if not length or length >= len(buffer):
+                raise OSError("Cannot verify the opened external definition")
+            final = buffer.value
+            if final.startswith("\\\\?\\UNC\\"):
+                final = "\\\\" + final[8:]
+            elif final.startswith("\\\\?\\"):
+                final = final[4:]
+            if not Path(final).is_relative_to(root):
+                raise OSError("Opened external definition escapes the allowed root")
+        except BaseException:
+            os.close(descriptor)
+            raise
+    else:
+        raise OSError("Safe external definition reads are unavailable")
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise OSError("External definition is not a regular file")
+        return stream.read()
 
 
 def module_name(relative, origin):
@@ -87,16 +144,22 @@ class Capture:
             if (environment / "Lib/site-packages").is_dir():
                 roots.append((environment / "Lib/site-packages", "dependency"))
         for allowed, origin in roots:
-            if allowed.is_symlink() or not allowed.is_dir():
+            if (
+                allowed.is_symlink()
+                or not allowed.is_dir()
+                or allowed.resolve() != allowed
+            ):
                 continue
-            allowed = allowed.resolve()
             if not safe_file(path, allowed):
                 continue
             relative = path.relative_to(allowed).as_posix()
             module = module_name(relative, origin)
             if module is None:
                 return
-            raw = path.read_bytes()
+            try:
+                raw = read_allowed(path, allowed)
+            except OSError:
+                return
             row = {
                 "origin": origin,
                 "relative": relative,

@@ -33,6 +33,7 @@ from .snapshot import canonical, native_position, sha, verify
 from .structure_provider import admit_structure, analyze
 from .transport import collect
 from .external_targets import Registry
+from .artifact_inputs import FrozenInputs
 
 PROFILE = "semantic-core/1"
 LEGACY_PROFILE = "legacy/1"
@@ -73,6 +74,15 @@ def freshness_reason(store, root):
                 )
             )
         )
+        from .artifact_inputs import freshness_reason as artifact_freshness
+
+        artifact_reason = artifact_freshness(
+            store.sqlite_path.parent,
+            root,
+            dict(snapshot.environment)["artifact_inputs"],
+        )
+        if artifact_reason is not None:
+            return artifact_reason
         if not unavailable:
             manifest = json.loads(
                 (directory / "manifest.json").read_text(encoding="utf-8")
@@ -125,6 +135,7 @@ class SemanticBuild:
         self.root.mkdir()
         self.generation = self.directory / "generation"
         self.generation.mkdir()
+        self.inputs = FrozenInputs(indexer)
         self.environment = project_environment_path(
             indexer.repo_root, indexer.project_environment
         )
@@ -217,6 +228,7 @@ class SemanticBuild:
                             [r.path for r in self.indexer.source_roots]
                         ),
                         "projection_profile": PROFILE,
+                        "artifact_inputs": self.inputs.checksum,
                         **self.interpreter,
                     }.items()
                 )
@@ -492,6 +504,8 @@ class SemanticBuild:
         verify_interpreter(self.indexer.repo_root, self.interpreter, self.environment)
 
     def publish(self, build_dir):
+        self.inputs.verify()
+        self.inputs.persist(build_dir)
         dump({"projection_profile": PROFILE}, build_dir / "projection-profile.json")
         dump(
             {

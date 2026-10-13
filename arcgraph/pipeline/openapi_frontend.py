@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from arcgraph.core.artifact_inputs import input_exists, input_text
 from typing import Any
 from urllib.parse import quote
 
@@ -163,7 +164,7 @@ class OpenApiProtocolFrontend(LanguageFrontend):
                 )
             )
             return None
-        if not self.openapi_path.exists():
+        if not input_exists(self, self.openapi_path):
             warnings.append(
                 BuildWarning(
                     kind="openapi_protocol_missing",
@@ -173,7 +174,7 @@ class OpenApiProtocolFrontend(LanguageFrontend):
             )
             return None
         try:
-            text = self.openapi_path.read_text(encoding="utf-8")
+            text = input_text(self, self.openapi_path)
         except OSError as exc:
             warnings.append(
                 BuildWarning(
