@@ -496,6 +496,9 @@ def definition(row, item, unit, snapshot=None):
     def expression_writes(node, class_scope):
         # Statement bodies have their own visit so inactive branches and nested
         # scopes cannot leak writes. Lambda defaults run here; its body does not.
+        if isinstance(node, getattr(ast, "TypeAlias", ())):
+            # Alias values and type parameters are evaluated in a lazy scope.
+            return
         if isinstance(node, ast.NamedExpr):
             for name in bound_names(node.target):
                 record_write(class_scope, name, node.lineno)
@@ -560,6 +563,8 @@ def definition(row, item, unit, snapshot=None):
                     node, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor)
                 ):
                     targets = [node.target]
+                elif isinstance(node, getattr(ast, "TypeAlias", ())):
+                    targets = [node.name]
                 elif isinstance(node, (ast.With, ast.AsyncWith)):
                     targets = [item.optional_vars for item in node.items]
                 for target in targets:
