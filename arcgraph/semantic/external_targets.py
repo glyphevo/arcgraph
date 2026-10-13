@@ -478,8 +478,19 @@ def definition(row, item, unit, snapshot=None):
     choices = []
     groups = {}
     class_bodies = set()
+    class_scopes = {}
+    class_writes = {}
 
-    def visit(body, parents=(), declaration=False):
+    def bound_names(target):
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for value in target.elts:
+                yield from bound_names(value)
+        elif isinstance(target, ast.Starred):
+            yield from bound_names(target.value)
+
+    def visit(body, parents=(), declaration=False, class_scope=None):
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 qualified = ".".join((row["module"], *parents, node.name))
@@ -492,6 +503,7 @@ def definition(row, item, unit, snapshot=None):
                     d.split(".")[-1] == "abstractmethod" for d in decorators
                 )
                 choice = (node, span, qualified, decorators, abstract)
+                class_scopes[id(node)] = class_scope
                 groups.setdefault(qualified, []).append((choice, body))
                 if (
                     node.name == item["name"]
@@ -510,13 +522,35 @@ def definition(row, item, unit, snapshot=None):
                         ast.unparse(b).split("[")[0].split(".")[-1] == "Protocol"
                         for b in node.bases
                     )
-                    visit(node.body, (*parents, node.name), declaration or protocol)
+                    visit(
+                        node.body,
+                        (*parents, node.name),
+                        declaration or protocol,
+                        id(node.body),
+                    )
             elif isinstance(node, ast.If):
                 active = target_condition(node.test, snapshot)
                 if active is not False:
-                    visit(node.body, parents, declaration)
+                    visit(node.body, parents, declaration, class_scope)
                 if active is not True:
-                    visit(node.orelse, parents, declaration)
+                    visit(node.orelse, parents, declaration, class_scope)
+            elif (
+                class_scope is not None
+                and isinstance(
+                    node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)
+                )
+                and id(node) not in typing_only
+            ):
+                targets = (
+                    node.targets
+                    if isinstance(node, (ast.Assign, ast.Delete))
+                    else [node.target]
+                )
+                for target in targets:
+                    for name in bound_names(target):
+                        class_writes.setdefault(class_scope, []).append(
+                            (name, node.lineno)
+                        )
 
     visit(tree.body)
     if len(choices) != 1:
@@ -568,6 +602,12 @@ def definition(row, item, unit, snapshot=None):
                 )
             ):
                 return None
+    if any(
+        name == node.name and line > node.lineno
+        for name, line in class_writes.get(class_scopes[id(node)], ())
+    ):
+        # A class write invalidates this method proof; aliases are not followed.
+        return None
     value = {
         "id": "extsym:" + qualname,
         "path": row["origin"] + "/" + row["relative"],
