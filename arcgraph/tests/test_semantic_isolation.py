@@ -301,3 +301,65 @@ def test_runtime_uses_verified_private_package_after_cache_replacement(
 
 def load_run(output):
     return json.loads((output / "semantic-shadow/run.json").read_text(encoding="utf-8"))
+
+
+def test_collection_rejects_private_installation_drift_before_restarting(
+    prepared, tmp_path, monkeypatch
+):
+    from arcgraph.semantic import transport
+    from arcgraph.semantic.install import InstallError
+    from arcgraph.semantic.journal import dump
+
+    project, environment, _, _ = prepared
+    (project / "demo.py").write_text(
+        "def first(): return 1\ndef second(): return 2\n", encoding="utf-8"
+    )
+    output = tmp_path / "transport"
+    output.mkdir()
+    plan = output / "plan.json"
+    dump(
+        {
+            "snapshot_id": "snapshot",
+            "definitions": [
+                {
+                    "path": "demo.py",
+                    "positions": {
+                        unit: {"line": line, "character": 4}
+                        for unit in ("utf-8", "utf-16")
+                    },
+                }
+                for line in range(2)
+            ],
+        },
+        plan,
+    )
+    marker = tmp_path / "changed-package-executed"
+    original = transport.session
+    sessions = []
+
+    @contextmanager
+    def changed(*args, **kwargs):
+        with original(*args, **kwargs) as result:
+            sessions.append(result)
+            yield result
+        if len(sessions) == 1:
+            entry = kwargs["pool"].package / "langserver.index.js"
+            entry.write_bytes(
+                entry.read_bytes()
+                + (
+                    "\nrequire('fs').writeFileSync("
+                    + json.dumps(str(marker))
+                    + ", 'executed');\n"
+                ).encode()
+            )
+
+    monkeypatch.setattr(transport, "SESSION_DEFINITIONS", 1)
+    monkeypatch.setattr(transport, "session", changed)
+    with pytest.raises(InstallError, match="changed during collection"):
+        transport.collect(
+            plan,
+            project,
+            configuration(project, sys.version.split()[0], environment),
+            output,
+        )
+    assert not marker.exists(), "Changed private code must be rejected before launch"

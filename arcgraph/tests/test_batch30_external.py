@@ -142,9 +142,9 @@ def test_definition_lookup_reuses_only_the_current_checked_capture(
     original = external_targets.definition
     calls = []
 
-    def counted(*args):
+    def counted(*args, **kwargs):
         calls.append(args)
-        return original(*args)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(external_targets, "definition", counted)
     records = SimpleNamespace(

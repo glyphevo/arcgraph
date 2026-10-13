@@ -114,26 +114,108 @@ def isolated_environment(directory, node):
     return env
 
 
-@contextmanager
-def session(root, config, *, transcript=None):
-    """Validate the pinned package before executing fixed argv, without a shell."""
-    package = validate_installation()
-    located = shutil.which("node")
-    if located is None:
-        raise InstallError("Node is missing; install Node.js (version 14 or newer).")
-    node = Path(located).resolve()
-    with tempfile.TemporaryDirectory(prefix="arcgraph-semantic-") as temporary:
-        private = Path(temporary).resolve()
-        # Node reads an independently verified private generation, not mutable
-        # cache files that could be replaced after the initial check.
-        copied = private / "installation"
+class SessionPool:
+    """One checked private installation for a single sequential collection."""
+
+    def __init__(self):
+        self.temporary = None
+        self.receipt = None
+
+    def close(self):
+        if self.temporary is not None:
+            self.temporary.cleanup()
+
+    def content_receipt(self, root=None):
+        import stat
+        from .install import no_links
+        from .external_targets import read_allowed
+        from .snapshot import sha
+
+        root = root or self.package.parent
+        no_links(root, boundary=self.private)
+        result = []
+        for path in [root, *sorted(root.rglob("*"))]:
+            info = path.lstat()
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                raise InstallError(
+                    "Private pyright installation contains a link or special file."
+                )
+            result.append(
+                (
+                    path.relative_to(root).as_posix(),
+                    info.st_dev,
+                    info.st_ino,
+                    info.st_mode,
+                    info.st_size,
+                    (
+                        sha(read_allowed(path, root))
+                        if stat.S_ISREG(info.st_mode)
+                        else None
+                    ),
+                )
+            )
+        no_links(root, boundary=self.private)
+        return tuple(result)
+
+    @contextmanager
+    def package_view(self):
+        # Independent URI partitions preserve declaration/reexport mapping.
+        # Link only verified private bytes, never the real installation cache.
+        def copy_private(source, destination):
+            try:
+                os.link(source, destination)
+            except (OSError, NotImplementedError):
+                shutil.copyfile(source, destination)
+            return destination
+
+        with tempfile.TemporaryDirectory(prefix="session-", dir=self.private) as name:
+            copied = Path(name) / "installation"
+            shutil.copytree(
+                self.package.parent, copied, copy_function=copy_private, symlinks=True
+            )
+            receipt = self.content_receipt(copied)
+
+            def content(rows):
+                # View directory inodes differ. Compare every path and kind,
+                # file mode, size and content with the admitted private copy.
+                return [(r[0], r[3], r[4] if r[5] else None, r[5]) for r in rows]
+
+            if content(receipt) != content(self.receipt):
+                raise InstallError(
+                    "Private pyright installation changed during collection."
+                )
+            try:
+                yield copied / "package"
+            finally:
+                if self.content_receipt(copied) != receipt:
+                    raise InstallError(
+                        "Private pyright installation changed during collection."
+                    )
+
+    def prepare(self):
+        if self.temporary is not None:
+            if self.content_receipt() != self.receipt:
+                raise InstallError(
+                    "Private pyright installation changed during collection."
+                )
+            return
+        package = validate_installation()
+        located = shutil.which("node")
+        if located is None:
+            raise InstallError(
+                "Node is missing; install Node.js (version 14 or newer)."
+            )
+        self.node = Path(located).resolve()
+        self.temporary = tempfile.TemporaryDirectory(prefix="arcgraph-semantic-")
+        self.private = Path(self.temporary.name).resolve()
+        copied = self.private / "installation"
         shutil.copytree(package.parent, copied, symlinks=True)
-        package = validate_content(copied, trusted_root=private)
-        env = isolated_environment(private / "state", node)
-        version = subprocess.run(  # nosec B603
-            [str(node), "--version"],
-            cwd=private,
-            env=env,
+        self.package = validate_content(copied, trusted_root=self.private)
+        self.env = isolated_environment(self.private / "state", self.node)
+        self.version = subprocess.run(  # nosec B603
+            [str(self.node), "--version"],
+            cwd=self.private,
+            env=self.env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -142,33 +224,52 @@ def session(root, config, *, transcript=None):
             check=True,
         ).stdout.strip()
         try:
-            major = int(version.removeprefix("v").split(".")[0])
+            major = int(self.version.removeprefix("v").split(".")[0])
         except ValueError as exc:
             raise InstallError("Cannot determine Node version.") from exc
         if major < 14:
             raise InstallError(
-                f"Node {version} is unsupported; install Node.js 14 or newer."
+                f"Node {self.version} is unsupported; install Node.js 14 or newer."
             )
-        # Config is ArcGraph-generated. Do not consume the project's pyright config.
-        (root / "pyrightconfig.json").write_text(
-            json.dumps(config, sort_keys=True), encoding="utf-8"
-        )
+        self.receipt = self.content_receipt()
+
+
+@contextmanager
+def session(root, config, *, transcript=None, pool=None):
+    """Launch from a checked private installation; reuse only within this run."""
+    if pool is None:
+        pool = SessionPool()
+        try:
+            with session(root, config, transcript=transcript, pool=pool) as result:
+                yield result
+        finally:
+            pool.close()
+        return
+    pool.prepare()
+    (root / "pyrightconfig.json").write_text(
+        json.dumps(config, sort_keys=True), encoding="utf-8"
+    )
+    with pool.package_view() as package:
         peer = Client(
-            [str(node), str(package / "langserver.index.js"), "--stdio"],
+            [str(pool.node), str(package / "langserver.index.js"), "--stdio"],
             root,
-            env,
+            pool.env,
             {"python": {"analysis": config}},
             transcript=transcript,
         )
         try:
             yield peer, {
-                "node": str(node),
-                "node_version": version,
+                "node": str(pool.node),
+                "node_version": pool.version,
                 "pyright_version": VERSION,
                 "typeshed": str(package / "dist/typeshed-fallback"),
             }
         finally:
             peer.close()
+            if pool.content_receipt() != pool.receipt:
+                raise InstallError(
+                    "Private pyright installation changed during collection."
+                )
 
 
 def semantic_core_check(

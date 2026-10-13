@@ -1,6 +1,7 @@
 """Capture external definitions while the verified LSP session is still alive."""
 
 import ast
+from collections import OrderedDict
 import json
 import os
 from pathlib import Path
@@ -464,18 +465,12 @@ def target_condition(node, snapshot):
     return None
 
 
-def definition(row, item, unit, snapshot=None):
-    """Prove module and qualified name from syntax; never infer a runtime alias."""
-    if row.get("module") != module_name(row["relative"], row["origin"]) or row.get(
-        "text_digest"
-    ) != sha(row["text"].encode()):
-        raise ValueError("external definition capture mismatch")
-    selection = native_span(row["text"], item["selectionRange"], unit)
+def definition_index(row, snapshot=None):
+    """Read-only syntax facts, bound to one captured text and target context."""
     tree = ast.parse(row["text"])
-    from .structure_facts import stub_body, typing_only_nodes
+    from .structure_facts import typing_only_nodes
 
     typing_only = typing_only_nodes(tree)
-    choices = []
     groups = {}
     class_bodies = set()
     class_scopes = {}
@@ -526,17 +521,6 @@ def definition(row, item, unit, snapshot=None):
                 choice = (node, span, qualified, decorators, abstract)
                 class_scopes[id(node)] = class_scope
                 groups.setdefault(qualified, []).append((choice, body))
-                if (
-                    node.name == item["name"]
-                    and span.start <= selection.start < selection.end <= span.end
-                ):
-                    line = row["text"].splitlines()[selection.start[0]].encode()
-                    if (
-                        selection.start[0] == selection.end[0]
-                        and line[selection.start[1] : selection.end[1]].decode()
-                        == node.name
-                    ):
-                        choices.append(choice)
                 if isinstance(node, ast.ClassDef):
                     class_bodies.add(id(node.body))
                     protocol = any(
@@ -604,86 +588,122 @@ def definition(row, item, unit, snapshot=None):
                         visit(case.body, parents, declaration, class_scope)
 
     visit(tree.body)
-    if len(choices) != 1:
-        return None
-    node, span, qualname, decorators, abstract = choices[0]
-    group = groups[qualname]
-    if len(group) > 1:
-        runtime = [
-            choice
-            for choice, _ in group
-            if id(choice[0]) not in typing_only
-            and not any(d.split(".")[-1] == "overload" for d in choice[3])
-            and stub_body(choice[0]) not in ("empty", "not_implemented")
-        ]
-        if len(runtime) == 1:
-            implementation = runtime[0][0]
-            body = next(scope for choice, scope in group if choice[0] is implementation)
-            if id(body) in class_bodies and any(
-                scope is body
-                and choice[0].lineno > implementation.lineno
-                and id(choice[0]) not in typing_only
-                for choice, scope in group
-            ):
-                # A later class assignment overwrites even a concrete body.
-                # Filtering placeholders must not resurrect that earlier body.
-                return None
-            # A selection on a declaration or placeholder names the unique body.
-            node, span, qualname, decorators, abstract = runtime[0]
-            line = row["text"].splitlines()[node.lineno - 1].encode()
-            column = line.index(node.name.encode(), node.col_offset)
-            selection = Span(
-                start=(node.lineno - 1, column),
-                end=(node.lineno - 1, column + len(node.name.encode())),
-            )
-        elif runtime:
+    overridden = overridden_stubs(tree, row["module"])
+
+    def select(item, selection):
+        from .structure_facts import stub_body
+
+        choices = []
+        for group in groups.values():
+            for choice, _ in group:
+                node, span, _, _, _ = choice
+                if (
+                    node.name == item["name"]
+                    and span.start <= selection.start < selection.end <= span.end
+                ):
+                    line = row["text"].splitlines()[selection.start[0]].encode()
+                    if (
+                        selection.start[0] == selection.end[0]
+                        and line[selection.start[1] : selection.end[1]].decode()
+                        == node.name
+                    ):
+                        choices.append(choice)
+        if len(choices) != 1:
             return None
-        else:
-            # Pure stub overloads retain the existing same-scope proof. Branch
-            # alternatives and repeated runtime bodies remain ambiguous.
-            body = group[0][1]
-            positions = [body.index(c[0]) for c, scope in group if scope is body]
-            if not (
-                len(positions) == len(group)
-                and positions == list(range(positions[0], positions[0] + len(group)))
-                and all(
-                    isinstance(c[0], (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and any(d.split(".")[-1] == "overload" for d in c[3])
-                    for c, _ in group
+        node, span, qualname, decorators, abstract = choices[0]
+        group = groups[qualname]
+        if len(group) > 1:
+            runtime = [
+                choice
+                for choice, _ in group
+                if id(choice[0]) not in typing_only
+                and not any(d.split(".")[-1] == "overload" for d in choice[3])
+                and stub_body(choice[0]) not in ("empty", "not_implemented")
+            ]
+            if len(runtime) == 1:
+                implementation = runtime[0][0]
+                body = next(
+                    scope for choice, scope in group if choice[0] is implementation
                 )
-            ):
+                if id(body) in class_bodies and any(
+                    scope is body
+                    and choice[0].lineno > implementation.lineno
+                    and id(choice[0]) not in typing_only
+                    for choice, scope in group
+                ):
+                    # A later class assignment overwrites even a concrete body.
+                    # Filtering placeholders must not resurrect that earlier body.
+                    return None
+                # A selection on a declaration or placeholder names the unique body.
+                node, span, qualname, decorators, abstract = runtime[0]
+                line = row["text"].splitlines()[node.lineno - 1].encode()
+                column = line.index(node.name.encode(), node.col_offset)
+                selection = Span(
+                    start=(node.lineno - 1, column),
+                    end=(node.lineno - 1, column + len(node.name.encode())),
+                )
+            elif runtime:
                 return None
-    if any(
-        name == node.name and line > node.lineno
-        for name, line in class_writes.get(class_scopes[id(node)], ())
-    ):
-        # A class write invalidates this method proof; aliases are not followed.
-        return None
-    value = {
-        "id": "extsym:" + qualname,
-        "path": row["origin"] + "/" + row["relative"],
-        "span": span,
-        "name_span": selection,
-        "name": node.name,
-        "qualname": qualname,
-        "symbol_kind": "class" if isinstance(node, ast.ClassDef) else "function",
-        "owner": "extsym:" + qualname.rsplit(".", 1)[0],
-        "decorators": decorators,
-        "declaration_only": row["relative"].endswith(".pyi")
-        or abstract
-        or any(d.split(".")[-1] == "overload" for d in decorators)
-        or id(node) in typing_only
-        or qualname in overridden_stubs(tree, row["module"]),
-    }
-    if not value["declaration_only"] and stub_body(node) in (
-        "empty",
-        "not_implemented",
-    ):
-        # A placeholder body is not evidence of the actual external dispatch.
-        # Keep it unknown unless the established override rule proves a
-        # declaration; do not guess which unseen subclass supplies the body.
-        return None
-    return value
+            else:
+                # Pure stub overloads retain the existing same-scope proof. Branch
+                # alternatives and repeated runtime bodies remain ambiguous.
+                body = group[0][1]
+                positions = [body.index(c[0]) for c, scope in group if scope is body]
+                if not (
+                    len(positions) == len(group)
+                    and positions
+                    == list(range(positions[0], positions[0] + len(group)))
+                    and all(
+                        isinstance(c[0], (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and any(d.split(".")[-1] == "overload" for d in c[3])
+                        for c, _ in group
+                    )
+                ):
+                    return None
+        if any(
+            name == node.name and line > node.lineno
+            for name, line in class_writes.get(class_scopes[id(node)], ())
+        ):
+            # A class write invalidates this method proof; aliases are not followed.
+            return None
+        value = {
+            "id": "extsym:" + qualname,
+            "path": row["origin"] + "/" + row["relative"],
+            "span": span,
+            "name_span": selection,
+            "name": node.name,
+            "qualname": qualname,
+            "symbol_kind": "class" if isinstance(node, ast.ClassDef) else "function",
+            "owner": "extsym:" + qualname.rsplit(".", 1)[0],
+            "decorators": decorators,
+            "declaration_only": row["relative"].endswith(".pyi")
+            or abstract
+            or any(d.split(".")[-1] == "overload" for d in decorators)
+            or id(node) in typing_only
+            or qualname in overridden,
+        }
+        if not value["declaration_only"] and stub_body(node) in (
+            "empty",
+            "not_implemented",
+        ):
+            # A placeholder body is not evidence of the actual external dispatch.
+            # Keep it unknown unless the established override rule proves a
+            # declaration; do not guess which unseen subclass supplies the body.
+            return None
+        return value
+
+    return select
+
+
+def definition(row, item, unit, snapshot=None, *, index=None):
+    """Prove module and qualified name from syntax; never infer a runtime alias."""
+    if row.get("module") != module_name(row["relative"], row["origin"]) or row.get(
+        "text_digest"
+    ) != sha(row["text"].encode()):
+        raise ValueError("external definition capture mismatch")
+    selection = native_span(row["text"], item["selectionRange"], unit)
+    select = definition_index(row, snapshot) if index is None else index
+    return select(item, selection)
 
 
 def proved_reexport(files, module, name, source, seen=()):
@@ -763,6 +783,7 @@ class Registry:
         self.public_symbols = set(public_symbols)
         self.identities = {}
         self.snapshot = snapshot
+        self.indices = OrderedDict()
 
     def canonical(self, value, row):
         if (
@@ -817,6 +838,15 @@ class Registry:
             "owner": identity.rsplit(".", 1)[0],
         }
 
+    def definition(self, row, item, unit, snapshot_id):
+        key = (digest(row), snapshot_id)
+        if key not in self.indices:
+            self.indices[key] = definition_index(row, self.snapshot)
+            if len(self.indices) > 2:
+                self.indices.popitem(last=False)
+        self.indices.move_to_end(key)
+        return definition(row, item, unit, self.snapshot, index=self.indices[key])
+
     def lookup(self, item, unit, records):
         row = self.files.get(item.get("uri"))
         if row is None:
@@ -827,11 +857,11 @@ class Registry:
                 item["name"],
                 digest(item["selectionRange"]),
                 unit,
-                self.snapshot.id if self.snapshot is not None else None,
+                records.snapshot_id if self.snapshot is not None else None,
             )
             if key not in self.parsed:
                 self.parsed[key] = self.canonical(
-                    definition(row, item, unit, self.snapshot), row
+                    self.definition(row, item, unit, records.snapshot_id), row
                 )
             value = self.parsed[key]
         except (SyntaxError, UnicodeError, KeyError, TypeError, ValueError):
@@ -875,16 +905,17 @@ class Registry:
             or (self.snapshot is not None and self.snapshot != run.snapshot)
         ):
             return False
+        snapshot_id, producer_id = run.snapshot.id, run.producer.id
         for identity, target in self.definitions.items():
             item, unit = self.proofs[identity]
             row = self.files[item["uri"]]
-            value = self.canonical(definition(row, item, unit, self.snapshot), row)
+            value = self.canonical(self.definition(row, item, unit, snapshot_id), row)
             if (
                 value is None
                 or view.defs.get(identity) != target
                 or any(getattr(target, key) != field for key, field in value.items())
-                or target.envelope.snapshot != run.snapshot.id
-                or target.envelope.producer != run.producer.id
+                or target.envelope.snapshot != snapshot_id
+                or target.envelope.producer != producer_id
                 or target.envelope.generation != run.id
             ):
                 return False

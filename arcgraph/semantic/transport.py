@@ -7,7 +7,7 @@ import time
 
 from .journal import dump, load, wire_line
 from .lsp import LspError
-from .runtime import capabilities, initialize_params, session
+from .runtime import SessionPool, capabilities, initialize_params, session
 from .external_targets import Capture
 from .contract import digest
 
@@ -36,10 +36,12 @@ def collect(plan_path, root, config, output):
                 wire_line(transcript, {"seconds": time.perf_counter() - started, **row})
 
         wire_line(journal, {"snapshot": plan["snapshot_id"]})
-        with ExitStack() as peers:
+        with ExitStack() as lifetime, ExitStack() as peers:
+            pool = SessionPool()
+            lifetime.callback(pool.close)
             launch_started = time.perf_counter()
             peer, detail = peers.enter_context(
-                session(root, config, transcript=Transcript())
+                session(root, config, transcript=Transcript(), pool=pool)
             )
             launch_seconds += time.perf_counter() - launch_started
             sessions = [dict(first_definition=0, **detail)]
@@ -82,7 +84,7 @@ def collect(plan_path, root, config, output):
                     peers.close()
                     launch_started = time.perf_counter()
                     peer, next_detail = peers.enter_context(
-                        session(root, config, transcript=Transcript())
+                        session(root, config, transcript=Transcript(), pool=pool)
                     )
                     launch_seconds += time.perf_counter() - launch_started
                     current_detail = next_detail

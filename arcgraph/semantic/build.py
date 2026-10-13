@@ -12,7 +12,7 @@ import time
 from arcgraph import __version__
 from arcgraph.core.project_environment import project_environment_path
 from arcgraph.core.scanner import FileScanner
-from arcgraph.core.schemas import Edge, Node
+from arcgraph.core.schemas import Node
 from arcgraph.core.graph_store import current_pointer_path, GraphStoreReader
 from arcgraph.core.structure import StructureView
 from arcgraph.core.utils import symlink_below, replace_text_file
@@ -457,9 +457,13 @@ class SemanticBuild:
                     decisions,
                     primary_producer=primary.producer.id,
                     primary=primary,
+                    model_output=True,
                 )
             with self._phase("input_verification"):
                 self.verify()
+            with self._phase("release_mapping_indexes"):
+                del raw["edges"]
+                del view, texts, plan, replay
             with self._phase("generation_write"):
                 write_structure(self.bundle, self.generation / "structure.jsonl")
                 write_generation(primary, self.generation / "pyright.json")
@@ -498,9 +502,7 @@ class SemanticBuild:
                         )
                     )
                 ]
-                content.edges = public_edges(
-                    [*out_of_scope, *(Edge.model_validate(e) for e in graph)]
-                )
+                content.edges = public_edges([*out_of_scope, *graph])
                 projected_ids = {n["id"] for n in raw["nodes"]}
                 content.nodes = [
                     n for n in content.nodes if n.id not in projected_ids
@@ -521,6 +523,9 @@ class SemanticBuild:
                     fix=FIX if uncovered else None,
                 )
                 self.adopted = True
+            with self._phase("release_records"):
+                self.bundle = None
+                del primary, fallback, decisions, mapping, bridge
             with self._phase("artifact_hashes"):
                 self.generation_hashes = {
                     p.name: sha(p.read_bytes())

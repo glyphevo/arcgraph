@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from pydantic import PrivateAttr
 
 from . import structure_facts
 from .contract import Envelope, Model, Snapshot, Span, digest
@@ -100,6 +101,7 @@ class StructuralGeneration(Model):
     complete: bool = False
     count: int = 0
     checksum: str = ""
+    _validation_digest: str | None = PrivateAttr(default=None)
 
     def content_digest(self):
         return content_digest(self)
@@ -116,6 +118,14 @@ class StructuralGeneration(Model):
         )
         for file in self.files:
             StructuralFile.model_validate(file.model_dump(mode="json"))
+        actual_digest = self.content_digest()
+        if (
+            self._validation_digest == actual_digest == self.checksum
+            and self.complete
+            and self.availability != "unavailable"
+            and self.count == len(self.records)
+        ):
+            return self
         for record in self.records:
             StructuralRecord.model_validate(record.model_dump(mode="json"))
         result = self
@@ -123,7 +133,7 @@ class StructuralGeneration(Model):
             not result.complete
             or result.availability == "unavailable"
             or result.count != len(result.records)
-            or result.checksum != result.content_digest()
+            or result.checksum != actual_digest
         ):
             raise ValueError("incomplete or corrupt structural generation")
         manifest = {
@@ -227,6 +237,7 @@ class StructuralGeneration(Model):
                     and tuple(token[2:]) <= tuple(callee[2:])
                 ):
                     raise ValueError("call token outside callee")
+        self._validation_digest = actual_digest
         return result
 
     def seal(self):

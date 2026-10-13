@@ -47,7 +47,7 @@ namespace = dict(
 source = (root / "arcgraph/semantic/external_targets.py").read_text(encoding="utf-8")
 for node in ast.parse(source).body:
     if isinstance(node, ast.FunctionDef) and node.name in {
-        "module_name", "target_condition", "overridden_stubs", "definition"
+        "module_name", "target_condition", "overridden_stubs", "definition_index", "definition"
     }:
         code = ast.get_source_segment(source, node).replace(
             "from .structure_facts import", "from structure_facts import"

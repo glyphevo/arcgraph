@@ -4,6 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 import re
 from typing import Literal
+from pydantic import PrivateAttr
 
 from arcgraph.analyzers.precision_positions import PrecisionPositions
 from .backends import Records
@@ -38,6 +39,7 @@ class BackendRun(Model):
     complete: bool = False
     count: int = 0
     checksum: str = ""
+    _validation_digest: str | None = PrivateAttr(default=None)
 
     def content_digest(self):
         return content_digest(self)
@@ -50,6 +52,14 @@ class BackendRun(Model):
                 "mapping": (),
             }
         )
+        actual_digest = self.content_digest()
+        if (
+            self._validation_digest == actual_digest == self.checksum
+            and self.complete
+            and self.count == len(self.answers)
+            and self.raw_count == len(self.mapping)
+        ):
+            return self
         for answer in self.answers:
             Answer.model_validate(answer.model_dump(mode="json"))
         for row in self.mapping:
@@ -59,7 +69,7 @@ class BackendRun(Model):
             not result.complete
             or result.count != len(result.answers)
             or result.raw_count != len(result.mapping)
-            or result.checksum != result.content_digest()
+            or result.checksum != actual_digest
         ):
             raise ValueError("incomplete or corrupt backend generation")
         identity = (result.id, result.producer.id, result.snapshot.id)
@@ -76,6 +86,7 @@ class BackendRun(Model):
             raise ValueError("backend envelope mismatch")
         if len({m.raw_id for m in result.mapping}) != len(result.mapping):
             raise ValueError("duplicate raw mapping identity")
+        self._validation_digest = actual_digest
         return result
 
     def seal(self):

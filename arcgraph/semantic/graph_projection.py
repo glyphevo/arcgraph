@@ -92,7 +92,16 @@ def retained_edge(edge, facts):
     return result.model_dump(mode="json")
 
 
-def project_graph(view, raw, fallback, decisions, *, primary_producer, primary=None):
+def project_graph(
+    view,
+    raw,
+    fallback,
+    decisions,
+    *,
+    primary_producer,
+    primary=None,
+    model_output=False,
+):
     """Retain out-of-scope defaults; alter only exactly mapped callsite supports.
 
     Non-execution declaration/property relations remain in the complete decision
@@ -387,6 +396,6 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer, primary=N
                 + "; retained analyzer fallback"
             )
     return [
-        edge.model_dump(mode="json")
+        edge if model_output else edge.model_dump(mode="json")
         for _, edge in sorted(by_key.items(), key=lambda pair: str(pair[0]))
     ], {"removed_facts": removed, "graph_losses": losses}
