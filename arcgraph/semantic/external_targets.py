@@ -323,6 +323,32 @@ class Capture:
                     "input_changed_during_run: external definition changed"
                 )
             self.files[item["uri"]] = row
+            if origin == "typeshed" and module == "typing":
+                for relative in (
+                    "stdlib/collections/abc.pyi",
+                    "stdlib/_collections_abc.pyi",
+                ):
+                    proof = allowed / relative
+                    if safe_file(proof, allowed):
+                        try:
+                            proof_bytes = read_allowed(proof, allowed)
+                            text = canonical(proof_bytes)
+                        except OSError:
+                            continue
+                        proof_row = {
+                            "origin": origin,
+                            "relative": relative,
+                            "module": module_name(relative, origin),
+                            "text": text,
+                            "raw_digest": sha(proof_bytes),
+                            "text_digest": sha(text.encode()),
+                        }
+                        previous = self.files.get(proof.as_uri())
+                        if previous is not None and previous != proof_row:
+                            raise ValueError(
+                                "input_changed_during_run: external definition changed"
+                            )
+                        self.files[proof.as_uri()] = proof_row
             return
 
 
@@ -339,18 +365,14 @@ def definition(row, item, unit):
     typing_only = typing_only_nodes(tree)
     choices = []
     names = []
-    overloads = []
+    groups = {}
 
     def visit(body, parents=(), declaration=False):
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 qualified = ".".join((row["module"], *parents, node.name))
                 names.append(qualified)
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
-                    ast.unparse(d).split(".")[-1] == "overload"
-                    for d in node.decorator_list
-                ):
-                    overloads.append(qualified)
+                groups.setdefault(qualified, []).append((node, body))
                 span = Span(
                     start=(node.lineno - 1, node.col_offset),
                     end=(node.end_lineno - 1, node.end_col_offset),
@@ -412,20 +434,94 @@ def definition(row, item, unit):
         # Keep it unknown unless the established override rule proves a
         # declaration; do not guess which unseen subclass supplies the body.
         return None
-    if (
-        names.count(qualname) != 1
-        and not native_identity(value)
-        and not (
+    if names.count(qualname) != 1:
+        group = groups[qualname]
+        body = group[0][1]
+        positions = [body.index(n) for n, scope in group if scope is body]
+        if not (
             value["declaration_only"]
-            and overloads.count(qualname) == names.count(qualname)
-        )
-    ):
-        return None
+            and len(positions) == len(group)
+            and positions == list(range(positions[0], positions[0] + len(group)))
+            and all(
+                isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and any(
+                    ast.unparse(d).split(".")[-1] == "overload"
+                    for d in n.decorator_list
+                )
+                for n, _ in group
+            )
+        ):
+            return None
     return value
 
 
+def proved_reexport(files, module, name, source, seen=()):
+    """Follow only captured, unambiguous imports and literal wildcard exports."""
+    if module == source:
+        return True
+    if module in seen:
+        return False
+    rows = [
+        row
+        for row in files.values()
+        if row["module"] == module and row["origin"] == "typeshed"
+    ]
+    if len(rows) != 1:
+        return False
+    row = rows[0]
+    if row["module"] != module_name(row["relative"], row["origin"]) or row[
+        "text_digest"
+    ] != sha(row["text"].encode()):
+        return False
+    tree = ast.parse(row["text"])
+    imports = []
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
+            continue
+        for alias in node.names:
+            if alias.name == name and alias.asname == name:
+                imports.append(node.module)
+            elif alias.name == "*":
+                sources = [r for r in files.values() if r["module"] == node.module]
+                if len(sources) != 1:
+                    continue
+                for export in ast.parse(sources[0]["text"]).body:
+                    if isinstance(export, ast.Assign) and any(
+                        isinstance(t, ast.Name) and t.id == "__all__"
+                        for t in export.targets
+                    ):
+                        try:
+                            exported = ast.literal_eval(export.value)
+                        except (ValueError, TypeError):
+                            continue
+                        if isinstance(exported, (list, tuple)) and name in exported:
+                            imports.append(node.module)
+    # A same-name assignment, definition, or conditional import invalidates proof.
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
+            return False
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id == name
+        ):
+            return False
+        if (
+            isinstance(node, (ast.Import, ast.ImportFrom))
+            and node not in tree.body
+            and any((a.asname or a.name) == name for a in node.names)
+        ):
+            return False
+    return len(imports) == 1 and proved_reexport(
+        files, imports[0], name, source, (*seen, module)
+    )
+
+
 class Registry:
-    def __init__(self, files, checksum):
+    def __init__(self, files, checksum, public_symbols=()):
         if digest(files) != checksum:
             raise ValueError("external capture checksum mismatch")
         self.files = files
@@ -433,6 +529,61 @@ class Registry:
         self.definitions = {}
         self.proofs = {}
         self.parsed = {}
+        self.public_symbols = set(public_symbols)
+        self.identities = {}
+
+    def canonical(self, value, row):
+        if (
+            value is None
+            or row["origin"] != "typeshed"
+            or not value["declaration_only"]
+        ):
+            return value
+        if value["id"] in self.identities:
+            identity = self.identities[value["id"]]
+            return (
+                {
+                    **value,
+                    "id": identity,
+                    "qualname": identity[len("extsym:") :],
+                    "owner": identity.rsplit(".", 1)[0],
+                }
+                if identity is not None
+                else None
+            )
+        suffix = value["qualname"][len(row["module"]) + 1 :]
+        possible = [
+            identity
+            for identity in self.public_symbols
+            if identity != value["id"] and identity.endswith("." + suffix)
+        ]
+        aliases = [
+            identity
+            for identity in possible
+            if proved_reexport(
+                self.files,
+                identity[len("extsym:") : -len(suffix) - 1],
+                suffix.split(".")[0],
+                row["module"],
+            )
+        ]
+        if len(aliases) != 1:
+            identity = (
+                None
+                if possible and value["id"] not in self.public_symbols
+                else value["id"]
+            )
+        else:
+            identity = aliases[0]
+        self.identities[value["id"]] = identity
+        if identity is None:
+            return None
+        return {
+            **value,
+            "id": identity,
+            "qualname": identity[len("extsym:") :],
+            "owner": identity.rsplit(".", 1)[0],
+        }
 
     def lookup(self, item, unit, records):
         row = self.files.get(item.get("uri"))
@@ -441,7 +592,7 @@ class Registry:
         try:
             key = (item["uri"], item["name"], digest(item["selectionRange"]), unit)
             if key not in self.parsed:
-                self.parsed[key] = definition(row, item, unit)
+                self.parsed[key] = self.canonical(definition(row, item, unit), row)
             value = self.parsed[key]
         except (SyntaxError, UnicodeError, KeyError, TypeError, ValueError):
             return None
@@ -485,7 +636,8 @@ class Registry:
             return False
         for identity, target in self.definitions.items():
             item, unit = self.proofs[identity]
-            value = definition(self.files[item["uri"]], item, unit)
+            row = self.files[item["uri"]]
+            value = self.canonical(definition(row, item, unit), row)
             if (
                 value is None
                 or view.defs.get(identity) != target

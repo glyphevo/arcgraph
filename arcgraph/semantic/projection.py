@@ -30,6 +30,18 @@ def gradual(annotation):
     )
 
 
+def public_invocation(view, kind, key):
+    """External stub invocations keep a declaration relation in the ledger."""
+    subject, target, _, _ = key
+    return kind == "execution" or (
+        kind == "declaration_dependency"
+        and target.startswith("extsym:")
+        and view.defs[target].path.endswith(".pyi")
+        and view.records[subject].kind == "callsite"
+        and view.records[subject].execution_owner is not None
+    )
+
+
 def project(
     view: View,
     primary: BackendRun,
@@ -103,7 +115,7 @@ def project(
                 )
                 if accepted:
                     supports.setdefault((kind, key), []).append(evidence)
-    projected = {key for kind, key in supports if kind == "execution"}
+    projected = {key for kind, key in supports if public_invocation(view, kind, key)}
     baseline = (
         {
             (a.subject, c.target, c.dispatch, view.sites[a.subject].phase)

@@ -174,7 +174,13 @@ def test_typing_guard_external_method_stays_a_declaration(tmp_path):
 
 def test_unproven_placeholder_body_preserves_unknown_mapping(prepared, tmp_path):
     project, environment, _, _ = prepared
-    package = next(environment.glob("lib/python*/site-packages")) / "example.py"
+    package = (
+        next(
+            environment.glob("lib/python*/site-packages"),
+            environment / "Lib/site-packages",
+        )
+        / "example.py"
+    )
     package.write_text(
         "class Client:\n    def ping(self): raise NotImplementedError('supply an implementation')\n",
         encoding="utf-8",
@@ -197,7 +203,13 @@ def test_factory_interface_stub_is_not_projected_as_the_runtime_implementation(
     prepared, tmp_path
 ):
     project, environment, _, _ = prepared
-    package = next(environment.glob("lib/python*/site-packages")) / "example.py"
+    package = (
+        next(
+            environment.glob("lib/python*/site-packages"),
+            environment / "Lib/site-packages",
+        )
+        / "example.py"
+    )
     package.write_text(
         "class Client:\n    def __new__(cls) -> 'Client': return Concrete()\n    def ping(self): raise NotImplementedError\nclass Concrete(Client):\n    def __new__(cls): return object.__new__(cls)\n    def ping(self): return 1\n",
         encoding="utf-8",
@@ -312,7 +324,9 @@ def test_transport_captures_before_a_private_session_is_destroyed(
 
 def test_real_external_implementation_is_admitted_and_projected(prepared, tmp_path):
     project, environment, _, _ = prepared
-    sites = next(environment.glob("lib/python*/site-packages"))
+    sites = next(
+        environment.glob("lib/python*/site-packages"), environment / "Lib/site-packages"
+    )
     package = sites / "example.py"
     package.write_text(
         "class Client:\n    def ping(self): return 1\n", encoding="utf-8"

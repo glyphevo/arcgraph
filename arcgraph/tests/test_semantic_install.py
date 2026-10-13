@@ -26,6 +26,8 @@ def cache(tmp_path, monkeypatch):
 def tgz():
     value = os.environ.get("ARCGRAPH_TEST_PYRIGHT_TGZ")
     if not value:
+        if os.environ.get("ARCGRAPH_REQUIRE_SEMANTIC") == "1":
+            pytest.fail("ARCGRAPH_TEST_PYRIGHT_TGZ is required for semantic tests")
         pytest.skip(
             "ARCGRAPH_TEST_PYRIGHT_TGZ is required for offline pinned-pyright tests"
         )

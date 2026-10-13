@@ -94,7 +94,9 @@ def test_same_path_and_realpath_changed_bytes_during_structure_are_refused(tmp_p
 
 def test_interpreter_path_realpath_and_bytes_are_frozen(completed):
     _, environment, _, _, evidence = completed
-    executable = environment / "bin/python"
+    executable = environment / (
+        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+    )
     snapshot = json.loads((evidence / "snapshot.json").read_text(encoding="utf-8"))
     identity = dict(snapshot["environment"])
     assert identity.get("interpreter_path") == str(executable.absolute())
@@ -108,7 +110,9 @@ def test_interpreter_path_realpath_and_bytes_are_frozen(completed):
 @pytest.mark.parametrize("phase", ["structure", "publication"])
 def test_interpreter_replacement_is_refused_without_executing_it(completed, phase):
     project, environment, markers, output, evidence = completed
-    executable = environment / "bin/python"
+    executable = environment / (
+        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+    )
     executable.unlink()
     executable.write_text(
         f"#!/bin/sh\n/usr/bin/touch '{markers['venv-python']}'\nexit 1\n",
@@ -128,7 +132,9 @@ def test_interpreter_replacement_is_refused_without_executing_it(completed, phas
 
 def test_same_bytes_new_real_interpreter_path_is_refused(completed, tmp_path):
     project, environment, _, output, evidence = completed
-    executable = environment / "bin/python"
+    executable = environment / (
+        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+    )
     replacement = tmp_path / "same-python-bytes"
     shutil.copyfile(executable, replacement)
     replacement.chmod(0o700)
@@ -144,7 +150,10 @@ def test_same_bytes_new_real_interpreter_path_is_refused(completed, tmp_path):
 def test_pth_change_refuses_publication(completed):
     project, environment, _, output, evidence = completed
     before = environment_identity(environment)[0]
-    pth = next((environment / "lib").glob("python*/site-packages/evil.pth"))
+    pth = next(
+        (environment / "lib").glob("python*/site-packages/evil.pth"),
+        environment / "Lib/site-packages/evil.pth",
+    )
     pth.write_text("# changed static search input\n", encoding="utf-8")
     assert (
         environment_identity(environment)[0] != before

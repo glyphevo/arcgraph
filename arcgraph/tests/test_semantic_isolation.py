@@ -59,14 +59,16 @@ def prepared(tmp_path, monkeypatch):
     archive = os.environ.get("ARCGRAPH_TEST_PYRIGHT_TGZ")
     python = os.environ.get("ARCGRAPH_TEST_PROJECT_PYTHON")
     node = shutil.which("node")
-    if not archive:
-        pytest.skip("ARCGRAPH_TEST_PYRIGHT_TGZ is required; this test never downloads")
-    if not python:
-        pytest.skip(
-            "ARCGRAPH_TEST_PROJECT_PYTHON is required for a real project CPython"
-        )
-    if not node:
-        pytest.skip("Node is required for the pinned pyright LSP tests")
+    require = os.environ.get("ARCGRAPH_REQUIRE_SEMANTIC") == "1"
+    for value, message in (
+        (archive, "ARCGRAPH_TEST_PYRIGHT_TGZ is required; this test never downloads"),
+        (python, "ARCGRAPH_TEST_PROJECT_PYTHON is required for a real project CPython"),
+        (node, "Node is required for the pinned pyright LSP tests"),
+    ):
+        if not value:
+            if require:
+                pytest.fail(message)
+            pytest.skip(message)
     project = tmp_path / "project"
     project.mkdir()
     environment = project / ".venv"
@@ -92,7 +94,10 @@ def prepared(tmp_path, monkeypatch):
             "node-options",
         )
     }
-    site = next((environment / "lib").glob("python*/site-packages"))
+    site = next(
+        (environment / "lib").glob("python*/site-packages"),
+        environment / "Lib/site-packages",
+    )
     (site / "evil.pth").write_text(
         f"import pathlib; pathlib.Path({str(markers['pth'])!r}).write_text('executed')\n",
         encoding="utf-8",
@@ -107,13 +112,24 @@ def prepared(tmp_path, monkeypatch):
     )
     source = f"from pathlib import Path\nfrom dep_example import target\nPath({str(markers['project'])!r}).write_text('executed')\ndef g():\n    return target()\n"
     (project / "demo.py").write_text(source, encoding="utf-8")
+    version = next(
+        line.split("=", 1)[1].strip().split(".")[:2]
+        for line in (environment / "pyvenv.cfg")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.startswith("version =")
+    )
     (project / "pyproject.toml").write_text(
-        '[project]\nname="semantic-isolation"\nversion="0.0.0"\nrequires-python=">=3.14,<3.15"\n[tool.arcgraph]\nsource_roots=["."]\n',
+        '[project]\nname="semantic-isolation"\nversion="0.0.0"\n'
+        f'requires-python=">={".".join(version)},<{version[0]}.{int(version[1]) + 1}"\n'
+        '[tool.arcgraph]\nsource_roots=["."]\n',
         encoding="utf-8",
     )
     inherited = tmp_path / "inherited"
     inherited.mkdir()
-    (inherited / "node").symlink_to(Path(node).resolve())
+    (inherited / ("node.exe" if os.name == "nt" else "node")).symlink_to(
+        Path(node).resolve()
+    )
     for name in ("python", "python3"):
         script = inherited / name
         script.write_text(
@@ -139,7 +155,9 @@ def test_post_d2_peer_and_semantic_doctor_execute_no_python_and_resolve_venv_fun
 ):
     project, environment, markers, source = prepared
     status = StructureView(project).status()
-    executable = environment / "bin/python"
+    executable = environment / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
     executable.unlink()
     executable.write_text(
         f"#!/bin/sh\n/usr/bin/touch '{markers['venv-python']}'\nexit 3\n",

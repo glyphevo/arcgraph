@@ -19,7 +19,6 @@ from arcgraph.adapters.pytest_types import PytestTypeAnalyzer
 from arcgraph.analyzers.bindings import BindingAnalyzer
 from arcgraph.core.project_environment import (
     ProjectEnvironment,
-    project_environment_path,
 )
 from arcgraph.core.structure import StructureView
 from arcgraph.analyzers.calls import CallAnalyzer
@@ -148,13 +147,13 @@ class PythonGraphAnalyzer:
         ):
             dependency_environment = self.semantic_context.directory / "environment"
         environment = ProjectEnvironment(self.repo_root, dependency_environment)
-        if self.semantic_context is not None:
-            selected = project_environment_path(
-                self.repo_root, self.project_environment
-            )
-            environment.metadata["path"] = str(selected) if selected else None
+        environment_metadata = (
+            ProjectEnvironment(self.repo_root, self.project_environment).metadata
+            if self.semantic_context is not None
+            else environment.metadata
+        )
         if self.project_environment is not None:
-            environment.metadata["explicit_path"] = str(
+            environment_metadata["explicit_path"] = str(
                 self.project_environment.resolve()
             )
         call_analyzer = CallAnalyzer(
@@ -299,7 +298,7 @@ class PythonGraphAnalyzer:
             external_packages=external_packages,
             parsed_files=parsed_files,
             phase_timings=phase_timings,
-            extractor_metadata={"dependency_environment": environment.metadata},
+            extractor_metadata={"dependency_environment": environment_metadata},
             toolchain_status={"python_structure": structure_status},
         )
 

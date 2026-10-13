@@ -178,6 +178,7 @@ from arcgraph.core.payload_policy import (
     apply_target_payload_contract,
 )
 from arcgraph.providers.context_provider import ContextProvider
+from arcgraph.semantic.runtime import semantic_core_enabled
 
 
 def _scope_payload_capabilities(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1976,6 +1977,7 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
 
 def handle_build(args: argparse.Namespace) -> dict[str, Any]:
     repo_root = Path(args.repo_root).resolve()
+    semantic_core_enabled(repo_root)
     output_dir = (repo_root / args.output_dir).resolve()
     resolved = _resolve_source_roots(args, repo_root)
     indexer = ArcGraphIndexer(

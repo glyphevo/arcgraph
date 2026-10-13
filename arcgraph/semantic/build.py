@@ -32,7 +32,7 @@ from .runtime import configuration, semantic_core_status
 from .snapshot import canonical, native_position, sha, verify
 from .structure_provider import admit_structure, analyze
 from .transport import collect
-from .external_targets import Registry, native_identity
+from .external_targets import Registry
 from .artifact_inputs import FrozenInputs
 
 PROFILE = "semantic-core/1"
@@ -337,6 +337,9 @@ class SemanticBuild:
             view.external = Registry(
                 load(self.generation / "external-targets.json"),
                 detail["external_capture"],
+                public_symbols=[
+                    n.id for n in content.nodes if n.kind == "external_symbol"
+                ],
             )
             primary_producer = producer(
                 "pyright",
@@ -369,7 +372,14 @@ class SemanticBuild:
                     e.model_dump(mode="json")
                     for e in content.edges
                     if e.source in ids
-                    and e.kind in ("calls", "constructs", "dynamic_call", "initializes")
+                    and (
+                        e.kind in ("calls", "constructs", "dynamic_call", "initializes")
+                        or (
+                            e.kind == "uses"
+                            and e.target.startswith("extsym:")
+                            and e.properties.get("callsite")
+                        )
+                    )
                 ],
             }
             from .public_owners import materialize_owners
@@ -377,9 +387,7 @@ class SemanticBuild:
             raw = materialize_owners(view, raw)
             known_nodes = {n.id: n for n in content.nodes}
             for target in view.external.definitions.values():
-                if not target.declaration_only or native_identity(
-                    target, self.snapshot.target_python
-                ):
+                if not target.declaration_only or target.path.endswith(".pyi"):
                     raw["nodes"].append(
                         (
                             known_nodes[target.id]
@@ -409,7 +417,12 @@ class SemanticBuild:
             if not decisions["admission"][0]["allowed"]:
                 raise ValueError(decisions["admission"][0]["reason"])
             graph, bridge = project_graph(
-                view, raw, fallback, decisions, primary_producer=primary.producer.id
+                view,
+                raw,
+                fallback,
+                decisions,
+                primary_producer=primary.producer.id,
+                primary=primary,
             )
             self.verify()
             write_structure(self.bundle, self.generation / "structure.jsonl")
@@ -437,7 +450,14 @@ class SemanticBuild:
                 for e in content.edges
                 if not (
                     e.source in ids
-                    and e.kind in ("calls", "constructs", "dynamic_call", "initializes")
+                    and (
+                        e.kind in ("calls", "constructs", "dynamic_call", "initializes")
+                        or (
+                            e.kind == "uses"
+                            and e.target.startswith("extsym:")
+                            and e.properties.get("callsite")
+                        )
+                    )
                 )
             ]
             content.edges = public_edges(
@@ -509,21 +529,6 @@ class SemanticBuild:
         self.inputs.verify()
         self.inputs.persist(build_dir)
         dump({"projection_profile": PROFILE}, build_dir / "projection-profile.json")
-        dump(
-            {
-                field: str(value)
-                for field in (
-                    "scip_index_path",
-                    "scip_graph_index_path",
-                    "openapi_path",
-                    "pyright_export_path",
-                    "coverage_path",
-                    "runtime_trace_path",
-                )
-                if (value := getattr(self.indexer, field)) is not None
-            },
-            build_dir / "build-inputs.json",
-        )
         if self.snapshot is not None:
             dump(
                 self.snapshot.model_dump(mode="json"),

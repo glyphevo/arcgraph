@@ -153,48 +153,30 @@ class ArcGraphReindexer:
             .get("status", "disabled")
             != "disabled"
         )
-        saved_inputs = {}
-        if semantic_full:
-            from arcgraph.core.utils import symlink_below
+        from arcgraph.core.build_inputs import persist, recover
+        from arcgraph.core.scanner import SourceRootDetection
 
-            input_path = store.sqlite_path.parent / "build-inputs.json"
-            if symlink_below(self.output_dir, input_path):
-                raise FullBuildRequired("Unsafe build inputs; rebuild required")
-            if input_path.is_file():
-                fields = (
-                    "scip_index_path",
-                    "scip_graph_index_path",
-                    "openapi_path",
-                    "pyright_export_path",
-                    "coverage_path",
-                    "runtime_trace_path",
-                )
-                saved_inputs = {
-                    k: self.repo_root / v
-                    for k, v in json.loads(
-                        input_path.read_text(encoding="utf-8")
-                    ).items()
-                    if k in fields and isinstance(v, str)
-                }
+        saved_inputs = recover(store, self.repo_root, self.output_dir)
+        detection = store.metadata.get("source_root_detection")
+        source_root_detection = (
+            SourceRootDetection(
+                strategy=detection["strategy"],
+                roots=tuple(detection.get("roots", ())),
+                non_package_dirs=tuple(detection.get("non_package_dirs", ())),
+            )
+            if isinstance(detection, dict)
+            else None
+        )
         indexer = ArcGraphIndexer(
             self.repo_root,
             self.output_dir,
             source_roots,
+            source_root_detection=source_root_detection,
             enable_v2_call_resolution=enable_v2_call_resolution,
             project_environment=Path(explicit) if explicit else None,
             **saved_inputs,
         )
         if semantic_full:
-            inputs = {
-                "scip_index_path": ("precision_metrics", "scip_index_path"),
-                "pyright_export_path": ("precision_metrics", "pyright_export_path"),
-                "coverage_path": ("coverage_metrics", "path"),
-                "runtime_trace_path": ("runtime_metrics", "trace_path"),
-            }
-            for field, (metrics, key) in inputs.items():
-                path = (store.metadata.get(metrics) or {}).get(key)
-                if field not in saved_inputs and isinstance(path, str) and path:
-                    setattr(indexer, field, self.repo_root / path)
             metadata, build_dir = indexer._build_inner()
             return {
                 "schema_version": metadata.schema_version,
@@ -220,20 +202,6 @@ class ArcGraphReindexer:
             dependency_environment_changed(store.metadata, self.repo_root)
             or parser_changed
         ):
-            # Refresh the source generation without losing the previously
-            # declared precision, coverage or runtime input paths.
-            inputs = {
-                "scip_index_path": ("precision_metrics", "scip_index_path"),
-                "pyright_export_path": ("precision_metrics", "pyright_export_path"),
-                "coverage_path": ("coverage_metrics", "path"),
-                "runtime_trace_path": ("runtime_metrics", "trace_path"),
-            }
-            # The manifest also lists suggested, unconfigured paths. Only
-            # restore inputs actually used by the previous analysis.
-            for field, (metrics, key) in inputs.items():
-                path = (store.metadata.get(metrics) or {}).get(key)
-                if isinstance(path, str) and path:
-                    setattr(indexer, field, self.repo_root / path)
             metadata, build_dir = indexer._build_inner()
             return {
                 "schema_version": metadata.schema_version,
@@ -247,6 +215,7 @@ class ArcGraphReindexer:
         scanner = FileScanner(
             self.repo_root,
             source_roots,
+            indexer.ignore_rules,
             file_extensions=indexer._file_extensions_for(active_frontends),
         )
         current_files = scanner.scan()
@@ -702,6 +671,7 @@ class ArcGraphReindexer:
             coverage_metrics=content.coverage_metrics,
             runtime_metrics=content.runtime_metrics,
             phase_timings=content.phase_timings,
+            before_publish=lambda directory: persist(indexer, directory),
             encoded_payloads=store.encoded_payloads,
         )
         return {

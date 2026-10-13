@@ -42,7 +42,7 @@ def test_default_build_reports_disabled_without_semantic_work(tmp_path, value):
 @pytest.mark.parametrize("value", ['"true"', "1", '"auto"', "[]"])
 def test_invalid_semantic_core_configuration_is_a_clear_error(tmp_path, value):
     configure(tmp_path, value)
-    with pytest.raises(ValueError, match="semantic_core.*boolean.*true or false"):
+    with pytest.raises(RuntimeError, match="semantic_core.*boolean.*true or false"):
         ArcGraphIndexer(tmp_path, tmp_path / "out").build()
 
 

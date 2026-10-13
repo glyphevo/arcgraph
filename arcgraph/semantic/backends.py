@@ -400,7 +400,16 @@ def wrap_graph(
             by_node[n["id"]] = choices[0]["id"]
     by_node.update(raw.get("owner_symbols", {}))
     for ei, edge in enumerate(raw["edges"]):
-        if edge["kind"] not in ("calls", "constructs", "dynamic_call", "initializes"):
+        if edge["kind"] not in (
+            "calls",
+            "constructs",
+            "dynamic_call",
+            "initializes",
+        ) and not (
+            edge["kind"] == "uses"
+            and edge["target"].startswith("extsym:")
+            and edge.get("properties", {}).get("callsite")
+        ):
             continue
         properties = edge.get("properties", {})
         facts = [properties.get("callsite", {}), *properties.get("callsites", [])]

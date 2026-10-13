@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from functools import partial
+
+from arcgraph.core.build_inputs import publish as publish_inputs
+
 from pathlib import Path
 from typing import Any
 
@@ -310,7 +314,7 @@ class ArcGraphIndexer:
             coverage_metrics=content.coverage_metrics,
             runtime_metrics=content.runtime_metrics,
             phase_timings=content.phase_timings,
-            before_publish=semantic.publish if semantic is not None else None,
+            before_publish=partial(publish_inputs, self, semantic),
         )
         if semantic is not None:
             semantic.after_publish()

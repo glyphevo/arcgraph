@@ -22,17 +22,15 @@ def semantic_core_enabled(repo_root):
         return False
     try:
         config = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError) as exc:
-        raise ValueError(
-            f"Cannot read semantic_core configuration in {path}: {exc}"
-        ) from exc
+    except (OSError, ValueError, UnicodeError):
+        return False
     tool = config.get("tool", {})
     arcgraph = tool.get("arcgraph", {}) if isinstance(tool, dict) else {}
     if not isinstance(arcgraph, dict):
-        raise ValueError("[tool.arcgraph] must be a TOML table")
+        raise RuntimeError("[tool.arcgraph] must be a TOML table")
     value = arcgraph.get("semantic_core", False)
     if type(value) is not bool:
-        raise ValueError(
+        raise RuntimeError(
             "[tool.arcgraph] semantic_core must be a boolean: true or false"
         )
     return value

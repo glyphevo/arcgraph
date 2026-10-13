@@ -7,6 +7,7 @@ from arcgraph.core.ids import callsite_id, stable_callsite_subject
 from arcgraph.core.merge import EvidenceMergeEngine
 from arcgraph.core.schemas import CONFIDENCE_RANK, Edge, Evidence, FactResolution
 from .contract import digest
+from .projection import public_invocation
 
 
 def edge_key(edge):
@@ -91,7 +92,7 @@ def retained_edge(edge, facts):
     return result.model_dump(mode="json")
 
 
-def project_graph(view, raw, fallback, decisions, *, primary_producer):
+def project_graph(view, raw, fallback, decisions, *, primary_producer, primary=None):
     """Retain out-of-scope defaults; alter only exactly mapped callsite supports.
 
     Non-execution declaration/property relations remain in the complete decision
@@ -192,7 +193,7 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
     for subject, target, dispatch, phase in accepted:
         counts[subject].add((target, dispatch))
     for row in decisions["edges"]:
-        if row["relation"] != "execution":
+        if not public_invocation(view, row["relation"], row["key"]):
             continue
         if not any(s["producer"] == primary_producer for s in row["supports"]):
             continue
@@ -239,7 +240,11 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
         kind = (
             "initializes"
             if context in DEFINITION_TIME_CONTEXTS
-            else "constructs" if dispatch == "construct" else "calls"
+            else (
+                "constructs"
+                if dispatch == "construct"
+                else "uses" if target_id.startswith("extsym:") else "calls"
+            )
         )
         fact = {
             "line": key[1],
@@ -269,6 +274,10 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
             "stable_callsite_occurrence": occurrences[key],
         }
         graph_key = (source_id, target_id, kind, None)
+        if kind == "uses":
+            matching = [k for k in by_key if k[:3] == graph_key[:3]]
+            if len(matching) == 1:
+                graph_key = matching[0]
         if kind == "initializes":
             # Initialization roles retain their existing public identity.
             matching = [k for k in by_key if k[:3] == graph_key[:3]]
@@ -279,7 +288,9 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
             path=site.path,
             start_line=key[1],
             column=key[2],
-            detail="pyright callHierarchy; " + decisions["policy"],
+            detail="pyright callHierarchy; "
+            + decisions["policy"]
+            + ("; declaration source" if view.defs[target].declaration_only else ""),
         )
         existing = by_key.get(graph_key)
         if existing is None:
@@ -335,6 +346,44 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
                 values[0],
             )
             existing.resolution.candidate_count = representative.get("candidate_count")
+    unknown = {}
+    if primary is not None:
+        for answer in primary.answers:
+            if answer.outcome != "unknown":
+                continue
+            site = view.sites[answer.subject]
+            key = (
+                symbols.get(site.owner),
+                site.span.start[0] + 1,
+                site.span.start[1],
+                site.expression,
+            )
+            unknown[key] = f"{site.path}:{key[1]}:{key[2]}"
+    for edge in by_key.values():
+        locations = {
+            unknown[key]
+            for fact in call_facts(edge.model_dump(mode="json"))
+            if (
+                key := (
+                    edge.source,
+                    fact.get("line"),
+                    fact.get("column"),
+                    fact.get("call_expression"),
+                )
+            )
+            in unknown
+        }
+        if locations:
+            edge.resolution.fallbacks = sorted(
+                set(edge.resolution.fallbacks)
+                | {"pyright:unknown:" + location for location in locations}
+            )
+            edge.resolution.detail = (
+                (edge.resolution.detail + "; " if edge.resolution.detail else "")
+                + "Primary pyright answer unknown at "
+                + ", ".join(sorted(locations))
+                + "; retained analyzer fallback"
+            )
     return [
         edge.model_dump(mode="json")
         for _, edge in sorted(by_key.items(), key=lambda pair: str(pair[0]))
