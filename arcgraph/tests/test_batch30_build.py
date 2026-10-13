@@ -24,6 +24,40 @@ def configure(root, value="true"):
     path.write_text(source, encoding="utf-8")
 
 
+def test_semantic_timing_accounts_for_mapping_bridge_and_writing(
+    prepared, tmp_path, monkeypatch
+):
+    import time
+    from arcgraph.semantic import build
+
+    project, _, _, _ = prepared
+    configure(project)
+    (project / "demo.py").write_text(
+        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+    )
+
+    def delayed(original):
+        def call(*args, **kwargs):
+            time.sleep(0.1)
+            return original(*args, **kwargs)
+
+        return call
+
+    monkeypatch.setattr(build, "project_graph", delayed(build.project_graph))
+    monkeypatch.setattr(build, "write_structure", delayed(build.write_structure))
+    output = tmp_path / "out"
+    metadata, _ = ArcGraphIndexer(project, output).build()
+    assert metadata.toolchain_status["semantic_core"]["status"] == "active"
+    timings = GraphStoreReader.from_current(output).metadata["phase_timings"][
+        "semantic_core"
+    ]
+    accounted = sum(value for key, value in timings.items() if key != "total")
+    assert abs(accounted - timings["total"]) <= 0.02 * timings["total"], timings
+    assert timings["graph_bridge"] >= 0.1
+    assert timings["generation_write"] >= 0.1
+    assert timings["initialize"] > 0
+
+
 @pytest.mark.parametrize("value", [None, "false"])
 def test_default_build_reports_disabled_without_semantic_work(tmp_path, value):
     (tmp_path / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")

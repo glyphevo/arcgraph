@@ -1,6 +1,7 @@
 """One captured input and one structural parse for the semantic build path."""
 
 from pathlib import Path
+from contextlib import contextmanager
 import json
 import shutil
 import subprocess
@@ -128,6 +129,7 @@ class SemanticBuild:
     """Private staging; no graph or active pointer changes until publication."""
 
     def __init__(self, indexer):
+        started = time.perf_counter()
         self.indexer = indexer
         self.temporary = tempfile.TemporaryDirectory(prefix="arcgraph-build-semantic-")
         self.directory = Path(self.temporary.name).resolve()
@@ -177,17 +179,33 @@ class SemanticBuild:
                 self.configuration_bytes[name] = raw
                 (self.root / name).write_bytes(raw)
 
+        self.timings["initialize"] = time.perf_counter() - started
+        self.timings["total"] = self.timings["initialize"]
+
+    @contextmanager
+    def _phase(self, name):
+        """Exclusive named work; the total is measured separately at entry points."""
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - started
+            self.timings[name] = self.timings.get(name, 0.0) + elapsed
+
     def close(self):
         self.temporary.cleanup()
 
     def capture(self, files):
+        started = time.perf_counter()
         try:
-            self._capture(files)
+            with self._phase("capture"):
+                self._capture(files)
         except (OSError, ValueError, UnicodeError) as exc:
             self.status = semantic_core_status("unavailable", reason=str(exc), fix=FIX)
+        finally:
+            self.timings["total"] += time.perf_counter() - started
 
     def _capture(self, files):
-        started = time.perf_counter()
         self.files = files
         auxiliary = FileScanner(
             self.indexer.repo_root,
@@ -243,7 +261,6 @@ class SemanticBuild:
                     "input_changed_during_run: captured source hash differs"
                 )
         dump(self.snapshot.model_dump(mode="json"), self.generation / "snapshot.json")
-        self.timings["capture"] = time.perf_counter() - started
 
     def structure_from_trees(self, trees, notices, hosted):
         if self.snapshot is None:
@@ -260,13 +277,21 @@ class SemanticBuild:
             )
         except (OSError, ValueError) as exc:
             self.status = semantic_core_status("unavailable", reason=str(exc), fix=FIX)
-        self.timings["structure_records"] = time.perf_counter() - started
+        elapsed = time.perf_counter() - started
+        self.timings["structure_records"] = elapsed
+        self.timings["total"] += elapsed
 
     def before_parse(self):
-        verify_interpreter(self.indexer.repo_root, self.interpreter, self.environment)
+        started = time.perf_counter()
+        with self._phase("interpreter_guard"):
+            verify_interpreter(
+                self.indexer.repo_root, self.interpreter, self.environment
+            )
+        self.timings["total"] += time.perf_counter() - started
 
     def apply(self, content):
         """Admit before changing any graph models; failed attempts retain fallback."""
+        started = time.perf_counter()
         if self.bundle is None:
             if self.status["reason"] == "Semantic analysis has not completed.":
                 self.status = semantic_core_status(
@@ -274,141 +299,147 @@ class SemanticBuild:
                     reason="No Python structural generation was produced.",
                     fix=FIX,
                 )
-            return self._finish(content)
-        allowed, reason = admit_structure(self.bundle, self.snapshot)
+            return self._finish(content, started)
+        with self._phase("structure_admission"):
+            allowed, reason = admit_structure(self.bundle, self.snapshot)
         if not allowed:
             self.status = semantic_core_status("unavailable", reason=reason, fix=FIX)
-            return self._finish(content)
-        started = time.perf_counter()
+            return self._finish(content, started)
         try:
-            view = View(self.bundle)
-            config = configuration(
-                self.root,
-                self.parser.status()["version"],
-                self.directory / "environment",
-                source_roots=[r.path for r in self.indexer.source_roots],
-            )
-            wrapper = {
-                p.name: sha(p.read_bytes()) for p in Path(__file__).parent.glob("*.py")
-            }
-            primary_producer = producer(
-                "pyright",
-                "1.1.414",
-                (self.snapshot.target_python,),
-                {"configuration": config, "wrapper": wrapper},
-            )
-            fallback_producer = producer(
-                "arcgraph",
-                __version__,
-                (self.snapshot.target_python,),
-                {"graph": "captured-build", "wrapper": wrapper},
-            )
-            texts = {
-                f.path: canonical((self.root / f.path).read_bytes())
-                for f in self.snapshot.files
-                if f.path.endswith(".py")
-            }
-            plan = {
-                "snapshot_id": self.snapshot.id,
-                "definitions": [
-                    {
-                        "path": d.path,
-                        "positions": {
-                            unit: native_position(
-                                texts[d.path], d.name_span.start, unit
-                            )
-                            for unit in ("utf-8", "utf-16")
-                        },
-                    }
-                    for d in view.definitions
-                    if d.symbol_kind in ("function", "class")
-                ],
-            }
-            dump(plan, self.generation / "plan.json")
-            tick = time.perf_counter()
-            detail = collect(
-                self.generation / "plan.json", self.root, config, self.generation
-            )
-            self.timings["transport"] = time.perf_counter() - tick
-            if detail["requests"]["error"] or detail["requests"]["timeout"]:
-                raise ValueError(
-                    "Pyright requests failed or timed out; retaining the existing analyzer results."
+            with self._phase("request_plan"):
+                view = View(self.bundle)
+                config = configuration(
+                    self.root,
+                    self.parser.status()["version"],
+                    self.directory / "environment",
+                    source_roots=[r.path for r in self.indexer.source_roots],
                 )
-            view.external = Registry(
-                load(self.generation / "external-targets.json"),
-                detail["external_capture"],
-                public_symbols=[
-                    n.id for n in content.nodes if n.kind == "external_symbol"
-                ],
-                snapshot=self.snapshot,
-            )
-            primary_producer = producer(
-                "pyright",
-                "1.1.414",
-                (self.snapshot.target_python,),
-                {
-                    "configuration": config,
-                    "wrapper": wrapper,
-                    "external_capture": detail["external_capture"],
-                },
-            )
-            replay = JournalReplay(
-                self.generation / "responses.jsonl", self.snapshot.id
-            )
-            try:
-                primary, mapping = pyright_records(
-                    self.snapshot, self.root, primary_producer, view, replay
+                wrapper = {
+                    p.name: sha(p.read_bytes())
+                    for p in Path(__file__).parent.glob("*.py")
+                }
+                primary_producer = producer(
+                    "pyright",
+                    "1.1.414",
+                    (self.snapshot.target_python,),
+                    {"configuration": config, "wrapper": wrapper},
                 )
-            finally:
-                replay.close()
-            python_nodes = [
-                n.model_dump(mode="json")
-                for n in content.nodes
-                if n.path and n.path.endswith(".py")
-            ]
-            ids = {n["id"] for n in python_nodes}
-            raw = {
-                "nodes": python_nodes,
-                "edges": [
-                    e.model_dump(mode="json")
-                    for e in content.edges
-                    if e.source in ids
-                    and (
-                        e.kind in ("calls", "constructs", "dynamic_call", "initializes")
-                        or (
-                            e.kind == "uses"
-                            and e.target.startswith("extsym:")
-                            and e.properties.get("callsite")
-                        )
-                    )
-                ],
-            }
-            from .public_owners import materialize_owners
-
-            raw = materialize_owners(view, raw)
-            known_nodes = {n.id: n for n in content.nodes}
-            for target in view.external.definitions.values():
-                # Registry definitions are proven external identities, including
-                # .py declarations; the projection retains their ledger relation.
-                raw["nodes"].append(
-                    (
-                        known_nodes[target.id]
-                        if target.id in known_nodes
-                        else Node(
-                            id=target.id,
-                            kind="external_symbol",
-                            name=target.name,
-                            qualname=target.qualname,
-                            properties={
-                                "source": "semantic_core",
-                                "boundary": "external",
+                fallback_producer = producer(
+                    "arcgraph",
+                    __version__,
+                    (self.snapshot.target_python,),
+                    {"graph": "captured-build", "wrapper": wrapper},
+                )
+                texts = {
+                    f.path: canonical((self.root / f.path).read_bytes())
+                    for f in self.snapshot.files
+                    if f.path.endswith(".py")
+                }
+                plan = {
+                    "snapshot_id": self.snapshot.id,
+                    "definitions": [
+                        {
+                            "path": d.path,
+                            "positions": {
+                                unit: native_position(
+                                    texts[d.path], d.name_span.start, unit
+                                )
+                                for unit in ("utf-8", "utf-16")
                             },
-                        )
-                    ).model_dump(mode="json")
+                        }
+                        for d in view.definitions
+                        if d.symbol_kind in ("function", "class")
+                    ],
+                }
+                dump(plan, self.generation / "plan.json")
+            with self._phase("transport"):
+                detail = collect(
+                    self.generation / "plan.json", self.root, config, self.generation
                 )
-            fallback = wrap_graph(
-                self.snapshot, self.root, fallback_producer, view, raw
-            )
+            with self._phase("external_registry"):
+                if detail["requests"]["error"] or detail["requests"]["timeout"]:
+                    raise ValueError(
+                        "Pyright requests failed or timed out; retaining the existing analyzer results."
+                    )
+                view.external = Registry(
+                    load(self.generation / "external-targets.json"),
+                    detail["external_capture"],
+                    public_symbols=[
+                        n.id for n in content.nodes if n.kind == "external_symbol"
+                    ],
+                    snapshot=self.snapshot,
+                )
+                primary_producer = producer(
+                    "pyright",
+                    "1.1.414",
+                    (self.snapshot.target_python,),
+                    {
+                        "configuration": config,
+                        "wrapper": wrapper,
+                        "external_capture": detail["external_capture"],
+                    },
+                )
+            with self._phase("primary_mapping"):
+                replay = JournalReplay(
+                    self.generation / "responses.jsonl", self.snapshot.id
+                )
+                try:
+                    primary, mapping = pyright_records(
+                        self.snapshot, self.root, primary_producer, view, replay
+                    )
+                finally:
+                    replay.close()
+            with self._phase("graph_capture"):
+                python_nodes = [
+                    n.model_dump(mode="json")
+                    for n in content.nodes
+                    if n.path and n.path.endswith(".py")
+                ]
+                ids = {n["id"] for n in python_nodes}
+                raw = {
+                    "nodes": python_nodes,
+                    "edges": [
+                        e.model_dump(mode="json")
+                        for e in content.edges
+                        if e.source in ids
+                        and (
+                            e.kind
+                            in ("calls", "constructs", "dynamic_call", "initializes")
+                            or (
+                                e.kind == "uses"
+                                and e.target.startswith("extsym:")
+                                and e.properties.get("callsite")
+                            )
+                        )
+                    ],
+                }
+                from .public_owners import materialize_owners
+
+                raw = materialize_owners(view, raw)
+                known_nodes = {n.id: n for n in content.nodes}
+                for target in view.external.definitions.values():
+                    # Registry definitions are proven external identities, including
+                    # .py declarations; the projection retains their ledger relation.
+                    raw["nodes"].append(
+                        (
+                            known_nodes[target.id]
+                            if target.id in known_nodes
+                            else Node(
+                                id=target.id,
+                                kind="external_symbol",
+                                name=target.name,
+                                qualname=target.qualname,
+                                properties={
+                                    "source": "semantic_core",
+                                    "boundary": "external",
+                                },
+                            )
+                        ).model_dump(mode="json")
+                    )
+            with self._phase("fallback_mapping"):
+                fallback = wrap_graph(
+                    self.snapshot, self.root, fallback_producer, view, raw
+                )
             decisions = project(
                 view,
                 primary,
@@ -416,80 +447,86 @@ class SemanticBuild:
                 (primary_producer, fallback_producer),
                 timings=self.timings,
             )
-            if not decisions["admission"][0]["allowed"]:
-                raise ValueError(decisions["admission"][0]["reason"])
-            graph, bridge = project_graph(
-                view,
-                raw,
-                fallback,
-                decisions,
-                primary_producer=primary.producer.id,
-                primary=primary,
-            )
-            self.verify()
-            write_structure(self.bundle, self.generation / "structure.jsonl")
-            write_generation(primary, self.generation / "pyright.json")
-            write_generation(fallback, self.generation / "fallback.json")
-            dump(decisions, self.generation / "projection.json")
-            dump(bridge, self.generation / "bridge.json")
-            dump(mapping, self.generation / "mapping.json")
-            dump(
-                {
-                    "revision": self.indexer.semantic_revision,
-                    "snapshot": self.snapshot.id,
-                    "projection_profile": PROFILE,
-                    "complete": True,
-                    "artifacts": {
-                        p.name: sha(p.read_bytes())
-                        for p in self.generation.iterdir()
-                        if p.is_file()
+            with self._phase("graph_bridge"):
+                if not decisions["admission"][0]["allowed"]:
+                    raise ValueError(decisions["admission"][0]["reason"])
+                graph, bridge = project_graph(
+                    view,
+                    raw,
+                    fallback,
+                    decisions,
+                    primary_producer=primary.producer.id,
+                    primary=primary,
+                )
+            with self._phase("input_verification"):
+                self.verify()
+            with self._phase("generation_write"):
+                write_structure(self.bundle, self.generation / "structure.jsonl")
+                write_generation(primary, self.generation / "pyright.json")
+                write_generation(fallback, self.generation / "fallback.json")
+                dump(decisions, self.generation / "projection.json")
+                dump(bridge, self.generation / "bridge.json")
+                dump(mapping, self.generation / "mapping.json")
+                dump(
+                    {
+                        "revision": self.indexer.semantic_revision,
+                        "snapshot": self.snapshot.id,
+                        "projection_profile": PROFILE,
+                        "complete": True,
+                        "artifacts": {
+                            p.name: sha(p.read_bytes())
+                            for p in self.generation.iterdir()
+                            if p.is_file()
+                        },
                     },
-                },
-                self.generation / "manifest.json",
-            )
-            out_of_scope = [
-                e
-                for e in content.edges
-                if not (
-                    e.source in ids
-                    and (
-                        e.kind in ("calls", "constructs", "dynamic_call", "initializes")
-                        or (
-                            e.kind == "uses"
-                            and e.target.startswith("extsym:")
-                            and e.properties.get("callsite")
+                    self.generation / "manifest.json",
+                )
+            with self._phase("graph_adoption"):
+                out_of_scope = [
+                    e
+                    for e in content.edges
+                    if not (
+                        e.source in ids
+                        and (
+                            e.kind
+                            in ("calls", "constructs", "dynamic_call", "initializes")
+                            or (
+                                e.kind == "uses"
+                                and e.target.startswith("extsym:")
+                                and e.properties.get("callsite")
+                            )
                         )
                     )
+                ]
+                content.edges = public_edges(
+                    [*out_of_scope, *(Edge.model_validate(e) for e in graph)]
                 )
-            ]
-            content.edges = public_edges(
-                [*out_of_scope, *(Edge.model_validate(e) for e in graph)]
-            )
-            projected_ids = {n["id"] for n in raw["nodes"]}
-            content.nodes = [n for n in content.nodes if n.id not in projected_ids] + [
-                Node.model_validate(n) for n in raw["nodes"]
-            ]
-            uncovered = [f for f in self.bundle.files if f.status != "parsed"]
-            self.status = semantic_core_status(
-                "partial" if uncovered else "active",
-                node=detail["node"],
-                reason=(
-                    (
-                        str(len(uncovered))
-                        + " Python file(s) not covered: "
-                        + ", ".join(sorted({f.status for f in uncovered}))
-                    )
-                    if uncovered
-                    else None
-                ),
-                fix=FIX if uncovered else None,
-            )
-            self.adopted = True
-            self.generation_hashes = {
-                p.name: sha(p.read_bytes())
-                for p in self.generation.iterdir()
-                if p.is_file()
-            }
+                projected_ids = {n["id"] for n in raw["nodes"]}
+                content.nodes = [
+                    n for n in content.nodes if n.id not in projected_ids
+                ] + [Node.model_validate(n) for n in raw["nodes"]]
+                uncovered = [f for f in self.bundle.files if f.status != "parsed"]
+                self.status = semantic_core_status(
+                    "partial" if uncovered else "active",
+                    node=detail["node"],
+                    reason=(
+                        (
+                            str(len(uncovered))
+                            + " Python file(s) not covered: "
+                            + ", ".join(sorted({f.status for f in uncovered}))
+                        )
+                        if uncovered
+                        else None
+                    ),
+                    fix=FIX if uncovered else None,
+                )
+                self.adopted = True
+            with self._phase("artifact_hashes"):
+                self.generation_hashes = {
+                    p.name: sha(p.read_bytes())
+                    for p in self.generation.iterdir()
+                    if p.is_file()
+                }
         except (
             RuntimeError,
             OSError,
@@ -498,10 +535,10 @@ class SemanticBuild:
             subprocess.SubprocessError,
         ) as exc:
             self.status = semantic_core_status("unavailable", reason=str(exc), fix=FIX)
-        self.timings["total"] = time.perf_counter() - started
-        return self._finish(content)
+        return self._finish(content, started)
 
-    def _finish(self, content):
+    def _finish(self, content, started):
+        tick = time.perf_counter()
         candidates = [
             self.indexer.scip_index_path,
             self.indexer.pyright_export_path,
@@ -519,6 +556,8 @@ class SemanticBuild:
                 self.status["reason"] + " " if self.status["reason"] else ""
             ) + note
         content.toolchain_status["semantic_core"] = self.status
+        self.timings["finalize"] = time.perf_counter() - tick
+        self.timings["total"] += time.perf_counter() - started
         content.phase_timings["semantic_core"] = self.timings
         return content
 
