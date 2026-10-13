@@ -490,8 +490,26 @@ def definition(row, item, unit, snapshot=None):
         elif isinstance(target, ast.Starred):
             yield from bound_names(target.value)
 
+    def record_write(class_scope, name, line):
+        class_writes.setdefault(class_scope, []).append((name, line))
+
+    def expression_writes(node, class_scope):
+        # Statement bodies have their own visit so inactive branches and nested
+        # scopes cannot leak writes. Lambda defaults run here; its body does not.
+        if isinstance(node, ast.NamedExpr):
+            for name in bound_names(node.target):
+                record_write(class_scope, name, node.lineno)
+        children = (
+            [node.args] if isinstance(node, ast.Lambda) else ast.iter_child_nodes(node)
+        )
+        for child in children:
+            if not isinstance(child, (ast.stmt, ast.ExceptHandler, ast.match_case)):
+                expression_writes(child, class_scope)
+
     def visit(body, parents=(), declaration=False, class_scope=None):
         for node in body:
+            if class_scope is not None and id(node) not in typing_only:
+                expression_writes(node, class_scope)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 qualified = ".".join((row["module"], *parents, node.name))
                 span = Span(
@@ -534,23 +552,51 @@ def definition(row, item, unit, snapshot=None):
                     visit(node.body, parents, declaration, class_scope)
                 if active is not True:
                     visit(node.orelse, parents, declaration, class_scope)
-            elif (
-                class_scope is not None
-                and isinstance(
-                    node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)
-                )
-                and id(node) not in typing_only
-            ):
-                targets = (
-                    node.targets
-                    if isinstance(node, (ast.Assign, ast.Delete))
-                    else [node.target]
-                )
+            elif class_scope is not None and id(node) not in typing_only:
+                targets = []
+                if isinstance(node, (ast.Assign, ast.Delete)):
+                    targets = node.targets
+                elif isinstance(
+                    node, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor)
+                ):
+                    targets = [node.target]
+                elif isinstance(node, (ast.With, ast.AsyncWith)):
+                    targets = [item.optional_vars for item in node.items]
                 for target in targets:
                     for name in bound_names(target):
-                        class_writes.setdefault(class_scope, []).append(
-                            (name, node.lineno)
+                        record_write(class_scope, name, node.lineno)
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for alias in node.names:
+                        name = alias.asname or (
+                            alias.name.split(".")[0]
+                            if isinstance(node, ast.Import)
+                            else alias.name
                         )
+                        record_write(class_scope, name, node.lineno)
+                # These suites share the containing class namespace. Inspect
+                # every possible branch, retaining target-aware If handling.
+                for field in ("body", "orelse", "finalbody"):
+                    visit(getattr(node, field, ()), parents, declaration, class_scope)
+                if isinstance(node, (ast.Try, ast.TryStar)):
+                    for handler in node.handlers:
+                        if handler.name:
+                            record_write(class_scope, handler.name, handler.lineno)
+                        expression_writes(handler, class_scope)
+                        visit(handler.body, parents, declaration, class_scope)
+                elif isinstance(node, ast.Match):
+                    for case in node.cases:
+                        for pattern in ast.walk(case.pattern):
+                            if isinstance(pattern, (ast.MatchAs, ast.MatchStar)):
+                                name = pattern.name
+                            elif isinstance(pattern, ast.MatchMapping):
+                                name = pattern.rest
+                            else:
+                                continue
+                            if name:
+                                record_write(class_scope, name, pattern.lineno)
+                        if case.guard:
+                            expression_writes(case.guard, class_scope)
+                        visit(case.body, parents, declaration, class_scope)
 
     visit(tree.body)
     if len(choices) != 1:
