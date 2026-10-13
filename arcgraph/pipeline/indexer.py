@@ -17,6 +17,7 @@ from arcgraph.core.evidence_manifest import (
 )
 from arcgraph.core.language_tiers import build_language_tiers
 from arcgraph.core.operation_lock import arcgraph_operation_lock
+from arcgraph.core.structure import build_structure_budget
 
 from arcgraph.adapters.common import AdapterRegistry
 from arcgraph.adapters.registry import default_adapter_registry
@@ -162,7 +163,7 @@ class ArcGraphIndexer:
         )
 
     def build(self) -> tuple[IndexMetadata, Path]:
-        with arcgraph_operation_lock(self.output_dir):
+        with arcgraph_operation_lock(self.output_dir), build_structure_budget():
             result = self._build_inner()
             self.last_cleanup_result = prune_arcgraph_output_after_publish(
                 self.output_dir

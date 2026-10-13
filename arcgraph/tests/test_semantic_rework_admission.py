@@ -3,6 +3,7 @@
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -10,6 +11,131 @@ from arcgraph.core.structure import StructureView
 from arcgraph.semantic.frozen import interpreter_identity
 from arcgraph.semantic.snapshot import capture
 from arcgraph.semantic.structure_provider import analyze, admit_structure
+
+
+def test_hanging_project_reads_have_one_budget_across_five_blocks(
+    tmp_path, monkeypatch
+):
+    from arcgraph.core import structure
+    from arcgraph.tests.test_structure_rework import fake_environment
+
+    assert getattr(structure, "PROJECT_FAILURE_BUDGET", 60.0) == 60.0
+    # Scale the fixed budget for a fast real-subprocess regression. The wrapper
+    # still sleeps ten seconds per nonempty request; only the parent kills it.
+    project = tmp_path / "project"
+    project.mkdir()
+    executable, _ = fake_environment(project, "timeout")
+    names = [f"m{i:03d}.py" for i in range(321)]
+    for name in names:
+        (project / name).write_text("def f(): return 1\n", encoding="utf-8")
+    parser = StructureView(project)
+    assert parser.interpreter == executable
+    monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", 0.2, raising=False)
+    original = parser._read_project
+    attempted = []
+
+    def counted(paths):
+        attempted.append(len(paths))
+        # The delivered parent has a per-read 30-second timeout. Scale that
+        # timeout too, so its regression is a failed assertion, not a long wait.
+        if not hasattr(parser, "_project_timeout"):
+            import marshal
+
+            return subprocess.run(
+                [str(executable), "-I", "-S", "-c", "unused"],
+                input=marshal.dumps(paths, 4),
+                capture_output=True,
+                timeout=0.2,
+                check=True,
+            )
+        return original(paths)
+
+    monkeypatch.setattr(parser, "_read_project", counted)
+    snapshot = capture(
+        project,
+        names,
+        tmp_path / "frozen",
+        target_python="3.14",
+        platform=sys.platform,
+        environment=(("dependencies", "test"),),
+    )
+    started = time.monotonic()
+    bundle = analyze(snapshot, tmp_path / "frozen", structure_view=parser)
+    elapsed = time.monotonic() - started
+    assert len(attempted) <= 2, (attempted, elapsed)
+    assert elapsed < 0.8, elapsed
+    assert len(bundle.files) == 321
+    assert {file.status for file in bundle.files} == {"host_fallback"}
+    assert parser.status()["status"] == "host_fallback"
+    assert "failed-read budget is exhausted" in parser.status()["reason"]
+
+
+def test_build_shares_failure_budget_with_source_cache_and_resets(
+    tmp_path, monkeypatch
+):
+    import marshal
+
+    from arcgraph.core import structure
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+    from arcgraph.tests.test_structure_rework import fake_environment
+
+    project = tmp_path / "project"
+    project.mkdir()
+    executable, mode = fake_environment(project, "timeout")
+    marker = project / "failed-workload"
+    executable.write_text(
+        executable.read_text(encoding="utf-8").replace(
+            "if request and mode == 'timeout':\n    time.sleep(10)",
+            f"if mode == 'timeout' and (request or pathlib.Path({str(marker)!r}).exists()):\n"
+            f"    pathlib.Path({str(marker)!r}).touch()\n    time.sleep(10)",
+        ),
+        encoding="utf-8",
+    )
+    # The default parser groups 256 files; six blocks also exercise the second
+    # StructureView created by the source-cache fingerprint after analysis.
+    for number in range(1281):
+        (project / f"m{number:04d}.py").write_text(
+            "def f(): return 1\n", encoding="utf-8"
+        )
+    monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", 0.2, raising=False)
+    original = StructureView._read_project
+    attempted, failed_seconds = [], []
+
+    def counted(self, paths):
+        if mode.read_text(encoding="utf-8") != "timeout" or (
+            not paths and not marker.exists()
+        ):
+            return original(self, paths)
+        attempted.append(len(paths))
+        started = time.monotonic()
+        try:
+            if not hasattr(self, "_project_timeout"):
+                return subprocess.run(
+                    [str(executable), "-I", "-S", "-c", "unused"],
+                    input=marshal.dumps(paths, 4),
+                    capture_output=True,
+                    timeout=0.2,
+                    check=True,
+                )
+            return original(self, paths)
+        finally:
+            failed_seconds.append(time.monotonic() - started)
+
+    monkeypatch.setattr(StructureView, "_read_project", counted)
+    indexer = ArcGraphIndexer(project, tmp_path / "out")
+    indexer.build()
+    assert len(attempted) <= 2, attempted
+    # The cache-fingerprint view must not restart even its empty capability
+    # probe once a workload failure has spent this build's shared budget.
+    assert 0 not in attempted, attempted
+    assert sum(failed_seconds) < 0.8, failed_seconds
+    store = GraphStoreReader.from_current(tmp_path / "out")
+    assert len([node for node in store.read_nodes() if node.kind == "function"]) == 1281
+    mode.write_text("good", encoding="utf-8")
+    indexer.build()
+    store = GraphStoreReader.from_current(tmp_path / "out")
+    assert store.metadata["toolchain_status"]["python_structure"]["status"] == "project"
 
 
 def test_whole_host_fallback_is_not_admitted(tmp_path):

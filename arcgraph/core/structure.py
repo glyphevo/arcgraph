@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import marshal
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import tomllib
 import warnings
 
@@ -35,6 +38,20 @@ PROJECT_ERRORS = (
     RecursionError,
     subprocess.SubprocessError,
 )
+PROJECT_FAILURE_BUDGET = 60.0
+_build_failure_seconds: ContextVar[list[float] | None] = ContextVar(
+    "structure_build_failure_seconds", default=None
+)
+
+
+@contextmanager
+def build_structure_budget():
+    """Share failed-read time through parsing and the build's cache fingerprint."""
+    token = _build_failure_seconds.set([0.0])
+    try:
+        yield
+    finally:
+        _build_failure_seconds.reset(token)
 
 
 def fallback_scope(partial):
@@ -208,6 +225,10 @@ class StructureView:
         self._project_interpreter = None
         self._project_blocks = 0
         self._project_failure = None
+        shared = _build_failure_seconds.get()
+        self._project_failure_seconds = shared if shared is not None else [0.0]
+        self._project_timeout = 30.0
+        self._project_budget_exhausted = False
         if root is None:
             return
         self.interpreter = project_interpreter_path(root, environment=environment)
@@ -215,7 +236,7 @@ class StructureView:
             self.reason = MISSING_INTERPRETER
             return
         try:
-            self._read_project({})
+            self._attempt_project({})
             self.trace_available = True
             if self.requirement and not satisfies_python(
                 self.version, self.requirement
@@ -232,7 +253,13 @@ class StructureView:
         self._project_interpreter = self.interpreter
 
     def _failed(self, exc, *, partial=False):
-        if isinstance(exc, subprocess.TimeoutExpired):
+        if (
+            isinstance(exc, subprocess.TimeoutExpired)
+            and exc.timeout == 0
+            and self._project_budget_exhausted
+        ):
+            detail = "failed-read budget exhausted"
+        elif isinstance(exc, subprocess.TimeoutExpired):
             detail = f"timed out after {exc.timeout:g} seconds"
         elif isinstance(exc, subprocess.CalledProcessError):
             detail = f"exit code {exc.returncode}"
@@ -245,6 +272,11 @@ class StructureView:
             f"Project interpreter failed ({detail}); Python structure "
             f"{scope} {STRUCTURE_FIX}"
         )
+        if self._project_budget_exhausted:
+            self.reason += (
+                f" Further project reads use the host parser after the "
+                f"{PROJECT_FAILURE_BUDGET:g}-second failed-read budget is exhausted."
+            )
         if not partial:
             self.interpreter = None
 
@@ -290,7 +322,7 @@ class StructureView:
             stderr=subprocess.PIPE,
             cwd=Path(sys.executable).anchor,
             env={"PYTHONDONTWRITEBYTECODE": "1"},
-            timeout=30,
+            timeout=self._project_timeout,
             check=True,
         )
         # Primitive structural transport; decoded objects are never executed.
@@ -330,6 +362,25 @@ class StructureView:
             raise ValueError("Invalid project structure record")
         return decoded
 
+    def _attempt_project(self, paths):
+        # Reserve a fixed amount for timeout cancellation/reaping. Successful
+        # reads and host fallback work are outside the failed-project budget.
+        limit = PROJECT_FAILURE_BUDGET - min(0.5, PROJECT_FAILURE_BUDGET / 100)
+        remaining = limit - self._project_failure_seconds[0]
+        if remaining <= 0:
+            self._project_budget_exhausted = True
+            raise subprocess.TimeoutExpired([str(self.interpreter)], 0)
+        self._project_timeout = min(30.0, remaining)
+        started = time.monotonic()
+        try:
+            return self._read_project(paths)
+        except PROJECT_ERRORS:
+            self._project_failure_seconds[0] += time.monotonic() - started
+            self._project_budget_exhausted = self._project_failure_seconds[0] >= limit
+            raise
+        finally:
+            self._project_timeout = 30.0
+
     def read(
         self, paths: dict[str, Path], *, continue_project=False
     ) -> tuple[dict[str, ast.Module], list[BuildWarning]]:
@@ -347,12 +398,12 @@ class StructureView:
             items = [
                 (name, paths[name]) for name in sorted(paths, key=_block_path_order)
             ]
-            # A block has its own budget. A slow/failed block cannot discard the
-            # project structures already read from other blocks.
+            # Successful blocks survive failures. Failed project reads share one
+            # lifetime budget, including sequential semantic 64-file reads.
             for offset in range(0, len(items), 256):
                 block = dict(items[offset : offset + 256])
                 try:
-                    records.update(self._read_project(block))
+                    records.update(self._attempt_project(block))
                     project_blocks += 1
                 except PROJECT_ERRORS as exc:
                     failures.append(exc)
