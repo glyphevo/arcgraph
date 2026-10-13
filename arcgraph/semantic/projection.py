@@ -31,12 +31,11 @@ def gradual(annotation):
 
 
 def public_invocation(view, kind, key):
-    """External stub invocations keep a declaration relation in the ledger."""
+    """Proven external declarations keep their declaration ledger relation."""
     subject, target, _, _ = key
     return kind == "execution" or (
         kind == "declaration_dependency"
         and target.startswith("extsym:")
-        and view.defs[target].path.endswith(".pyi")
         and view.records[subject].kind == "callsite"
         and view.records[subject].execution_owner is not None
     )

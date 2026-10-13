@@ -387,23 +387,24 @@ class SemanticBuild:
             raw = materialize_owners(view, raw)
             known_nodes = {n.id: n for n in content.nodes}
             for target in view.external.definitions.values():
-                if not target.declaration_only or target.path.endswith(".pyi"):
-                    raw["nodes"].append(
-                        (
-                            known_nodes[target.id]
-                            if target.id in known_nodes
-                            else Node(
-                                id=target.id,
-                                kind="external_symbol",
-                                name=target.name,
-                                qualname=target.qualname,
-                                properties={
-                                    "source": "semantic_core",
-                                    "boundary": "external",
-                                },
-                            )
-                        ).model_dump(mode="json")
-                    )
+                # Registry definitions are proven external identities, including
+                # .py declarations; the projection retains their ledger relation.
+                raw["nodes"].append(
+                    (
+                        known_nodes[target.id]
+                        if target.id in known_nodes
+                        else Node(
+                            id=target.id,
+                            kind="external_symbol",
+                            name=target.name,
+                            qualname=target.qualname,
+                            properties={
+                                "source": "semantic_core",
+                                "boundary": "external",
+                            },
+                        )
+                    ).model_dump(mode="json")
+                )
             fallback = wrap_graph(
                 self.snapshot, self.root, fallback_producer, view, raw
             )

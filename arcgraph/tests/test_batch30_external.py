@@ -229,10 +229,22 @@ def test_factory_interface_stub_is_not_projected_as_the_runtime_implementation(
         if c["target"] == "extsym:example.Client.ping"
     ]
     assert candidates and all(c["semantics"] == "declaration" for c in candidates)
-    assert not any(
+    projection = load(generation_directory(directory) / "projection.json")
+    relations = [
+        row
+        for row in projection["edges"]
+        if row["key"][1] == "extsym:example.Client.ping"
+    ]
+    assert relations and all(
+        row["relation"] == "declaration_dependency" for row in relations
+    )
+    assert any(
         e.source == "fn:demo.f"
         and e.target == "extsym:example.Client.ping"
-        and any(x.kind == "type_inference" for x in e.evidence)
+        and any(
+            x.kind == "type_inference" and "declaration source" in (x.detail or "")
+            for x in e.evidence
+        )
         for e in GraphStoreReader.from_current(tmp_path / "out").read_edges()
     )
 
