@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 
+from arcgraph.analyzers.calls.constants import DEFINITION_TIME_CONTEXTS
 from arcgraph.core.ids import callsite_id, stable_callsite_subject
 from arcgraph.core.merge import EvidenceMergeEngine
 from arcgraph.core.schemas import CONFIDENCE_RANK, Edge, Evidence, FactResolution
@@ -63,6 +64,33 @@ def public_edges(edges):
     return result
 
 
+def retained_edge(edge, facts):
+    """Rebuild an aggregate from its remaining callsite supports."""
+    result = Edge.model_validate(edge).model_copy(deep=True)
+    representative = max(
+        facts, key=lambda f: CONFIDENCE_RANK.get(f.get("confidence"), 0)
+    )
+    result.properties.update(callsite=facts[0], callsites=facts)
+    result.confidence = representative.get("confidence", result.confidence)
+    result.resolution = FactResolution(
+        status=representative.get("resolution_status", "resolved"),
+        strategy=representative.get("resolution_strategy"),
+        candidate_count=representative.get("candidate_count"),
+        callsite_id=representative.get("callsite_id"),
+    )
+    locations = {(f.get("line"), f.get("column")) for f in facts}
+    result.evidence = [
+        e
+        for e in result.evidence
+        if e.start_line is None or (e.start_line, e.column) in locations
+    ]
+    confidences = {f.get("confidence") for f in facts}
+    result.confidence_sources = {
+        c: kinds for c, kinds in result.confidence_sources.items() if c in confidences
+    }
+    return result.model_dump(mode="json")
+
+
 def project_graph(view, raw, fallback, decisions, *, primary_producer):
     """Retain out-of-scope defaults; alter only exactly mapped callsite supports.
 
@@ -117,13 +145,7 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
             else:
                 removed.append({"edge": edge_key(edge), "fact": fact, "key": key})
         if kept:
-            copy = dict(edge)
-            if kept != (facts or [{}]):
-                copy["properties"] = {
-                    **copy.get("properties", {}),
-                    "callsite": kept[0],
-                    "callsites": kept,
-                }
+            copy = retained_edge(edge, kept) if kept != (facts or [{}]) else dict(edge)
             retained.append(copy)
     by_key = {
         edge_key(edge.model_dump(mode="json")): edge
@@ -208,7 +230,12 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
         )
         if confidence not in CONFIDENCE_RANK:
             confidence = "inferred"
-        kind = "constructs" if dispatch == "construct" else "calls"
+        context = original.get("context", phase)
+        kind = (
+            "initializes"
+            if context in DEFINITION_TIME_CONTEXTS
+            else "constructs" if dispatch == "construct" else "calls"
+        )
         fact = {
             "line": key[1],
             "column": key[2],
@@ -237,6 +264,11 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
             "stable_callsite_occurrence": occurrences[key],
         }
         graph_key = (source_id, target_id, kind, None)
+        if kind == "initializes":
+            # Initialization roles retain their existing public identity.
+            matching = [k for k in by_key if k[:3] == graph_key[:3]]
+            if len(matching) == 1:
+                graph_key = matching[0]
         evidence = Evidence(
             kind="type_inference",
             path=site.path,
@@ -250,6 +282,7 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
                 source=source_id,
                 target=target_id,
                 kind=kind,
+                semantic_role=graph_key[3],
                 confidence=confidence,
                 resolution=FactResolution(
                     status="resolved",
@@ -271,6 +304,8 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
                 old.get("confidence"), 0
             ):
                 facts[identity] = fact
+            else:
+                facts[identity] = {**old, "candidate_count": fact["candidate_count"]}
             values = list(facts.values())
             existing.properties.update(callsite=values[0], callsites=values)
             if CONFIDENCE_RANK[confidence] > CONFIDENCE_RANK[existing.confidence]:
@@ -286,6 +321,15 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
             existing.confidence_sources.setdefault(confidence, []).append(
                 "pyright_call_hierarchy"
             )
+            representative = next(
+                (
+                    f
+                    for f in values
+                    if f.get("callsite_id") == existing.resolution.callsite_id
+                ),
+                values[0],
+            )
+            existing.resolution.candidate_count = representative.get("candidate_count")
     return [
         edge.model_dump(mode="json")
         for _, edge in sorted(by_key.items(), key=lambda pair: str(pair[0]))

@@ -1225,6 +1225,7 @@ class FileScanner:
         self.exclude_rules: tuple[str, ...] = ()
         self.file_extensions = file_extensions or (".py",)
         self.warnings: list[BuildWarning] = []
+        self.capture_directory: Path | None = None
 
     def scan(self) -> list[FileRecord]:
         # Every consumer (build, sync, freshness and precision) uses the same
@@ -1427,12 +1428,17 @@ class FileScanner:
     ) -> FileRecord:
         require_decodable_path(path)
         content = path.read_bytes()
+        captured_path = path
+        if self.capture_directory is not None:
+            captured_path = self.capture_directory / path.relative_to(self.repo_root)
+            captured_path.parent.mkdir(parents=True, exist_ok=True)
+            captured_path.write_bytes(content)
         text = content.decode("utf-8", errors="replace")
         module = self._module_name(path, root_path, source_root)
 
         return FileRecord(
             path=path.relative_to(self.repo_root).as_posix(),
-            abs_path=str(path),
+            abs_path=str(captured_path),
             source_root=root_path.relative_to(self.repo_root).as_posix(),
             module=module,
             file_hash=hashlib.sha256(content).hexdigest(),

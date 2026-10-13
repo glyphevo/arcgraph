@@ -17,7 +17,10 @@ from arcgraph.core.operation_lock import arcgraph_operation_lock
 from arcgraph.adapters.common import AdapterRegistry
 from arcgraph.adapters.registry import default_adapter_registry
 from arcgraph.analyzers.coverage import CoverageCollector
-from arcgraph.analyzers.precise_references import PreciseReferenceAnalyzer
+from arcgraph.analyzers.precise_references import (
+    PreciseReferenceAnalyzer,
+    PreciseReferenceAnalysis,
+)
 from arcgraph.analyzers.runtime_trace import RuntimeTraceImporter
 from arcgraph.pipeline.frontends import (
     FrontendRegistry,
@@ -121,6 +124,7 @@ class ArcGraphIndexer:
         self.openapi_path = openapi_path
         self.pyright_export_path = pyright_export_path
         self.runtime_trace_path = runtime_trace_path
+        self.project_environment = project_environment
         self.coverage_path = coverage_path
         self.enable_v2_call_resolution = enable_v2_call_resolution
         self.last_cleanup_result: dict[str, Any] | None = None
@@ -162,8 +166,13 @@ class ArcGraphIndexer:
             return result
 
     def _build_inner(self) -> tuple[IndexMetadata, Path]:
+        from arcgraph.semantic.runtime import semantic_core_enabled
+
+        enabled = semantic_core_enabled(self.repo_root)
+        self.semantic_core = enabled
         commit_sha = current_commit(self.repo_root)
         index_version = make_index_version(commit_sha)
+        self.semantic_revision = index_version
         active_frontends = self._build_plan(index_version)
         scanner = FileScanner(
             self.repo_root,
@@ -171,8 +180,43 @@ class ArcGraphIndexer:
             self.ignore_rules,
             file_extensions=self._file_extensions_for(active_frontends),
         )
-        files = scanner.scan()
-        warnings = list(scanner.warnings)
+        semantic = None
+        frontend_roots = []
+        if enabled:
+            from arcgraph.semantic.build import SemanticBuild
+
+            semantic = SemanticBuild(self)
+            scanner.capture_directory = semantic.root
+        try:
+            files = scanner.scan()
+            if semantic is not None:
+                semantic.capture(files)
+                for frontend in active_frontends:
+                    if isinstance(frontend, PythonSemanticFrontend):
+                        frontend._semantic_context = semantic
+                    elif frontend.name == TYPESCRIPT_FRONTEND_NAME:
+                        frontend_roots.append((frontend, frontend._repo_root))
+                        frontend._repo_root = semantic.root
+            return self._build_captured(
+                commit_sha,
+                index_version,
+                files,
+                list(scanner.warnings),
+                active_frontends,
+                semantic,
+            )
+        finally:
+            if semantic is not None:
+                for frontend, root in frontend_roots:
+                    frontend._repo_root = root
+                for frontend in active_frontends:
+                    if isinstance(frontend, PythonSemanticFrontend):
+                        frontend._semantic_context = None
+                semantic.close()
+
+    def _build_captured(
+        self, commit_sha, index_version, files, warnings, active_frontends, semantic
+    ):
         content = self.analyze_files(
             files,
             warnings,
@@ -180,6 +224,12 @@ class ArcGraphIndexer:
             trace_commit_sha=commit_sha,
             trace_index_version=index_version,
         )
+        if semantic is not None:
+            semantic.apply(content)
+        else:
+            from arcgraph.semantic.runtime import semantic_core_status
+
+            content.toolchain_status["semantic_core"] = semantic_core_status("disabled")
 
         metadata = self._metadata_for(commit_sha, content, index_version=index_version)
         metadata.evidence_manifest = build_evidence_manifest(
@@ -245,7 +295,10 @@ class ArcGraphIndexer:
             coverage_metrics=content.coverage_metrics,
             runtime_metrics=content.runtime_metrics,
             phase_timings=content.phase_timings,
+            before_publish=semantic.publish if semantic is not None else None,
         )
+        if semantic is not None:
+            semantic.after_publish()
         return metadata, build_dir
 
     def analyze_files(
@@ -333,13 +386,18 @@ class ArcGraphIndexer:
 
         # --- Language-agnostic post-processing ---
         nodes = self.dedupe_nodes(nodes)
-        precise_analysis = PreciseReferenceAnalyzer(
-            self.repo_root,
-            self.scip_index_path,
-            pyright_export_path=self.pyright_export_path,
-            source_roots=tuple(root.path for root in self.source_roots),
-            package=self.repo_root.name,
-        ).analyze(nodes)
+        if getattr(self, "semantic_core", False):
+            precise_analysis = PreciseReferenceAnalysis(
+                metrics={"status": "unavailable"}
+            )
+        else:
+            precise_analysis = PreciseReferenceAnalyzer(
+                self.repo_root,
+                self.scip_index_path,
+                pyright_export_path=self.pyright_export_path,
+                source_roots=tuple(root.path for root in self.source_roots),
+                package=self.repo_root.name,
+            ).analyze(nodes)
         edges.extend(precise_analysis.edges)
         warnings.extend(precise_analysis.warnings)
 
@@ -492,7 +550,10 @@ class ArcGraphIndexer:
         metadata.extractor_metadata = content.extractor_metadata
         metadata.toolchain_status = content.toolchain_status
         metadata.capabilities["language_tiers"] = "available"
-        if any(key != "python_structure" for key in content.toolchain_status):
+        if any(
+            key not in ("python_structure", "semantic_core")
+            for key in content.toolchain_status
+        ):
             metadata.capabilities["external_toolchains"] = "available"
         self._update_precision_capability(metadata, content)
         self._update_coverage_capability(metadata, content)

@@ -389,7 +389,7 @@ def wrap_graph(
         if len(choices) == 1:
             by_node[n["id"]] = choices[0]["id"]
     for ei, edge in enumerate(raw["edges"]):
-        if edge["kind"] not in ("calls", "constructs", "dynamic_call"):
+        if edge["kind"] not in ("calls", "constructs", "dynamic_call", "initializes"):
             continue
         properties = edge.get("properties", {})
         facts = [properties.get("callsite", {}), *properties.get("callsites", [])]

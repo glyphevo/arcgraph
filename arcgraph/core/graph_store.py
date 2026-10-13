@@ -8,7 +8,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from arcgraph.core.fact_storage import fact_properties
 from arcgraph.core.storage_codec import (
@@ -109,6 +109,7 @@ class GraphStoreWriter:
         runtime_metrics: dict[str, Any] | None = None,
         phase_timings: dict[str, Any] | None = None,
         encoded_payloads: dict[str, bytes] | None = None,
+        before_publish: Callable[[Path], None] | None = None,
     ) -> Path:
         semantic_facts = list(semantic_facts or [])
         diagnostics = list(diagnostics or [])
@@ -159,6 +160,8 @@ class GraphStoreWriter:
                 runtime_metrics,
                 phase_timings,
             )
+            if before_publish is not None:
+                before_publish(build_dir)
             self._publish_current(metadata, build_dir)
             return build_dir
 
@@ -632,16 +635,25 @@ class GraphStoreWriter:
                 # source-cache table without changing the storage schema or
                 # any exported graph/metadata field.
                 actual = metadata.toolchain_status.get("python_structure")
-                state = structure_state(
-                    Path(metadata.repo_root),
-                    Path(explicit) if explicit else None,
-                    paths={
-                        f.path: Path(f.abs_path)
-                        for f in files
-                        if f.path.endswith(".py")
-                    },
-                    fallback=actual.get("reason") if isinstance(actual, dict) else None,
-                )
+                semantic = metadata.toolchain_status.get("semantic_core", {})
+                if semantic.get("status", "disabled") != "disabled":
+                    # Enabled sync does a full build; its semantic snapshot is
+                    # the source/structure cache identity. Do not parse a live
+                    # file again after capturing and analyzing the build input.
+                    state = json.dumps({"semantic_revision": metadata.index_version})
+                else:
+                    state = structure_state(
+                        Path(metadata.repo_root),
+                        Path(explicit) if explicit else None,
+                        paths={
+                            f.path: Path(f.abs_path)
+                            for f in files
+                            if f.path.endswith(".py")
+                        },
+                        fallback=(
+                            actual.get("reason") if isinstance(actual, dict) else None
+                        ),
+                    )
                 conn.execute(
                     "INSERT INTO python_sources VALUES (?, ?)",
                     (

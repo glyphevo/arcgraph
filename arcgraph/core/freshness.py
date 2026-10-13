@@ -25,6 +25,21 @@ def fresh() -> Freshness:
 def compute_freshness(store: GraphStoreReader) -> Freshness:
     try:
         repo_root = Path(str(store.metadata["repo_root"]))
+        from arcgraph.semantic.runtime import semantic_core_enabled
+
+        semantic = store.metadata.get("toolchain_status", {}).get("semantic_core", {})
+        if semantic_core_enabled(repo_root) != (
+            semantic.get("status", "disabled") != "disabled"
+        ):
+            return Freshness(
+                status="stale", stale=True, reason="semantic_core_configuration_changed"
+            )
+        if semantic.get("status") in ("active", "partial", "unavailable"):
+            from arcgraph.semantic.build import freshness_reason
+
+            reason = freshness_reason(store, repo_root)
+            if reason:
+                return Freshness(status="stale", stale=True, reason=reason)
         if dependency_environment_changed(store.metadata, repo_root):
             return Freshness(
                 status="stale", stale=True, reason="dependency_environment_changed"

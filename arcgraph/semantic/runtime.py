@@ -8,10 +8,45 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 from arcgraph.core.project_environment import project_environment_path
 from .install import VERSION, InstallError, validate_installation, validate_content
 from .lsp import Client, LspError
+
+
+def semantic_core_enabled(repo_root):
+    """Read the project switch; accept only TOML booleans."""
+    path = Path(repo_root) / "pyproject.toml"
+    if not path.exists():
+        return False
+    try:
+        config = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise ValueError(
+            f"Cannot read semantic_core configuration in {path}: {exc}"
+        ) from exc
+    tool = config.get("tool", {})
+    arcgraph = tool.get("arcgraph", {}) if isinstance(tool, dict) else {}
+    if not isinstance(arcgraph, dict):
+        raise ValueError("[tool.arcgraph] must be a TOML table")
+    value = arcgraph.get("semantic_core", False)
+    if type(value) is not bool:
+        raise ValueError(
+            "[tool.arcgraph] semantic_core must be a boolean: true or false"
+        )
+    return value
+
+
+def semantic_core_status(status, *, reason=None, node=None, fix=None):
+    """The approved summary fields, shared by build and sync."""
+    return {
+        "status": status,
+        "pyright_version": VERSION if status != "disabled" else None,
+        "node": node,
+        "reason": reason,
+        "fix": fix,
+    }
 
 
 def configuration(root, python_version, environment=None, *, source_roots=(".",)):

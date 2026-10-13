@@ -144,13 +144,71 @@ class ArcGraphReindexer:
             .get("dependency_environment", {})
         )
         explicit = environment.get("explicit_path")
+        from arcgraph.semantic.runtime import semantic_core_enabled
+
+        semantic_full = (
+            semantic_core_enabled(self.repo_root)
+            or store.metadata.get("toolchain_status", {})
+            .get("semantic_core", {})
+            .get("status", "disabled")
+            != "disabled"
+        )
+        saved_inputs = {}
+        if semantic_full:
+            from arcgraph.core.utils import symlink_below
+
+            input_path = store.sqlite_path.parent / "build-inputs.json"
+            if symlink_below(self.output_dir, input_path):
+                raise FullBuildRequired("Unsafe build inputs; rebuild required")
+            if input_path.is_file():
+                fields = (
+                    "scip_index_path",
+                    "scip_graph_index_path",
+                    "openapi_path",
+                    "pyright_export_path",
+                    "coverage_path",
+                    "runtime_trace_path",
+                )
+                saved_inputs = {
+                    k: self.repo_root / v
+                    for k, v in json.loads(
+                        input_path.read_text(encoding="utf-8")
+                    ).items()
+                    if k in fields and isinstance(v, str)
+                }
         indexer = ArcGraphIndexer(
             self.repo_root,
             self.output_dir,
             source_roots,
             enable_v2_call_resolution=enable_v2_call_resolution,
             project_environment=Path(explicit) if explicit else None,
+            **saved_inputs,
         )
+        if semantic_full:
+            inputs = {
+                "scip_index_path": ("precision_metrics", "scip_index_path"),
+                "pyright_export_path": ("precision_metrics", "pyright_export_path"),
+                "coverage_path": ("coverage_metrics", "path"),
+                "runtime_trace_path": ("runtime_metrics", "trace_path"),
+            }
+            for field, (metrics, key) in inputs.items():
+                path = (store.metadata.get(metrics) or {}).get(key)
+                if field not in saved_inputs and isinstance(path, str) and path:
+                    setattr(indexer, field, self.repo_root / path)
+            metadata, build_dir = indexer._build_inner()
+            return {
+                "schema_version": metadata.schema_version,
+                "status": "reindexed",
+                "index_version": metadata.index_version,
+                "build_dir": str(build_dir),
+                "changed": self._delta(
+                    store.read_files(),
+                    GraphStoreReader.from_build(
+                        self.output_dir, metadata.index_version
+                    ).read_files(),
+                ),
+                "reason": "semantic_core_full_build",
+            }
         parser_changed = store.metadata.get("extractor_metadata", {}).get(
             "python-v1-compat-shim"
         ) and store.python_source("") != structure_state(
@@ -588,7 +646,10 @@ class ArcGraphReindexer:
             metadata.capabilities["precise_references"] = "available"
         if metadata.language_tiers:
             metadata.capabilities["language_tiers"] = "available"
-        if any(key != "python_structure" for key in metadata.toolchain_status):
+        if any(
+            key not in ("python_structure", "semantic_core")
+            for key in metadata.toolchain_status
+        ):
             metadata.capabilities["external_toolchains"] = "available"
         ArcGraphIndexer._update_precision_capability(metadata, content)
         ArcGraphIndexer._update_coverage_capability(metadata, content)

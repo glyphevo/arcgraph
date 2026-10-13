@@ -17,7 +17,10 @@ from arcgraph.adapters.common import AdapterRegistry
 from arcgraph.adapters.pytest_adapter import PytestAdapter
 from arcgraph.adapters.pytest_types import PytestTypeAnalyzer
 from arcgraph.analyzers.bindings import BindingAnalyzer
-from arcgraph.core.project_environment import ProjectEnvironment
+from arcgraph.core.project_environment import (
+    ProjectEnvironment,
+    project_environment_path,
+)
 from arcgraph.core.structure import StructureView
 from arcgraph.analyzers.calls import CallAnalyzer
 from arcgraph.analyzers.imports import ImportAnalyzer
@@ -59,6 +62,7 @@ class PythonGraphAnalyzer:
         self.adapter_registry = adapter_registry
         self.repo_root = repo_root
         self.project_environment = project_environment
+        self.semantic_context = None
 
     def analyze(
         self,
@@ -100,11 +104,22 @@ class PythonGraphAnalyzer:
         # --- Phase 1: Parse ---
         t0 = time.monotonic()
         parsed_files: dict[str, ast.Module] = {}
-        self._structure = StructureView(self.repo_root, self.project_environment)
+        if self.semantic_context is None:
+            self._structure = StructureView(self.repo_root, self.project_environment)
         if parsed_files_override is None:
-            parsed_files, notices = self._structure.read(
-                {f.path: Path(f.abs_path) for f in files}
-            )
+            paths = {f.path: Path(f.abs_path) for f in files}
+            if self.semantic_context is None:
+                parsed_files, notices = self._structure.read(paths)
+            else:
+                from arcgraph.semantic.structure_provider import project_read
+
+                self.semantic_context.before_parse()
+                parsed_files, notices, hosted = project_read(
+                    self.semantic_context.parser, paths, continue_project=False
+                )
+                self.semantic_context.structure_from_trees(
+                    parsed_files, notices, hosted
+                )
             warnings.extend(notices)
         for file_record in files:
             if parsed_files_override is not None:
@@ -126,7 +141,18 @@ class PythonGraphAnalyzer:
         symbol_analyzer = SymbolAnalyzer()
         binding_analyzer = BindingAnalyzer()
         type_ref_analyzer = TypeRefAnalyzer()
-        environment = ProjectEnvironment(self.repo_root, self.project_environment)
+        dependency_environment = self.project_environment
+        if (
+            self.semantic_context is not None
+            and self.semantic_context.snapshot is not None
+        ):
+            dependency_environment = self.semantic_context.directory / "environment"
+        environment = ProjectEnvironment(self.repo_root, dependency_environment)
+        if self.semantic_context is not None:
+            selected = project_environment_path(
+                self.repo_root, self.project_environment
+            )
+            environment.metadata["path"] = str(selected) if selected else None
         if self.project_environment is not None:
             environment.metadata["explicit_path"] = str(
                 self.project_environment.resolve()
@@ -260,6 +286,10 @@ class PythonGraphAnalyzer:
         edges = self._dedupe_edges(edges)
         phase_timings["finalize"] = time.monotonic() - t0
         phase_timings["total"] = sum(phase_timings.values())
+        if self.semantic_context is None:
+            structure_status = self._structure.status()
+        else:
+            structure_status = self.semantic_context.parser.status()
 
         return FrontendGraphFragment(
             nodes=nodes,
@@ -270,7 +300,7 @@ class PythonGraphAnalyzer:
             parsed_files=parsed_files,
             phase_timings=phase_timings,
             extractor_metadata={"dependency_environment": environment.metadata},
-            toolchain_status={"python_structure": self._structure.status()},
+            toolchain_status={"python_structure": structure_status},
         )
 
     def _nominal_guard_trees(
@@ -291,9 +321,11 @@ class PythonGraphAnalyzer:
             if node.kind == "class" and node.path and node.path not in trees
         }
         if paths:
-            extra, _ = self._structure.read(
-                {path: self.repo_root / path for path in sorted(paths)}
-            )
+            source_paths = {path: self.repo_root / path for path in sorted(paths)}
+            if self.semantic_context is None:
+                extra, _ = self._structure.read(source_paths)
+            else:
+                extra, _ = self.semantic_context.parser.read(source_paths)
             trees.update(extra)
         return trees
 

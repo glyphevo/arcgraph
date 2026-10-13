@@ -200,6 +200,7 @@ class PythonSemanticFrontend(LanguageFrontend):
             repo_root=self._repo_root,
             project_environment=self._project_environment,
         )
+        analyzer.semantic_context = getattr(self, "_semantic_context", None)
         return analyzer.analyze(
             files,
             warnings=warnings,

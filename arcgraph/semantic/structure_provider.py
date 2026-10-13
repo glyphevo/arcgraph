@@ -296,7 +296,15 @@ def project_read(parser, paths, *, continue_project):
 
 
 def analyze(
-    snapshot, root, *, structure_view=None, environment=None, access_facts=True
+    snapshot,
+    root,
+    *,
+    structure_view=None,
+    environment=None,
+    access_facts=True,
+    parsed_files=None,
+    hosted_paths=(),
+    parse_notices=(),
 ):
     """Convert D2's ASTs, releasing each block; never start a second parser."""
     import ast
@@ -353,11 +361,18 @@ def analyze(
             != status["interpreter"]
         ):
             raise ValueError("interpreter_identity_mismatch")
-        trees, notices, hosted = project_read(
-            parser,
-            {f.path: root / f.path for f in block},
-            continue_project=continue_project,
-        )
+        if parsed_files is None:
+            trees, notices, hosted = project_read(
+                parser,
+                {f.path: root / f.path for f in block},
+                continue_project=continue_project,
+            )
+        else:
+            trees = {
+                f.path: parsed_files[f.path] for f in block if f.path in parsed_files
+            }
+            notices = parse_notices
+            hosted = set(hosted_paths) & {f.path for f in block}
         hosted_files.update(hosted)
         errors = {w.path: w.message for w in notices}
         for file in block:
