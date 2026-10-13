@@ -365,6 +365,7 @@ def definition(row, item, unit):
     typing_only = typing_only_nodes(tree)
     choices = []
     groups = {}
+    class_bodies = set()
 
     def visit(body, parents=(), declaration=False):
         for node in body:
@@ -392,6 +393,7 @@ def definition(row, item, unit):
                     ):
                         choices.append(choice)
                 if isinstance(node, ast.ClassDef):
+                    class_bodies.add(id(node.body))
                     protocol = any(
                         ast.unparse(b).split("[")[0].split(".")[-1] == "Protocol"
                         for b in node.bases
@@ -412,9 +414,21 @@ def definition(row, item, unit):
             for choice, _ in group
             if id(choice[0]) not in typing_only
             and not any(d.split(".")[-1] == "overload" for d in choice[3])
+            and stub_body(choice[0]) not in ("empty", "not_implemented")
         ]
         if len(runtime) == 1:
-            # A selection on a typing declaration still names this runtime body.
+            implementation = runtime[0][0]
+            body = next(scope for choice, scope in group if choice[0] is implementation)
+            if id(body) in class_bodies and any(
+                scope is body
+                and choice[0].lineno > implementation.lineno
+                and id(choice[0]) not in typing_only
+                for choice, scope in group
+            ):
+                # A later class assignment overwrites even a concrete body.
+                # Filtering placeholders must not resurrect that earlier body.
+                return None
+            # A selection on a declaration or placeholder names the unique body.
             node, span, qualname, decorators, abstract = runtime[0]
             line = row["text"].splitlines()[node.lineno - 1].encode()
             column = line.index(node.name.encode(), node.col_offset)
