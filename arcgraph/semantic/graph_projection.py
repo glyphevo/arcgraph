@@ -101,6 +101,8 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer, primary=N
     nodes = {n["id"]: n for n in raw["nodes"]}
     graph_symbols = defaultdict(list)
     for node in nodes.values():
+        if node["kind"] not in ("function", "method", "class"):
+            continue
         graph_symbols[
             (node.get("path"), node.get("qualname"), node.get("start_line"))
         ].append(node["id"])

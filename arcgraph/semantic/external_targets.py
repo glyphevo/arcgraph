@@ -264,7 +264,7 @@ def overridden_stubs(tree, module):
                     )
                 ):
                     continue
-                if stub_body(base) == "not_implemented":
+                if stub_body(base) in ("empty", "not_implemented"):
                     declarations.add(parent + "." + method)
     return declarations
 
@@ -364,19 +364,22 @@ def definition(row, item, unit):
 
     typing_only = typing_only_nodes(tree)
     choices = []
-    names = []
     groups = {}
 
     def visit(body, parents=(), declaration=False):
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 qualified = ".".join((row["module"], *parents, node.name))
-                names.append(qualified)
-                groups.setdefault(qualified, []).append((node, body))
                 span = Span(
                     start=(node.lineno - 1, node.col_offset),
                     end=(node.end_lineno - 1, node.end_col_offset),
                 )
+                decorators = tuple(ast.unparse(d) for d in node.decorator_list)
+                abstract = declaration or any(
+                    d.split(".")[-1] == "abstractmethod" for d in decorators
+                )
+                choice = (node, span, qualified, decorators, abstract)
+                groups.setdefault(qualified, []).append((choice, body))
                 if (
                     node.name == item["name"]
                     and span.start <= selection.start < selection.end <= span.end
@@ -387,19 +390,7 @@ def definition(row, item, unit):
                         and line[selection.start[1] : selection.end[1]].decode()
                         == node.name
                     ):
-                        decorators = tuple(ast.unparse(d) for d in node.decorator_list)
-                        abstract = declaration or any(
-                            d.split(".")[-1] == "abstractmethod" for d in decorators
-                        )
-                        choices.append(
-                            (
-                                node,
-                                span,
-                                ".".join((row["module"], *parents, node.name)),
-                                decorators,
-                                abstract,
-                            )
-                        )
+                        choices.append(choice)
                 if isinstance(node, ast.ClassDef):
                     protocol = any(
                         ast.unparse(b).split("[")[0].split(".")[-1] == "Protocol"
@@ -414,6 +405,40 @@ def definition(row, item, unit):
     if len(choices) != 1:
         return None
     node, span, qualname, decorators, abstract = choices[0]
+    group = groups[qualname]
+    if len(group) > 1:
+        runtime = [
+            choice
+            for choice, _ in group
+            if id(choice[0]) not in typing_only
+            and not any(d.split(".")[-1] == "overload" for d in choice[3])
+        ]
+        if len(runtime) == 1:
+            # A selection on a typing declaration still names this runtime body.
+            node, span, qualname, decorators, abstract = runtime[0]
+            line = row["text"].splitlines()[node.lineno - 1].encode()
+            column = line.index(node.name.encode(), node.col_offset)
+            selection = Span(
+                start=(node.lineno - 1, column),
+                end=(node.lineno - 1, column + len(node.name.encode())),
+            )
+        elif runtime:
+            return None
+        else:
+            # Pure stub overloads retain the existing same-scope proof. Branch
+            # alternatives and repeated runtime bodies remain ambiguous.
+            body = group[0][1]
+            positions = [body.index(c[0]) for c, scope in group if scope is body]
+            if not (
+                len(positions) == len(group)
+                and positions == list(range(positions[0], positions[0] + len(group)))
+                and all(
+                    isinstance(c[0], (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and any(d.split(".")[-1] == "overload" for d in c[3])
+                    for c, _ in group
+                )
+            ):
+                return None
     value = {
         "id": "extsym:" + qualname,
         "path": row["origin"] + "/" + row["relative"],
@@ -426,32 +451,18 @@ def definition(row, item, unit):
         "decorators": decorators,
         "declaration_only": row["relative"].endswith(".pyi")
         or abstract
+        or any(d.split(".")[-1] == "overload" for d in decorators)
         or id(node) in typing_only
         or qualname in overridden_stubs(tree, row["module"]),
     }
-    if not value["declaration_only"] and stub_body(node) == "not_implemented":
+    if not value["declaration_only"] and stub_body(node) in (
+        "empty",
+        "not_implemented",
+    ):
         # A placeholder body is not evidence of the actual external dispatch.
         # Keep it unknown unless the established override rule proves a
         # declaration; do not guess which unseen subclass supplies the body.
         return None
-    if names.count(qualname) != 1:
-        group = groups[qualname]
-        body = group[0][1]
-        positions = [body.index(n) for n, scope in group if scope is body]
-        if not (
-            value["declaration_only"]
-            and len(positions) == len(group)
-            and positions == list(range(positions[0], positions[0] + len(group)))
-            and all(
-                isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and any(
-                    ast.unparse(d).split(".")[-1] == "overload"
-                    for d in n.decorator_list
-                )
-                for n, _ in group
-            )
-        ):
-            return None
     return value
 
 

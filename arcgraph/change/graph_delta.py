@@ -24,7 +24,6 @@ from arcgraph.change.contracts import (
 )
 from arcgraph.change.errors import GraphDeltaIncomplete, StableIdentityCollision
 from arcgraph.change.identities import (
-    anonymous_owner_profile,
     build_projection_profile,
     assert_current_build_matches_code,
     diagnostic_lifecycle_projection,
@@ -1026,7 +1025,7 @@ def _node_semantic_projection(
         for key, value in properties.items()
         if key not in ("scope_body_positions", "line_count")
     }
-    if anonymous_owner_profile(node) is not None:
+    if isinstance(properties.get("callsites"), list):
         properties = {
             **properties,
             "callsites": [

@@ -146,3 +146,29 @@ def test_repeated_anonymous_expressions_report_blocking_ambiguity(prepared, tmp_
     assert any(
         "ambiguous" in row["reason"] and row["blocking"] for row in delta.unknowns
     )
+
+
+def test_named_and_anonymous_calls_line_move_is_only_location(prepared, tmp_path):
+    project, _, _, _ = prepared
+    path = project / "demo.py"
+    source = (
+        "def target(): return 1\n"
+        "def named():\n    return target()\n"
+        "def anonymous():\n    return lambda: target()\n"
+    )
+    path.write_text(source, encoding="utf-8")
+    (project / "pyproject.toml").write_text(
+        "[tool.arcgraph]\nsemantic_core = true\n", encoding="utf-8"
+    )
+    output = tmp_path / "out"
+    metadata, _ = ArcGraphIndexer(project, output).build()
+    assert metadata.toolchain_status["semantic_core"]["status"] == "active"
+    baseline = capture_build_identity(project, output, repo_id="repo")
+    path.write_text("\n\n" + source, encoding="utf-8")
+    ArcGraphIndexer(project, output).build()
+    current = capture_build_identity(project, output, repo_id="repo")
+    delta = compare(output, baseline, current)
+    assert delta.semantic_changes == []
+    assert delta.identity_changes == []
+    assert delta.unknowns == []
+    assert delta.location_changes and delta.evidence_location_changes
