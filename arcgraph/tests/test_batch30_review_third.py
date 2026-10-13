@@ -1,6 +1,7 @@
 """Review D: proven .py declarations merge support without becoming execution."""
 
-import json
+from arcgraph.semantic.journal import load
+
 
 import pytest
 
@@ -50,7 +51,7 @@ def test_real_py_declaration_support_merges_into_public_edge(
     generation = generation_directory(directory)
 
     def read(name):
-        return json.loads((generation / name).read_text(encoding="utf-8"))
+        return load(generation / name)
 
     target = f"extsym:{module}.Client.ping"
     primary = read("pyright.json")

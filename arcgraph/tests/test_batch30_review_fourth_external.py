@@ -1,7 +1,8 @@
 """Review E: placeholder siblings must not hide a proved implementation."""
 
+from arcgraph.semantic.journal import load
+
 import ast
-import json
 
 import pytest
 
@@ -89,7 +90,7 @@ def test_real_placeholder_siblings_gain_execution_support(prepared, tmp_path):
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
     generation = generation_directory(directory)
-    primary = json.loads((generation / "pyright.json").read_text(encoding="utf-8"))
+    primary = load(generation / "pyright.json")
     edges = list(GraphStoreReader.from_current(output).read_edges())
     assert primary["raw_count"] == len(primary["mapping"])
     for name in ("VersionEmpty", "Shadow", "OnlyReal"):

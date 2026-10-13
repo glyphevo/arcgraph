@@ -1,7 +1,8 @@
 """Class-scope bindings must not prove an overwritten external method."""
 
+from arcgraph.semantic.journal import load
+
 import ast
-import json
 from textwrap import indent
 
 import pytest
@@ -164,10 +165,8 @@ def test_real_class_bindings_withdraw_execution_without_redirecting(prepared, tm
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
     generation = generation_directory(directory)
-    primary = json.loads((generation / "pyright.json").read_text(encoding="utf-8"))
-    projection = json.loads(
-        (generation / "projection.json").read_text(encoding="utf-8")
-    )
+    primary = load(generation / "pyright.json")
+    projection = load(generation / "projection.json")
     edges = list(GraphStoreReader.from_current(output).read_edges())
     for name, (_, before) in classes.items():
         target = f"extsym:example.{name}.ping"

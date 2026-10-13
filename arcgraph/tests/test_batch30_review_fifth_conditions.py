@@ -1,7 +1,8 @@
 """Target-conditioned external definitions must match the frozen snapshot."""
 
+from arcgraph.semantic.journal import load
+
 import ast
-import json
 from pathlib import Path
 import subprocess
 import shutil
@@ -158,7 +159,7 @@ def test_real_build_selects_the_correct_str_replace_overloads(
         metadata.toolchain_status["semantic_core"]["status"] == "active"
     ), metadata.toolchain_status["semantic_core"]
     generation = generation_directory(directory)
-    primary = json.loads((generation / "pyright.json").read_text(encoding="utf-8"))
+    primary = load(generation / "pyright.json")
     assert primary["snapshot"]["target_python"] == version
     edges = list(GraphStoreReader.from_current(output).read_edges())
     for name, target in (
@@ -177,9 +178,7 @@ def test_real_build_selects_the_correct_str_replace_overloads(
         }
     assert proved
     definition = proved[0]
-    captures = json.loads(
-        (generation / "external-targets.json").read_text(encoding="utf-8")
-    )
+    captures = load(generation / "external-targets.json")
     text = next(
         r["text"] for r in captures.values() if r["relative"] == "stdlib/builtins.pyi"
     )

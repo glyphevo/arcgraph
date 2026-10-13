@@ -27,7 +27,7 @@ from .frozen import (
     verify_interpreter,
 )
 from .graph_projection import project_graph, public_edges
-from .journal import JournalReplay, dump, load, write_structure
+from .journal import JournalReplay, compact_generation, dump, load, write_structure
 from .projection import project
 from .runtime import configuration, semantic_core_status
 from .snapshot import canonical, native_position, sha, verify
@@ -38,6 +38,7 @@ from .artifact_inputs import FrozenInputs
 
 PROFILE = "semantic-core/1"
 LEGACY_PROFILE = "legacy/1"
+STORAGE = "semantic-generation/gzip-blobs/2"
 FIX = "Run arcgraph setup semantic; install Node.js 14 or newer; check the project Python environment."
 
 
@@ -88,6 +89,8 @@ def freshness_reason(store, root):
             manifest = json.loads(
                 (directory / "manifest.json").read_text(encoding="utf-8")
             )
+            if manifest.get("storage_format") != STORAGE:
+                return "semantic_generation_storage_unsupported: rebuild required"
             if (
                 not manifest.get("complete")
                 or manifest.get("revision") != store.metadata["index_version"]
@@ -471,11 +474,15 @@ class SemanticBuild:
                 dump(decisions, self.generation / "projection.json")
                 dump(bridge, self.generation / "bridge.json")
                 dump(mapping, self.generation / "mapping.json")
+            with self._phase("generation_storage"):
+                compact_generation(self.generation, self.snapshot, self.root)
+            with self._phase("generation_manifest"):
                 dump(
                     {
                         "revision": self.indexer.semantic_revision,
                         "snapshot": self.snapshot.id,
                         "projection_profile": PROFILE,
+                        "storage_format": STORAGE,
                         "complete": True,
                         "artifacts": {
                             p.name: sha(p.read_bytes())

@@ -1,6 +1,7 @@
 """Class writes and deletes invalidate an earlier external method proof."""
 
-import json
+from arcgraph.semantic.journal import load
+
 
 import pytest
 
@@ -75,9 +76,7 @@ def test_real_overwritten_methods_keep_only_analyzer_evidence(prepared, tmp_path
     output = tmp_path / "out"
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
-    primary = json.loads(
-        (generation_directory(directory) / "pyright.json").read_text(encoding="utf-8")
-    )
+    primary = load(generation_directory(directory) / "pyright.json")
     edges = list(GraphStoreReader.from_current(output).read_edges())
     for i, name in enumerate(classes):
         target = f"extsym:example.{name}.ping"

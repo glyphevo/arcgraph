@@ -1,6 +1,7 @@
 """Real typeshed public calls, conservative overloads, and mandatory CI fixtures."""
 
-import json
+from arcgraph.semantic.journal import load
+
 from pathlib import Path
 
 import pytest
@@ -67,9 +68,7 @@ def test_real_typeshed_declarations_align_to_public_identity(prepared, tmp_path)
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
     reader = GraphStoreReader.from_current(output)
-    primary = json.loads(
-        (generation_directory(directory) / "pyright.json").read_text(encoding="utf-8")
-    )
+    primary = load(generation_directory(directory) / "pyright.json")
     mapped = {row["target"] for row in primary["mapping"] if row["stage"] == "mapped"}
     targets = {
         "extsym:builtins.dict.get",
@@ -236,9 +235,7 @@ def test_unproved_reexport_keeps_analyzer_fallback_without_semantic_claim(
     output = tmp_path / "out"
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
-    primary = json.loads(
-        (generation_directory(directory) / "pyright.json").read_text(encoding="utf-8")
-    )
+    primary = load(generation_directory(directory) / "pyright.json")
     assert not any(
         row.get("target", "") and "Mapping." in row["target"]
         for row in primary["mapping"]

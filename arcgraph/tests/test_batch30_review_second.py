@@ -1,7 +1,8 @@
 """Review C: external runtime definitions and conservative placeholder mapping."""
 
+from arcgraph.semantic.journal import load
+
 import ast
-import json
 
 import pytest
 
@@ -103,9 +104,7 @@ def test_external_runtime_groups_and_placeholders_keep_mapping_accounts(
     output = tmp_path / "out"
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
-    primary = json.loads(
-        (generation_directory(directory) / "pyright.json").read_text(encoding="utf-8")
-    )
+    primary = load(generation_directory(directory) / "pyright.json")
     assert primary["raw_count"] == len(primary["mapping"])
     edges = list(GraphStoreReader.from_current(output).read_edges())
     for name in ("Overload", "Split", "Both"):
@@ -152,17 +151,13 @@ def test_testcase_overlay_does_not_hide_function_execution_owner(prepared, tmp_p
     reader = GraphStoreReader.from_current(output)
     owners = [n for n in reader.read_nodes() if n.qualname == "test_demo.test_lookup"]
     assert {n.kind for n in owners} == {"function", "test_case"}
-    primary = json.loads(
-        (generation_directory(directory) / "pyright.json").read_text(encoding="utf-8")
-    )
+    primary = load(generation_directory(directory) / "pyright.json")
     assert any(
         c["target"] == "extsym:builtins.dict.get" and c["semantics"] == "implementation"
         for a in primary["answers"]
         for c in a["candidates"]
     )
-    bridge = json.loads(
-        (generation_directory(directory) / "bridge.json").read_text(encoding="utf-8")
-    )
+    bridge = load(generation_directory(directory) / "bridge.json")
     assert bridge["graph_losses"] == []
     assert any(
         e.source == "fn:test_demo.test_lookup"

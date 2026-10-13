@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Any
 from pydantic import PrivateAttr
 
-from .journal import intern_keys
+from .journal import intern_keys, open_artifact
 from .structure_provider import StructuralGeneration, StructuralRecord
 from .contract import digest
 
@@ -22,7 +22,7 @@ class DiskRecords(Sequence):
         # Project from a private copy; replacement of the source journal cannot
         # alter the records between validation and projection.
         handle = tempfile.TemporaryFile(mode="w+b")
-        with path.open("rb") as source:
+        with open_artifact(path, "rb") as source:
             shutil.copyfileobj(source, handle)
         handle.seek(0)
         checksum = hashlib.sha256()
@@ -57,7 +57,7 @@ class DiskRecords(Sequence):
 
     def byte_digest(self):
         checksum = hashlib.sha256()
-        with self.path.open("rb") as handle:
+        with open_artifact(self.path, "rb") as handle:
             for block in iter(lambda: handle.read(1048576), b""):
                 checksum.update(block)
         value = checksum.hexdigest()

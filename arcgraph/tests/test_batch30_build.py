@@ -24,6 +24,89 @@ def configure(root, value="true"):
     path.write_text(source, encoding="utf-8")
 
 
+def test_compact_storage_replays_exact_frozen_bytes_after_working_tree_changes(
+    prepared, tmp_path
+):
+    from arcgraph.semantic.journal import load, replay_sources
+
+    project, _, _, _ = prepared
+    configure(project)
+    raw = b"\xef\xbb\xbfdef target(): return 7\r\ndef g(): return target()\r\n"
+    (project / "demo.py").write_bytes(raw)
+    duplicate = b"def helper(): return 1\n"
+    for name in ("one.py", "two.py"):
+        (project / name).write_bytes(duplicate)
+    _, directory = ArcGraphIndexer(project, tmp_path / "out").build()
+    generation = generation_directory(directory)
+    assert load(generation / "manifest.json")["storage_format"] == (
+        "semantic-generation/gzip-blobs/2"
+    )
+    assert not (generation / "lsp.jsonl").exists()
+    for name in ("responses.jsonl", "structure.jsonl", "pyright.json", "fallback.json"):
+        assert (generation / name).read_bytes()[:2] == b"\x1f\x8b"
+    (project / "demo.py").write_bytes(b"def different(): return 9\n")
+    restored = tmp_path / "restored"
+    replay_sources(generation, restored)
+    assert (restored / "demo.py").read_bytes() == raw
+    assert (restored / "one.py").read_bytes() == duplicate
+    assert (restored / "two.py").read_bytes() == duplicate
+    expected = load(generation / "pyright.json")
+    assert expected["complete"] is True
+    from arcgraph.semantic.anchors import View
+    from arcgraph.semantic.backends import pyright_records
+    from arcgraph.semantic.contract import Producer
+    from arcgraph.semantic.disk_structure import read
+    from arcgraph.semantic.external_targets import Registry
+    from arcgraph.semantic.journal import JournalReplay
+
+    view = View(read(generation / "structure.jsonl"))
+    transport = load(generation / "transport.json")
+    view.external = Registry(
+        load(generation / "external-targets.json"),
+        transport["external_capture"],
+        snapshot=view.bundle.snapshot,
+    )
+    replay = JournalReplay(
+        generation / "responses.jsonl", view.bundle.snapshot.id, root=restored
+    )
+    error = None
+    try:
+        actual, _ = pyright_records(
+            view.bundle.snapshot,
+            restored,
+            Producer.model_validate(expected["producer"]),
+            view,
+            replay,
+        )
+        replay.close()
+    except (ValueError, RuntimeError, EOFError) as exc:
+        error = str(exc)
+    assert error is None, error
+    assert actual.model_dump(mode="json") == expected
+
+
+def test_old_semantic_storage_is_refused_as_fresh_but_remains_auditable(
+    prepared, tmp_path
+):
+    from arcgraph.semantic.build import freshness_reason
+    from arcgraph.semantic.journal import load, dump
+
+    project, _, _, _ = prepared
+    configure(project)
+    (project / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")
+    output = tmp_path / "out"
+    _, directory = ArcGraphIndexer(project, output).build()
+    generation = generation_directory(directory)
+    manifest = load(generation / "manifest.json")
+    manifest.pop("storage_format", None)
+    dump(manifest, generation / "manifest.json")
+    reader = GraphStoreReader.from_current(output)
+    assert freshness_reason(reader, project) == (
+        "semantic_generation_storage_unsupported: rebuild required"
+    )
+    assert load(generation / "pyright.json")["complete"] is True
+
+
 def test_semantic_timing_accounts_for_mapping_bridge_and_writing(
     prepared, tmp_path, monkeypatch
 ):
