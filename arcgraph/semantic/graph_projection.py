@@ -3,6 +3,7 @@
 from collections import defaultdict
 
 from arcgraph.core.ids import callsite_id, stable_callsite_subject
+from arcgraph.core.merge import EvidenceMergeEngine
 from arcgraph.core.schemas import CONFIDENCE_RANK, Edge, Evidence, FactResolution
 from .contract import digest
 
@@ -27,6 +28,39 @@ def call_facts(edge):
             if f
         }.values()
     )
+
+
+def public_call_identity(edge):
+    """Normalize only calls; preserve the producer's role as provenance."""
+    if edge.kind != "calls" or edge.semantic_role is None:
+        return edge
+    normalized = edge.model_copy(deep=True)
+    provenance = dict(normalized.properties.get("provenance", {}))
+    provenance["semantic_roles"] = sorted(
+        set(provenance.get("semantic_roles", [])) | {edge.semantic_role}
+    )
+    normalized.properties["provenance"] = provenance
+    normalized.semantic_role = None
+    return normalized
+
+
+def public_edges(edges):
+    """Combine supports after normalization, including their original roles."""
+    normalized = [public_call_identity(edge) for edge in edges]
+    roles = defaultdict(set)
+    for edge in normalized:
+        roles[edge_key(edge.model_dump(mode="json"))].update(
+            edge.properties.get("provenance", {}).get("semantic_roles", [])
+        )
+    result = EvidenceMergeEngine.dedupe_edges(normalized)
+    for edge in result:
+        original_roles = roles[edge_key(edge.model_dump(mode="json"))]
+        if original_roles:
+            edge.properties["provenance"] = {
+                **edge.properties.get("provenance", {}),
+                "semantic_roles": sorted(original_roles),
+            }
+    return result
 
 
 def project_graph(view, raw, fallback, decisions, *, primary_producer):
@@ -91,7 +125,10 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
                     "callsites": kept,
                 }
             retained.append(copy)
-    by_key = {edge_key(edge): Edge.model_validate(edge) for edge in retained}
+    by_key = {
+        edge_key(edge.model_dump(mode="json")): edge
+        for edge in public_edges([Edge.model_validate(edge) for edge in retained])
+    }
     node_facts = {}
     occurrences = {}
     for node in nodes.values():
