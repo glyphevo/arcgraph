@@ -17,6 +17,40 @@ from arcgraph.core.schemas import (
 )
 
 
+def test_semantic_external_conflict_survives_stronger_aggregate_support():
+    import inspect
+
+    conflict = Edge(
+        source="fn:demo.run",
+        target="extsym:external.call",
+        kind="uses",
+        confidence="inferred",
+        resolution=FactResolution(
+            status="conflict",
+            detail="Unverified analyzer external target: target lacks semantic support",
+        ),
+    )
+    stronger = conflict.model_copy(deep=True)
+    stronger.confidence = "confirmed"
+    stronger.resolution = FactResolution(status="resolved", detail="another support")
+    default = EvidenceMergeEngine.dedupe_edges([conflict, stronger])
+    assert default[0].resolution.status == "resolved"
+    kwargs = {}
+    if (
+        "preserve_semantic_conflicts"
+        in inspect.signature(EvidenceMergeEngine.dedupe_edges).parameters
+    ):
+        kwargs["preserve_semantic_conflicts"] = True
+    merged = EvidenceMergeEngine.dedupe_edges([conflict, stronger], **kwargs)
+    assert merged[0].resolution.status == "conflict"
+    assert merged[0].confidence == "confirmed"
+    assert "Unverified analyzer external target:" in merged[0].resolution.detail
+    assert (
+        conflict.confidence == "inferred" and conflict.resolution.status == "conflict"
+    )
+    assert stronger.resolution.status == "resolved"
+
+
 def test_merge_engine_emits_artifacts_and_conflict_diagnostics(
     tmp_path: Path,
 ) -> None:

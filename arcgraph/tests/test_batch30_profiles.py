@@ -71,6 +71,31 @@ def test_anonymous_stable_identity_does_not_include_the_definition_line():
     assert old["stability_profile"] == new["stability_profile"]
 
 
+def test_enabled_projection_versions_require_rebuilt_change_baselines(
+    prepared, tmp_path, monkeypatch
+):
+    from arcgraph.semantic import build
+
+    project, _, _, _ = prepared
+    (project / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")
+    (project / "pyproject.toml").write_text(
+        "[tool.arcgraph]\nsemantic_core = true\n", encoding="utf-8"
+    )
+    output = tmp_path / "out"
+    with monkeypatch.context() as old_profile:
+        old_profile.setattr(build, "PROFILE", "semantic-core/1")
+        ArcGraphIndexer(project, output).build()
+        baseline = capture_build_identity(project, output, repo_id="repo")
+    ArcGraphIndexer(project, output).build()
+    current = capture_build_identity(project, output, repo_id="repo")
+    assert baseline.freshness["projection_profile"] == "semantic-core/1"
+    assert current.freshness["projection_profile"] == "semantic-core/2"
+    with pytest.raises(
+        (GraphDeltaIncomplete, BaselineIntegrityMismatch), match="projection"
+    ):
+        compare(output, baseline, current)
+
+
 def test_profile_is_bound_to_build_and_cross_profile_comparison_requires_rebuild(
     prepared, tmp_path
 ):
@@ -88,7 +113,7 @@ def test_profile_is_bound_to_build_and_cross_profile_comparison_requires_rebuild
     metadata, directory = ArcGraphIndexer(project, output).build()
     assert metadata.toolchain_status["semantic_core"]["status"] == "active"
     current = capture_build_identity(project, output, repo_id="repo")
-    assert current.freshness["projection_profile"] == "semantic-core/1"
+    assert current.freshness["projection_profile"] == "semantic-core/2"
     assert current.freshness["projection_profile_digest"]
     with pytest.raises(
         GraphDeltaIncomplete, match="projection profiles differ.*rebuild"

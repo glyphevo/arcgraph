@@ -70,6 +70,77 @@ def make_records(snapshot, root, view, name="pyright"):
     return AnchoredRecords(snapshot, root, backend, view)
 
 
+@pytest.mark.parametrize(
+    "positive,enabled", [(True, True), (False, True), (True, False)]
+)
+def test_unverified_external_target_conflict_requires_positive_core_answer(
+    tmp_path, positive, enabled
+):
+    import copy
+    import inspect
+    from arcgraph.core.scanner import FileScanner
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+    from arcgraph.semantic.backends import wrap_graph
+    from arcgraph.semantic.graph_projection import project_graph
+
+    snapshot, root, view = make_view(
+        tmp_path, source="def target(): return 1\ndef run(): return target()\n"
+    )
+    content = ArcGraphIndexer(root, tmp_path / "out").analyze_files(
+        FileScanner(root).scan()
+    )
+    raw = {
+        "nodes": [n.model_dump(mode="json") for n in content.nodes],
+        "edges": [e.model_dump(mode="json") for e in content.edges],
+    }
+    original = next(
+        e for e in raw["edges"] if e["source"] == "fn:demo.run" and e["kind"] == "calls"
+    )
+    wrong = copy.deepcopy(original)
+    wrong.update(target="extsym:unverified.call", kind="uses", confidence="inferred")
+    wrong["confidence_sources"] = {"inferred": ["analyzer_fixture"]}
+    wrong["semantic_role"] = "external_call"
+    for fact in [
+        wrong["properties"]["callsite"],
+        *wrong["properties"].get("callsites", []),
+    ]:
+        fact.update(confidence="inferred", edge_kind="uses")
+    raw["edges"].append(wrong)
+    records = make_records(snapshot, root, view)
+    site = next(c for c in view.callsites if c.owner == find(view, "run").id)
+    target = find(view, "target")
+    if positive:
+        records.candidate(site, target, "type_inference", "native:positive")
+        records.mapped("native:positive", "mapped_success", "mapped", site, target)
+    primary = records.finish()
+    fallback_producer = producer("arcgraph", "test", (TARGET,), {})
+    fallback = wrap_graph(snapshot, root, fallback_producer, view, raw)
+    decisions = project(view, primary, fallback, (primary.producer, fallback_producer))
+    kwargs = {"primary_producer": primary.producer.id, "primary": primary}
+    # The parent bridge has no opt-in flag; exercising its existing output still
+    # proves the new positive-core behavior by an assertion failure.
+    if "conflict_unverified_external" in inspect.signature(project_graph).parameters:
+        kwargs["conflict_unverified_external"] = enabled
+    graph, _ = project_graph(view, raw, fallback, decisions, **kwargs)
+    retained = next(e for e in graph if e["target"] == "extsym:unverified.call")
+    assert retained["resolution"]["status"] == (
+        "conflict" if positive and enabled else "resolved"
+    )
+    assert retained["confidence"] == "inferred"
+    if positive and enabled:
+        assert (
+            "Unverified analyzer external target:" in retained["resolution"]["detail"]
+        )
+    correct = [
+        e
+        for e in graph
+        if e["source"] == "fn:demo.run" and e["target"] == "fn:demo.target"
+    ]
+    assert len(correct) == 1
+    if positive:
+        assert any(e["kind"] == "type_inference" for e in correct[0]["evidence"])
+
+
 def find(view, name):
     return next(d for d in view.definitions if d.qualname == "demo." + name)
 

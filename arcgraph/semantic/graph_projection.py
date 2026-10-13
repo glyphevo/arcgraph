@@ -46,7 +46,7 @@ def public_call_identity(edge):
     return normalized
 
 
-def public_edges(edges):
+def public_edges(edges, *, preserve_semantic_conflicts=False):
     """Combine supports after normalization, including their original roles."""
     normalized = [public_call_identity(edge) for edge in edges]
     roles = defaultdict(set)
@@ -54,7 +54,11 @@ def public_edges(edges):
         roles[edge_key(edge.model_dump(mode="json"))].update(
             edge.properties.get("provenance", {}).get("semantic_roles", [])
         )
-    result = EvidenceMergeEngine.dedupe_edges(normalized)
+    result = (
+        EvidenceMergeEngine.dedupe_edges(normalized, preserve_semantic_conflicts=True)
+        if preserve_semantic_conflicts
+        else EvidenceMergeEngine.dedupe_edges(normalized)
+    )
     for edge in result:
         original_roles = roles[edge_key(edge.model_dump(mode="json"))]
         if original_roles:
@@ -100,6 +104,7 @@ def project_graph(
     *,
     primary_producer,
     primary=None,
+    conflict_unverified_external=False,
     model_output=False,
 ):
     """Retain out-of-scope defaults; alter only exactly mapped callsite supports.
@@ -395,7 +400,75 @@ def project_graph(
                 + ", ".join(sorted(locations))
                 + "; retained analyzer fallback"
             )
+    if conflict_unverified_external:
+        mark_unverified_external(
+            view, by_key, decisions, primary_producer, primary, symbols
+        )
     return [
         edge if model_output else edge.model_dump(mode="json")
         for _, edge in sorted(by_key.items(), key=lambda pair: str(pair[0]))
     ], {"removed_facts": removed, "graph_losses": losses}
+
+
+def mark_unverified_external(
+    view, by_key, decisions, primary_producer, primary, symbols
+):
+    """Mark unmatched legacy external targets after the usual support projection."""
+    if (
+        primary is not None
+        and primary.producer.name == "pyright"
+        and primary.producer.id == primary_producer
+        and any(
+            a["producer"] == "pyright" and a["allowed"] for a in decisions["admission"]
+        )
+    ):
+        positive, verified = defaultdict(set), defaultdict(set)
+
+        def public_site(subject):
+            site = view.sites[subject]
+            return (
+                symbols.get(site.owner),
+                site.span.start[0] + 1,
+                site.span.start[1],
+                site.expression,
+            )
+
+        for answer in primary.answers:
+            if (
+                answer.outcome != "candidates"
+                or view.records[answer.subject].kind != "callsite"
+            ):
+                continue
+            key = public_site(answer.subject)
+            if key[0] is not None:
+                positive[key].update(
+                    symbols.get(c.target, c.target) for c in answer.candidates
+                )
+        for row in decisions["edges"]:
+            if public_invocation(view, row["relation"], row["key"]):
+                subject, target, _, _ = row["key"]
+                verified[public_site(subject)].add(symbols.get(target, target))
+        for edge in by_key.values():
+            if not edge.target.startswith("extsym:"):
+                continue
+            expressions = set()
+            for fact in call_facts(edge.model_dump(mode="json")):
+                key = (
+                    edge.source,
+                    fact.get("line"),
+                    fact.get("column"),
+                    fact.get("call_expression"),
+                )
+                if (
+                    positive.get(key)
+                    and edge.target not in positive[key] | verified[key]
+                ):
+                    expressions.add(str(fact.get("call_expression")))
+            if expressions:
+                edge.resolution.status = "conflict"
+                edge.resolution.detail = (
+                    (edge.resolution.detail + "; " if edge.resolution.detail else "")
+                    + "Unverified analyzer external target: admitted pyright positive answers exist, "
+                    + "but no semantic support verifies this target; call expressions: "
+                    + ", ".join(sorted(expressions))
+                )

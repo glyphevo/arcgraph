@@ -80,7 +80,12 @@ class EvidenceMergeEngine:
             project_name=metadata.project_name,
             project_version=metadata.project_version,
         )
-        merged_edges = self.dedupe_edges(edges)
+        merged_edges = (
+            self.dedupe_edges(edges, preserve_semantic_conflicts=True)
+            if metadata.toolchain_status.get("semantic_core", {}).get("status")
+            in ("active", "partial")
+            else self.dedupe_edges(edges)
+        )
         self._validate_edge_endpoints(merged_nodes, merged_edges)
         context = AnalysisPassContext(
             metadata=metadata,
@@ -222,12 +227,23 @@ class EvidenceMergeEngine:
         return (0 if unresolved else 1, 1 if node.path else 0)
 
     @classmethod
-    def dedupe_edges(cls, edges: list[Edge]) -> list[Edge]:
+    def dedupe_edges(
+        cls, edges: list[Edge], *, preserve_semantic_conflicts: bool = False
+    ) -> list[Edge]:
         deduped: dict[tuple[Any, ...], Edge] = {}
         owned: set[tuple[Any, ...]] = set()
+        conflicts: dict[tuple[Any, ...], set[str]] = defaultdict(set)
         for edge in edges:
             candidate = cls._normalized_edge(edge)
             key = cls._edge_merge_key(candidate)
+            if (
+                preserve_semantic_conflicts
+                and candidate.resolution.status == "conflict"
+                and candidate.resolution.detail
+                and "Unverified analyzer external target:"
+                in candidate.resolution.detail
+            ):
+                conflicts[key].add(candidate.resolution.detail)
             existing = deduped.get(key)
             if existing is None:
                 deduped[key] = candidate
@@ -242,6 +258,15 @@ class EvidenceMergeEngine:
                 deduped[key] = existing
                 owned.add(key)
             cls._merge_edge(existing, candidate)
+        for key, details in conflicts.items():
+            # Keep the non-mutating merge contract when no duplicate required a
+            # copy, and keep the usual confidence selection unchanged.
+            edge = deduped[key].model_copy(deep=True)
+            edge.resolution.status = "conflict"
+            if edge.resolution.detail:
+                details.add(edge.resolution.detail)
+            edge.resolution.detail = "; ".join(sorted(details))
+            deduped[key] = edge
         return sorted(
             deduped.values(),
             key=lambda edge: (

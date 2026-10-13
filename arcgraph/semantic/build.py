@@ -36,7 +36,7 @@ from .transport import collect
 from .external_targets import Registry
 from .artifact_inputs import FrozenInputs
 
-PROFILE = "semantic-core/1"
+PROFILE = "semantic-core/2"
 LEGACY_PROFILE = "legacy/1"
 STORAGE = "semantic-generation/gzip-blobs/2"
 FIX = "Run arcgraph setup semantic; install Node.js 14 or newer; check the project Python environment."
@@ -76,6 +76,8 @@ def freshness_reason(store, root):
                 )
             )
         )
+        if dict(snapshot.environment).get("projection_profile") != PROFILE:
+            return "semantic_generation_projection_unsupported: rebuild required"
         from .artifact_inputs import freshness_reason as artifact_freshness
 
         artifact_reason = artifact_freshness(
@@ -91,6 +93,8 @@ def freshness_reason(store, root):
             )
             if manifest.get("storage_format") != STORAGE:
                 return "semantic_generation_storage_unsupported: rebuild required"
+            if manifest.get("projection_profile") != PROFILE:
+                return "semantic_generation_projection_unsupported: rebuild required"
             if (
                 not manifest.get("complete")
                 or manifest.get("revision") != store.metadata["index_version"]
@@ -460,6 +464,7 @@ class SemanticBuild:
                     decisions,
                     primary_producer=primary.producer.id,
                     primary=primary,
+                    conflict_unverified_external=True,
                     model_output=True,
                 )
             with self._phase("input_verification"):
@@ -509,7 +514,10 @@ class SemanticBuild:
                         )
                     )
                 ]
-                content.edges = public_edges([*out_of_scope, *graph])
+                content.edges = public_edges(
+                    [*out_of_scope, *graph],
+                    preserve_semantic_conflicts=True,
+                )
                 projected_ids = {n["id"] for n in raw["nodes"]}
                 content.nodes = [
                     n for n in content.nodes if n.id not in projected_ids
