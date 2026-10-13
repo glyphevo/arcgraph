@@ -11,7 +11,7 @@ import time
 from arcgraph import __version__
 from arcgraph.core.project_environment import project_environment_path
 from arcgraph.core.scanner import FileScanner
-from arcgraph.core.schemas import Edge
+from arcgraph.core.schemas import Edge, Node
 from arcgraph.core.graph_store import current_pointer_path, GraphStoreReader
 from arcgraph.core.structure import StructureView
 from arcgraph.core.utils import symlink_below, replace_text_file
@@ -345,6 +345,9 @@ class SemanticBuild:
                     and e.kind in ("calls", "constructs", "dynamic_call", "initializes")
                 ],
             }
+            from .public_owners import materialize_owners
+
+            raw = materialize_owners(view, raw)
             fallback = wrap_graph(
                 self.snapshot, self.root, fallback_producer, view, raw
             )
@@ -392,6 +395,9 @@ class SemanticBuild:
             content.edges = public_edges(
                 [*out_of_scope, *(Edge.model_validate(e) for e in graph)]
             )
+            content.nodes = [n for n in content.nodes if n.id not in ids] + [
+                Node.model_validate(n) for n in raw["nodes"]
+            ]
             uncovered = [f for f in self.bundle.files if f.status != "parsed"]
             self.status = semantic_core_status(
                 "partial" if uncovered else "active",

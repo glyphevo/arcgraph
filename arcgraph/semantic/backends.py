@@ -388,6 +388,7 @@ def wrap_graph(
         choices = by_location[(n.get("path"), n.get("qualname"), n.get("start_line"))]
         if len(choices) == 1:
             by_node[n["id"]] = choices[0]["id"]
+    by_node.update(raw.get("owner_symbols", {}))
     for ei, edge in enumerate(raw["edges"]):
         if edge["kind"] not in ("calls", "constructs", "dynamic_call", "initializes"):
             continue

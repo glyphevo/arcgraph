@@ -116,6 +116,9 @@ def project_graph(view, raw, fallback, decisions, *, primary_producer):
     for node in nodes.values():
         if node["kind"] == "module":
             symbols["module:" + node["path"]] = node["id"]
+    symbols.update(
+        {owner: identity for identity, owner in raw.get("owner_symbols", {}).items()}
+    )
     accepted = set(tuple(key) for key in decisions["projected_calls"])
     mapped = {m.raw_id: m for m in fallback.mapping if m.stage == "mapped"}
     retained, removed, losses = [], [], []
