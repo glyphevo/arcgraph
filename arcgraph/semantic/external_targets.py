@@ -334,6 +334,9 @@ def definition(row, item, unit):
         raise ValueError("external definition capture mismatch")
     selection = native_span(row["text"], item["selectionRange"], unit)
     tree = ast.parse(row["text"])
+    from .structure_facts import stub_body, typing_only_nodes
+
+    typing_only = typing_only_nodes(tree)
     choices = []
     names = []
     overloads = []
@@ -401,8 +404,14 @@ def definition(row, item, unit):
         "decorators": decorators,
         "declaration_only": row["relative"].endswith(".pyi")
         or abstract
+        or id(node) in typing_only
         or qualname in overridden_stubs(tree, row["module"]),
     }
+    if not value["declaration_only"] and stub_body(node) == "not_implemented":
+        # A placeholder body is not evidence of the actual external dispatch.
+        # Keep it unknown unless the established override rule proves a
+        # declaration; do not guess which unseen subclass supplies the body.
+        return None
     if (
         names.count(qualname) != 1
         and not native_identity(value)

@@ -126,10 +126,7 @@ def test_known_concrete_override_marks_external_stub_as_declaration(tmp_path):
     )
     capture = Capture(root, config)
     capture.item(target, {})
-    assert (
-        definition(capture.files[path.as_uri()], target, "utf-16")["declaration_only"]
-        is False
-    )
+    assert definition(capture.files[path.as_uri()], target, "utf-16") is None
 
 
 def test_definition_lookup_reuses_only_the_current_checked_capture(
@@ -159,6 +156,41 @@ def test_definition_lookup_reuses_only_the_current_checked_capture(
     first = registry.lookup(item(path), "utf-16", records)
     assert registry.lookup(item(path), "utf-16", records) == first
     assert len(calls) == 1
+
+
+def test_typing_guard_external_method_stays_a_declaration(tmp_path):
+    root, config, path = dependency(tmp_path)
+    path.write_text(
+        "from typing import TYPE_CHECKING\nclass Client:\n    if TYPE_CHECKING:\n        def ping(self): ...\n",
+        encoding="utf-8",
+    )
+    capture = Capture(root, config)
+    target = item(path, line=3, column=12)
+    capture.item(target, {})
+    result = definition(capture.files[path.as_uri()], target, "utf-16")
+    assert result["declaration_only"] is True
+    assert result["id"] == "extsym:example.Client.ping"
+
+
+def test_unproven_placeholder_body_preserves_unknown_mapping(prepared, tmp_path):
+    project, environment, _, _ = prepared
+    package = next(environment.glob("lib/python*/site-packages")) / "example.py"
+    package.write_text(
+        "class Client:\n    def ping(self): raise NotImplementedError('supply an implementation')\n",
+        encoding="utf-8",
+    )
+    (project / "demo.py").write_text(
+        "from example import Client\ndef f(client: Client): return client.ping()\n",
+        encoding="utf-8",
+    )
+    configure(project)
+    metadata, directory = ArcGraphIndexer(project, tmp_path / "out").build()
+    assert metadata.toolchain_status["semantic_core"]["status"] == "active"
+    primary = load(generation_directory(directory) / "pyright.json")
+    assert primary["raw_count"] == len(primary["mapping"]) == 1
+    assert primary["mapping"][0]["stage"] == "symbol"
+    assert primary["mapping"][0]["target"] is None
+    assert all(a["outcome"] == "unknown" for a in primary["answers"])
 
 
 def test_factory_interface_stub_is_not_projected_as_the_runtime_implementation(
