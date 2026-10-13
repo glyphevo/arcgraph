@@ -340,6 +340,7 @@ class SemanticBuild:
                 public_symbols=[
                     n.id for n in content.nodes if n.kind == "external_symbol"
                 ],
+                snapshot=self.snapshot,
             )
             primary_producer = producer(
                 "pyright",

@@ -352,7 +352,119 @@ class Capture:
             return
 
 
-def definition(row, item, unit):
+def target_condition(node, snapshot):
+    """Evaluate only version/platform syntax against the frozen target context."""
+    if snapshot is None:
+        return None
+
+    def attribute(value, name):
+        return (
+            isinstance(value, ast.Attribute)
+            and isinstance(value.value, ast.Name)
+            and value.value.id == "sys"
+            and value.attr == name
+        )
+
+    def integer(value):
+        return isinstance(value, ast.Constant) and type(value.value) is int
+
+    version = tuple(int(p) for p in snapshot.target_python.split("."))
+
+    def version_value(value):
+        if attribute(value, "version_info"):
+            return version
+        if isinstance(value, ast.Subscript) and attribute(value.value, "version_info"):
+            index = value.slice
+            if integer(index) and 0 <= index.value < len(version):
+                return version[index.value]
+            if isinstance(index, ast.Slice) and index.step is None:
+                lower = (
+                    0
+                    if index.lower is None
+                    else (index.lower.value if integer(index.lower) else None)
+                )
+                upper = index.upper.value if integer(index.upper) else None
+                if (
+                    lower is not None
+                    and upper is not None
+                    and 0 <= lower < upper <= len(version)
+                ):
+                    return version[lower:upper]
+        return None
+
+    def literal(value):
+        if integer(value):
+            return value.value
+        if (
+            isinstance(value, ast.Tuple)
+            and value.elts
+            and all(integer(v) for v in value.elts)
+        ):
+            return tuple(v.value for v in value.elts)
+        return None
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        value = target_condition(node.operand, snapshot)
+        return None if value is None else not value
+    if isinstance(node, ast.BoolOp):
+        values = [target_condition(v, snapshot) for v in node.values]
+        # Even a short-circuit result must not admit an arbitrary expression.
+        if any(v is None for v in values):
+            return None
+        return all(values) if isinstance(node.op, ast.And) else any(values)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and attribute(node.func.value, "platform")
+        and node.func.attr == "startswith"
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        return snapshot.platform.startswith(node.args[0].value)
+    if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+        return None
+    left, right = node.left, node.comparators[0]
+    op = node.ops[0]
+    if attribute(right, "platform"):
+        left, right = right, left
+    if attribute(left, "platform"):
+        if not isinstance(right, ast.Constant) or not isinstance(right.value, str):
+            return None
+        if isinstance(op, ast.Eq):
+            return snapshot.platform == right.value
+        if isinstance(op, ast.NotEq):
+            return snapshot.platform != right.value
+        return None
+    a, b = version_value(left), literal(right)
+    if a is None:
+        a, b = literal(left), version_value(right)
+    if a is None or b is None or type(a) is not type(b):
+        return None
+    if attribute(left, "version_info") or attribute(right, "version_info"):
+        # Pyright's pythonVersion omits micro/release details: compare only
+        # components known on both sides, with a one-item tuple's minor = 0.
+        a = a if len(a) > 1 else (*a, 0)
+        b = b if len(b) > 1 else (*b, 0)
+        length = min(len(a), len(b))
+        a, b = a[:length], b[:length]
+    if isinstance(op, ast.Eq):
+        return a == b
+    if isinstance(op, ast.NotEq):
+        return a != b
+    if isinstance(op, ast.Lt):
+        return a < b
+    if isinstance(op, ast.LtE):
+        return a <= b
+    if isinstance(op, ast.Gt):
+        return a > b
+    if isinstance(op, ast.GtE):
+        return a >= b
+    return None
+
+
+def definition(row, item, unit, snapshot=None):
     """Prove module and qualified name from syntax; never infer a runtime alias."""
     if row.get("module") != module_name(row["relative"], row["origin"]) or row.get(
         "text_digest"
@@ -400,8 +512,11 @@ def definition(row, item, unit):
                     )
                     visit(node.body, (*parents, node.name), declaration or protocol)
             elif isinstance(node, ast.If):
-                visit(node.body, parents, declaration)
-                visit(node.orelse, parents, declaration)
+                active = target_condition(node.test, snapshot)
+                if active is not False:
+                    visit(node.body, parents, declaration)
+                if active is not True:
+                    visit(node.orelse, parents, declaration)
 
     visit(tree.body)
     if len(choices) != 1:
@@ -546,7 +661,7 @@ def proved_reexport(files, module, name, source, seen=()):
 
 
 class Registry:
-    def __init__(self, files, checksum, public_symbols=()):
+    def __init__(self, files, checksum, public_symbols=(), snapshot=None):
         if digest(files) != checksum:
             raise ValueError("external capture checksum mismatch")
         self.files = files
@@ -556,6 +671,7 @@ class Registry:
         self.parsed = {}
         self.public_symbols = set(public_symbols)
         self.identities = {}
+        self.snapshot = snapshot
 
     def canonical(self, value, row):
         if (
@@ -615,9 +731,17 @@ class Registry:
         if row is None:
             return None
         try:
-            key = (item["uri"], item["name"], digest(item["selectionRange"]), unit)
+            key = (
+                item["uri"],
+                item["name"],
+                digest(item["selectionRange"]),
+                unit,
+                self.snapshot.id if self.snapshot is not None else None,
+            )
             if key not in self.parsed:
-                self.parsed[key] = self.canonical(definition(row, item, unit), row)
+                self.parsed[key] = self.canonical(
+                    definition(row, item, unit, self.snapshot), row
+                )
             value = self.parsed[key]
         except (SyntaxError, UnicodeError, KeyError, TypeError, ValueError):
             return None
@@ -657,12 +781,13 @@ class Registry:
         if (
             config.get("external_capture") != json.dumps(self.checksum)
             or digest(self.files) != self.checksum
+            or (self.snapshot is not None and self.snapshot != run.snapshot)
         ):
             return False
         for identity, target in self.definitions.items():
             item, unit = self.proofs[identity]
             row = self.files[item["uri"]]
-            value = self.canonical(definition(row, item, unit), row)
+            value = self.canonical(definition(row, item, unit, self.snapshot), row)
             if (
                 value is None
                 or view.defs.get(identity) != target
