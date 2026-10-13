@@ -736,8 +736,18 @@ class GraphDeltaEngine:
                 continue
             if old is None or new is None:
                 raise GraphDeltaIncomplete("edge comparison merge invariant failed")
-            old_semantic = _edge_semantic_projection(old)
-            new_semantic = _edge_semantic_projection(new)
+            old_semantic = _edge_semantic_projection(
+                old,
+                relationship_resolver=lambda collection, raw_id: (
+                    node_identities.resolve_embedded("baseline", collection, raw_id)
+                ),
+            )
+            new_semantic = _edge_semantic_projection(
+                new,
+                relationship_resolver=lambda collection, raw_id: (
+                    node_identities.resolve_embedded("current", collection, raw_id)
+                ),
+            )
             if old_semantic != new_semantic:
                 accumulator.add(
                     accumulator.semantic_changes,
@@ -1029,7 +1039,9 @@ def _node_semantic_projection(
         properties = {
             **properties,
             "callsites": [
-                _stable_callsite_fact(fact, source=node.id)
+                _stable_callsite_fact(
+                    fact, source=node.id, relationship_resolver=relationship_resolver
+                )
                 for fact in properties["callsites"]
             ],
         }
@@ -1069,6 +1081,17 @@ _POSITION_DERIVED_FIELDS_BY_COLLECTION = {
         "inferred_from_type_ref_id",
     },
     "type_diagnostics": {"binding_id"},
+    "comprehension_contexts": set(),
+}
+
+_POSITIONAL_FIELDS_BY_COLLECTION = {
+    "bindings": {"value_region", "statement_end"},
+    "comprehension_contexts": {"range"},
+}
+
+_BINDING_MAP_FIELDS_BY_COLLECTION = {
+    "bindings": {"comprehension_inputs"},
+    "comprehension_contexts": {"bindings"},
 }
 
 _EMBEDDED_ID_FIELD_BY_COLLECTION = {
@@ -1138,6 +1161,21 @@ def _node_properties_semantic_projection(
                     target_collection,
                     raw_id,
                 )
+            for field in _BINDING_MAP_FIELDS_BY_COLLECTION.get(collection, ()):
+                bindings = item.get(field)
+                if not isinstance(bindings, dict):
+                    continue
+                normalized = {}
+                for name, raw_id in bindings.items():
+                    if isinstance(raw_id, str) and raw_id:
+                        if relationship_resolver is None:
+                            raise GraphDeltaIncomplete(
+                                "comprehension binding needs a semantic resolver"
+                            )
+                        normalized[name] = relationship_resolver("bindings", raw_id)
+                    else:
+                        normalized[name] = raw_id
+                record[field] = normalized
             records.append(record)
         projected[collection] = sorted(
             (stable_projection(record) for record in records),
@@ -1151,10 +1189,16 @@ def _embedded_record_semantic_subject(
     record: dict[str, Any],
 ) -> dict[str, Any]:
     derived_fields = _POSITION_DERIVED_FIELDS_BY_COLLECTION.get(collection, set())
+    positional_fields = _POSITIONAL_NODE_RECORD_FIELDS | (
+        _POSITIONAL_FIELDS_BY_COLLECTION.get(collection, set())
+    )
+    binding_maps = _BINDING_MAP_FIELDS_BY_COLLECTION.get(collection, set())
     projected = {
         key: nested
         for key, nested in record.items()
-        if key not in _POSITIONAL_NODE_RECORD_FIELDS and key not in derived_fields
+        if key not in positional_fields
+        and key not in derived_fields
+        and key not in binding_maps
     }
     evidence = record.get("evidence")
     if isinstance(evidence, dict):
@@ -1167,11 +1211,38 @@ def _embedded_record_semantic_subject(
 
 
 def _node_location_projection(node: Node) -> dict[str, Any]:
-    return {
+    projection = {
         "path": node.path,
         "start_line": node.start_line,
         "end_line": node.end_line,
     }
+    locations = {}
+    for collection in _POSITION_DERIVED_FIELDS_BY_COLLECTION:
+        records = node.properties.get(collection)
+        if not isinstance(records, list):
+            continue
+        fields = _POSITIONAL_NODE_RECORD_FIELDS | (
+            _POSITIONAL_FIELDS_BY_COLLECTION.get(collection, set())
+        )
+        positions = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            position = {key: value for key, value in record.items() if key in fields}
+            evidence = record.get("evidence")
+            if isinstance(evidence, dict):
+                located = {
+                    key: value for key, value in evidence.items() if key in fields
+                }
+                if located:
+                    position["evidence"] = located
+            if position:
+                positions.append(position)
+        if positions:
+            locations[collection] = _sorted_records(positions)
+    if locations:
+        projection["analyzer_locations"] = locations
+    return projection
 
 
 def _identity_change(
@@ -1258,7 +1329,12 @@ _CALLSITE_LINE_KEYS = frozenset({"column", "line"})
 _CALLSITE_POSITION_KEYS = _CALLSITE_LINE_KEYS | {"callsite_id"}
 
 
-def _stable_callsite_fact(fact: Any, *, source=None) -> Any:
+def _stable_callsite_fact(
+    fact: Any,
+    *,
+    source=None,
+    relationship_resolver: Callable[[str, str], Any] | None = None,
+) -> Any:
     if not isinstance(fact, dict):
         return fact
     dropped = (
@@ -1267,6 +1343,12 @@ def _stable_callsite_fact(fact: Any, *, source=None) -> Any:
         else _CALLSITE_LINE_KEYS
     )
     value = {key: value for key, value in fact.items() if key not in dropped}
+    raw_id = value.get("receiver_type_ref_id")
+    if isinstance(raw_id, str) and raw_id:
+        if relationship_resolver is None:
+            raise GraphDeltaIncomplete("call receiver type needs a semantic resolver")
+        value.pop("receiver_type_ref_id")
+        value["receiver_type_ref"] = relationship_resolver("type_refs", raw_id)
     subject = value.get("stable_callsite_subject")
     if (
         isinstance(subject, dict)
@@ -1280,7 +1362,11 @@ def _stable_callsite_fact(fact: Any, *, source=None) -> Any:
     return value
 
 
-def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
+def _edge_semantic_projection(
+    edge: Edge,
+    *,
+    relationship_resolver: Callable[[str, str], Any] | None = None,
+) -> dict[str, Any]:
     resolution = edge.resolution.model_dump(mode="json")
     properties = edge.properties
     callsite = properties.get("callsite")
@@ -1291,7 +1377,11 @@ def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
     if isinstance(callsite, dict):
         properties = {
             **properties,
-            "callsite": _stable_callsite_fact(callsite, source=edge.source),
+            "callsite": _stable_callsite_fact(
+                callsite,
+                source=edge.source,
+                relationship_resolver=relationship_resolver,
+            ),
         }
     facts = properties.get("callsites")
     if isinstance(facts, list):
@@ -1299,7 +1389,12 @@ def _edge_semantic_projection(edge: Edge) -> dict[str, Any]:
         properties = {
             **properties,
             "callsites": [
-                _stable_callsite_fact(fact, source=edge.source) for fact in facts
+                _stable_callsite_fact(
+                    fact,
+                    source=edge.source,
+                    relationship_resolver=relationship_resolver,
+                )
+                for fact in facts
             ],
         }
     return {
