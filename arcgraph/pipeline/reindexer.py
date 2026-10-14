@@ -26,7 +26,7 @@ from arcgraph.core.scanner import (
 )
 from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
 from arcgraph.core.project_environment import dependency_environment_changed
-from arcgraph.core.structure import structure_state
+from arcgraph.core.structure import build_structure_budget, structure_state
 from arcgraph.core.schemas import (
     SCHEMA_VERSION,
     BuildWarning,
@@ -122,7 +122,7 @@ class ArcGraphReindexer:
         self.source_roots = tuple(source_roots) if source_roots else None
 
     def reindex_changed(self, *, cleanup_after_publish: bool = True) -> dict[str, Any]:
-        with arcgraph_operation_lock(self.output_dir):
+        with arcgraph_operation_lock(self.output_dir), build_structure_budget():
             result = self._reindex_changed_inner()
             if result.get("status") == "reindexed" and cleanup_after_publish:
                 result["cleanup"] = prune_arcgraph_output_after_publish(self.output_dir)

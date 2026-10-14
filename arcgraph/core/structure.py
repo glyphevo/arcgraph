@@ -42,26 +42,53 @@ PROJECT_FAILURE_BUDGET = 60.0
 _build_failure_seconds: ContextVar[list[float] | None] = ContextVar(
     "structure_build_failure_seconds", default=None
 )
+_operation_project_versions: ContextVar[dict | None] = ContextVar(
+    "structure_operation_project_versions", default=None
+)
 
 
 @contextmanager
 def build_structure_budget():
-    """Share failed-read time through parsing and the build's cache fingerprint."""
+    """Share failed-read time through preflight, parsing and cache fingerprinting."""
     token = _build_failure_seconds.set([0.0])
+    versions_token = _operation_project_versions.set({})
     try:
         yield
     finally:
+        _operation_project_versions.reset(versions_token)
         _build_failure_seconds.reset(token)
 
 
-def fallback_scope(partial):
+def fallback_scope(partial, *, exhausted=False):
     """Describe the scope separately from an individual block's failure."""
+    if partial and exhausted:
+        return (
+            "uses the ArcGraph host parser for blocks not completed by the project "
+            "interpreter; completed blocks retain project interpreter results."
+        )
     return (
         "uses the ArcGraph host parser for the affected block; other blocks "
         "use the project interpreter."
         if partial
         else "uses the ArcGraph host parser."
     )
+
+
+def _interpreter_version_key(candidate):
+    if candidate is None:
+        return None
+    try:
+        info = candidate.stat()
+        return (
+            str(candidate),
+            str(candidate.resolve()),
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            info.st_mtime_ns,
+        )
+    except OSError:
+        return None
 
 
 def _block_path_order(name):
@@ -103,6 +130,12 @@ def structure_state(
     else:
         view.probe()
     candidate = project_interpreter_path(root, environment=environment)
+    if view._project_budget_exhausted and view.version is None:
+        versions = _operation_project_versions.get()
+        if versions is not None:
+            # A skipped empty probe is not evidence of a missing version. Reuse
+            # only a successful probe of this same executable in this operation.
+            view.version = versions.get(_interpreter_version_key(candidate))
     identity = None
     if candidate is not None:
         try:
@@ -267,7 +300,7 @@ class StructureView:
             detail = f"startup error: {type(exc).__name__}"
         else:
             detail = f"protocol error: {type(exc).__name__}"
-        scope = fallback_scope(partial)
+        scope = fallback_scope(partial, exhausted=self._project_budget_exhausted)
         self.reason = (
             f"Project interpreter failed ({detail}); Python structure "
             f"{scope} {STRUCTURE_FIX}"
@@ -372,8 +405,17 @@ class StructureView:
             raise subprocess.TimeoutExpired([str(self.interpreter)], 0)
         self._project_timeout = min(30.0, remaining)
         started = time.monotonic()
+        version_key = _interpreter_version_key(self.interpreter)
         try:
-            return self._read_project(paths)
+            result = self._read_project(paths)
+            versions = _operation_project_versions.get()
+            if (
+                versions is not None
+                and version_key is not None
+                and version_key == _interpreter_version_key(self.interpreter)
+            ):
+                versions[version_key] = self.version
+            return result
         except PROJECT_ERRORS:
             self._project_failure_seconds[0] += time.monotonic() - started
             self._project_budget_exhausted = self._project_failure_seconds[0] >= limit
