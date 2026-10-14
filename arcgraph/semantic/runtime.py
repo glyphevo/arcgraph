@@ -114,12 +114,18 @@ def isolated_environment(directory, node):
     return env
 
 
+def _node_identity(node):
+    info = node.stat()
+    return (str(node), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
 class SessionPool:
     """One checked private installation for a single sequential collection."""
 
     def __init__(self):
         self.temporary = None
         self.receipt = None
+        self.node_receipt = None
 
     def close(self):
         if self.temporary is not None:
@@ -157,33 +163,68 @@ class SessionPool:
         no_links(root, boundary=self.private)
         return tuple(result)
 
+    def check_node(self):
+        """Resolve and probe Node again, admitting only the original file identity."""
+        located = shutil.which("node")
+        if located is None:
+            raise InstallError(
+                "Node is missing; install Node.js (version 14 or newer)."
+            )
+        node = Path(located).resolve()
+
+        before = _node_identity(node)
+        self.version = subprocess.run(  # nosec B603
+            [str(node), "--version"],
+            cwd=self.private,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+        after = _node_identity(node)
+        if before != after or (
+            self.node_receipt is not None and after != self.node_receipt
+        ):
+            raise InstallError("Node identity changed during collection.")
+        try:
+            major = int(self.version.removeprefix("v").split(".")[0])
+        except ValueError as exc:
+            raise InstallError("Cannot determine Node version.") from exc
+        if major < 14:
+            raise InstallError(
+                f"Node {self.version} is unsupported; install Node.js 14 or newer."
+            )
+        self.node = node
+        self.node_receipt = after
+
+    def check_view(self, root):
+        receipt = self.content_receipt(root)
+
+        # Directories have independent sizes/inodes. Every file must have the
+        # admitted bytes and mode, and must not share the retained copy's inode.
+        def content(rows):
+            return [(r[0], r[3], r[4] if r[5] else None, r[5]) for r in rows]
+
+        if content(receipt) != content(self.receipt) or any(
+            view[5] is not None and view[1:3] == base[1:3]
+            for view, base in zip(receipt, self.receipt)
+        ):
+            raise InstallError(
+                "Private pyright installation changed during collection."
+            )
+        return receipt
+
     @contextmanager
     def package_view(self):
         # Independent URI partitions preserve declaration/reexport mapping.
-        # Link only verified private bytes, never the real installation cache.
-        def copy_private(source, destination):
-            try:
-                os.link(source, destination)
-            except (OSError, NotImplementedError):
-                shutil.copyfile(source, destination)
-            return destination
-
+        # Copy bytes: mutations of the retained installation cannot reach a view.
         with tempfile.TemporaryDirectory(prefix="session-", dir=self.private) as name:
             copied = Path(name) / "installation"
-            shutil.copytree(
-                self.package.parent, copied, copy_function=copy_private, symlinks=True
-            )
-            receipt = self.content_receipt(copied)
-
-            def content(rows):
-                # View directory inodes differ. Compare every path and kind,
-                # file mode, size and content with the admitted private copy.
-                return [(r[0], r[3], r[4] if r[5] else None, r[5]) for r in rows]
-
-            if content(receipt) != content(self.receipt):
-                raise InstallError(
-                    "Private pyright installation changed during collection."
-                )
+            shutil.copytree(self.package.parent, copied, symlinks=True)
+            receipt = self.check_view(copied)
             try:
                 yield copied / "package"
             finally:
@@ -194,6 +235,7 @@ class SessionPool:
 
     def prepare(self):
         if self.temporary is not None:
+            self.check_node()
             if self.content_receipt() != self.receipt:
                 raise InstallError(
                     "Private pyright installation changed during collection."
@@ -212,25 +254,7 @@ class SessionPool:
         shutil.copytree(package.parent, copied, symlinks=True)
         self.package = validate_content(copied, trusted_root=self.private)
         self.env = isolated_environment(self.private / "state", self.node)
-        self.version = subprocess.run(  # nosec B603
-            [str(self.node), "--version"],
-            cwd=self.private,
-            env=self.env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            timeout=10,
-            check=True,
-        ).stdout.strip()
-        try:
-            major = int(self.version.removeprefix("v").split(".")[0])
-        except ValueError as exc:
-            raise InstallError("Cannot determine Node version.") from exc
-        if major < 14:
-            raise InstallError(
-                f"Node {self.version} is unsupported; install Node.js 14 or newer."
-            )
+        self.check_node()
         self.receipt = self.content_receipt()
 
 
@@ -250,6 +274,8 @@ def session(root, config, *, transcript=None, pool=None):
         json.dumps(config, sort_keys=True), encoding="utf-8"
     )
     with pool.package_view() as package:
+        pool.check_node()
+        pool.check_view(package.parent)
         peer = Client(
             [str(pool.node), str(package / "langserver.index.js"), "--stdio"],
             root,
