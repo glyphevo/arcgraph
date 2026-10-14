@@ -233,6 +233,11 @@ class ImplementationProof:
                 node.ctx, (ast.Store, ast.Del)
             ):
                 return node.id == selected
+            if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+                if node.name == selected:
+                    return True
+            if isinstance(node, ast.MatchMapping) and node.rest == selected:
+                return True
             if isinstance(node, ast.Call):
                 if (
                     isinstance(node.func, ast.Attribute)
@@ -405,7 +410,7 @@ class ImplementationProof:
                     and name in v.names
                     or isinstance(v, ast.Call)
                     and isinstance(v.func, ast.Name)
-                    and v.func.id == "globals"
+                    and v.func.id in ("globals", "exec", "eval")
                     or name == "__all__"
                     and isinstance(v, ast.Name)
                     and v.id == name
@@ -413,39 +418,61 @@ class ImplementationProof:
                 ):
                     return ("unknown", "nested_namespace_write: " + module + "." + name)
         mutations = []
+        uncertain_receivers = []
 
         def attributes(node):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                return
+            # Inspect nested suites too, whether or not a call is visible here.
+            # A parameter or alias may refer to the selected class/module. This
+            # bounded syntax proof cannot exclude that without flow analysis.
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
-                and node.func.id == "setattr"
-                and len(node.args) >= 2
-                and any(
-                    isinstance(v, ast.Name) and v.id == name
-                    for v in ast.walk(node.args[0])
-                )
+                and node.func.id in ("exec", "eval")
             ):
-                attr = node.args[1]
-                mutations.append(
-                    attr.value
-                    if isinstance(attr, ast.Constant) and isinstance(attr.value, str)
-                    else "__code__"
-                )
+                uncertain_receivers.append(node.lineno)
+            if isinstance(node, ast.Subscript) and isinstance(
+                node.ctx, (ast.Store, ast.Del)
+            ):
+                # Includes aliases of a class/module's __dict__ or globals().
+                uncertain_receivers.append(node.lineno)
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("setattr", "delattr")
+                and len(node.args) >= 2
+            ):
+                receiver, attr = node.args[:2]
+                if isinstance(receiver, ast.Name) and receiver.id == name:
+                    mutations.append(
+                        attr.value
+                        if isinstance(attr, ast.Constant)
+                        and isinstance(attr.value, str)
+                        else "__code__"
+                    )
+                else:
+                    uncertain_receivers.append(node.lineno)
             if isinstance(node, ast.Attribute) and isinstance(
                 node.ctx, (ast.Store, ast.Del)
             ):
-                if any(
-                    isinstance(v, ast.Name) and v.id == name
-                    for v in ast.walk(node.value)
-                ):
+                if isinstance(node.value, ast.Name) and node.value.id == name:
                     mutations.append(node.attr)
+                else:
+                    uncertain_receivers.append(node.lineno)
             for child in ast.iter_child_nodes(node):
                 attributes(child)
 
         for statement in body:
             attributes(statement)
+        if uncertain_receivers and binding is not None and binding[0] != "unknown":
+            return (
+                "unknown",
+                "unproved_hidden_write: "
+                + module
+                + "."
+                + name
+                + " at line "
+                + str(min(uncertain_receivers)),
+            )
         if mutations and binding is not None and binding[0] != "unknown":
             is_function = (
                 isinstance(binding[1], (ast.FunctionDef, ast.AsyncFunctionDef))
