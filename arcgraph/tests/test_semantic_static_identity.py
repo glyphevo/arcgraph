@@ -17,7 +17,7 @@ from arcgraph.tests.test_semantic_implementation_conflicts import mark
         "def read(value=(run := replacement)): pass",
         "class Other(object, flag=(run := replacement)): pass",
         "del run",
-        "from impl import run",  # A second binding, even to the same declaration.
+        "from other import run",  # Rebind the selected name to a different declaration.
         "for run in values: pass",
         "with context() as run: pass",
         "try:\n pass\nexcept Exception as run:\n pass",
@@ -45,6 +45,7 @@ def test_static_namespace_rebinding_prevents_proof(tmp_path, write):
         tmp_path,
         {
             "impl.py": "def run(): pass\n",
+            "other.py": "def run(): pass\n",
             "pkg.py": "from impl import run\n" + write + "\n",
         },
         "extsym:pkg.run",

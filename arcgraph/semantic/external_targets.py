@@ -353,14 +353,23 @@ class Capture:
             return
 
 
-def target_condition(node, snapshot):
-    """Evaluate only version/platform syntax against the frozen target context."""
+def target_condition(
+    node, snapshot, *, condition_name=None, sys_bound=True, evaluated=None
+):
+    """Evaluate static booleans and target syntax, with optional frozen aliases."""
     if snapshot is None:
         return None
+    if evaluated is not None and not (
+        isinstance(node, ast.BoolOp)
+        or isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, ast.Not)
+    ):
+        evaluated.append(node)
 
     def attribute(value, name):
         return (
-            isinstance(value, ast.Attribute)
+            sys_bound
+            and isinstance(value, ast.Attribute)
             and isinstance(value.value, ast.Name)
             and value.value.id == "sys"
             and value.attr == name
@@ -404,15 +413,32 @@ def target_condition(node, snapshot):
             return tuple(v.value for v in value.elts)
         return None
 
+    def evaluate(value):
+        return target_condition(
+            value,
+            snapshot,
+            condition_name=condition_name,
+            sys_bound=sys_bound,
+            evaluated=evaluated,
+        )
+
+    if isinstance(node, ast.Constant) and type(node.value) is bool:
+        return node.value
+    if isinstance(node, (ast.Name, ast.Attribute)) and condition_name is not None:
+        return condition_name(node)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-        value = target_condition(node.operand, snapshot)
+        value = evaluate(node.operand)
         return None if value is None else not value
     if isinstance(node, ast.BoolOp):
-        values = [target_condition(v, snapshot) for v in node.values]
-        # Even a short-circuit result must not admit an arbitrary expression.
-        if any(v is None for v in values):
-            return None
-        return all(values) if isinstance(node.op, ast.And) else any(values)
+        conjunction = isinstance(node.op, ast.And)
+        unknown = False
+        for operand in node.values:
+            value = evaluate(operand)
+            if value is None:
+                unknown = True
+            elif value != conjunction:
+                return value
+        return None if unknown else conjunction
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)

@@ -43,6 +43,7 @@ class ImplementationProof:
         self.scopes = {}
         self.checking_writes = False
         self.receivers = {}
+        self.conditions = {}
 
     def exact_file(self, path, root):
         if not safe_file(path, root):
@@ -204,6 +205,81 @@ class ImplementationProof:
             (*package[: len(package) - node.level + 1], *(node.module or "").split("."))
         ).rstrip(".")
 
+    def type_checking_reference(self, reference, seen):
+        """Follow import aliases to the two typing sentinels, without execution."""
+        if reference in ("typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"):
+            return True
+        seen = self.step("condition:" + reference, seen)
+        parts = reference.split(".")
+        for length in range(len(parts) - 1, 0, -1):
+            module = ".".join(parts[:length])
+            source = self.module(module)
+            if source is None:
+                continue
+            binding = self.binding(module, source[0].body, parts[length], seen)
+            if binding is None or binding[0] not in ("alias", "module_alias"):
+                return None
+            return self.type_checking_reference(
+                ".".join((binding[1], *parts[length + 1 :])), seen
+            )
+        return None
+
+    def condition(self, module, body, node, seen, sys_bound):
+        key = (module, tuple(body), node, sys_bound)
+        if key in self.conditions:
+            return self.conditions[key]
+
+        def condition_name(expression):
+            parts = ast.unparse(expression).split(".")
+            if not all(part.isidentifier() for part in parts):
+                return None
+            try:
+                binding = self.binding(module, body, parts[0], seen, node.lineno)
+                source = self.module(module)[0].body
+                if binding is None and body is not source:
+                    binding = self.binding(module, source, parts[0], seen, node.lineno)
+                if binding is None or binding[0] not in ("alias", "module_alias"):
+                    return None
+                return self.type_checking_reference(
+                    ".".join((binding[1], *parts[1:])), seen
+                )
+            except Unproved:
+                return None
+
+        evaluated = []
+        result = target_condition(
+            node.test,
+            self.snapshot,
+            condition_name=condition_name,
+            sys_bound=sys_bound,
+            evaluated=evaluated,
+        )
+        self.conditions[key] = (result, tuple(evaluated))
+        return self.conditions[key]
+
+    def same_bindings(self, module, bindings, seen):
+        """Every write must resolve to the same concrete declaration."""
+        declaration = None
+        for binding in bindings:
+            if binding is None or binding[0] == "unknown":
+                return False
+            try:
+                if binding[0] == "definition":
+                    value = binding[1]
+                else:
+                    resolved = self.bound(("module", module, None), "", binding, seen)
+                    if resolved[0] not in ("function", "class"):
+                        return False
+                    value = resolved[2]
+                if value is None:
+                    return False
+                if declaration is not None and value is not declaration:
+                    return False
+                declaration = value
+            except Unproved:
+                return False
+        return declaration is not None
+
     def binding(self, module, body, name, seen, before=None, members=()):
         """Evaluate writes in order, rejecting unknown suites and runtime aliases."""
         binding = None
@@ -219,7 +295,7 @@ class ImplementationProof:
         )
         module_scope = namespace is None or isinstance(namespace, ast.Module)
         function_scope = isinstance(namespace, (ast.FunctionDef, ast.AsyncFunctionDef))
-        writes = 0
+        writes = []
 
         def unknown_writes(node, selected=name):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -277,7 +353,7 @@ class ImplementationProof:
             )
 
         def visit(statements):
-            nonlocal binding, sys_bound, definitions, writes
+            nonlocal binding, sys_bound, definitions
             for node in statements:
                 if before is not None and node.lineno >= before:
                     continue
@@ -292,7 +368,7 @@ class ImplementationProof:
                     and not overload
                     and unknown_writes(node)
                 ):
-                    writes += 1
+                    writes.append(None)
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         local = alias.asname or alias.name.split(".")[0]
@@ -303,14 +379,18 @@ class ImplementationProof:
                                 "module_alias",
                                 alias.name if alias.asname else local,
                             )
+                            if writes[-1] is None:
+                                writes[-1] = binding
+                            else:
+                                writes.append(binding)
                 elif isinstance(node, ast.ImportFrom):
                     origin = self.import_from(module, node)
                     for alias in node.names:
                         if (alias.asname or alias.name) in ("sys", "*"):
                             sys_bound = False
                         if (alias.asname or alias.name) == name:
-                            writes += 1
                             binding = ("alias", origin + "." + alias.name)
+                            writes.append(binding)
                         elif alias.name == "*":
                             try:
                                 exported = self.exported(origin, name, seen)
@@ -318,8 +398,8 @@ class ImplementationProof:
                                 binding = ("unknown", str(exc))
                             else:
                                 if exported:
-                                    writes += 1
                                     binding = ("alias", origin + "." + name)
+                                    writes.append(binding)
                 elif isinstance(
                     node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
                 ):
@@ -342,22 +422,31 @@ class ImplementationProof:
                                     "multiple_definitions: " + module + "." + name,
                                 )
                             )
+                            writes[-1] = binding
                 elif isinstance(node, ast.If):
-                    active = (
-                        target_condition(node.test, self.snapshot)
-                        if sys_bound
-                        else None
+                    active, evaluated = self.condition(
+                        module, body, node, seen, sys_bound
                     )
                     if active is None:
                         if unknown_writes(node, "sys"):
                             sys_bound = False
                         if unknown_writes(node):
-                            writes += 1
+                            writes.append(None)
                             binding = (
                                 "unknown",
                                 "conditional_binding: " + module + "." + name,
                             )
                     else:
+                        # A known result can still evaluate a binding expression
+                        # before a decisive operand. Skipped operands do not bind.
+                        if any(unknown_writes(value) for value in evaluated):
+                            writes.append(None)
+                            binding = (
+                                "unknown",
+                                "assignment_binding: " + module + "." + name,
+                            )
+                        if any(unknown_writes(value, "sys") for value in evaluated):
+                            sys_bound = False
                         visit(node.body if active else node.orelse)
                 else:
                     if unknown_writes(node):
@@ -369,7 +458,12 @@ class ImplementationProof:
                         sys_bound = False
 
         visit(body)
-        if writes > 1 and binding is not None and binding[0] != "unknown":
+        if (
+            len(writes) > 1
+            and binding is not None
+            and binding[0] != "unknown"
+            and not self.same_bindings(module, writes, seen)
+        ):
             return ("unknown", "multiple_bindings: " + module + "." + name)
 
         def nested_write(node):
