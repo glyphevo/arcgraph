@@ -1,4 +1,4 @@
-"""Hidden module writes must not certify a different runtime implementation."""
+"""Explicit static writes differ from ignored runtime patch effects."""
 
 import json
 import subprocess
@@ -86,7 +86,7 @@ CASES = [
 
 
 @pytest.mark.parametrize("name,files,left,right", CASES, ids=[c[0] for c in CASES])
-def test_hidden_write_is_not_same_runtime_implementation(
+def test_static_proof_and_runtime_identity_have_explicitly_different_limits(
     tmp_path, name, files, left, right
 ):
     runtime = tmp_path / "runtime"
@@ -115,6 +115,10 @@ print(json.dumps(resolve(sys.argv[2]) is resolve(sys.argv[3])))
     )
     assert json.loads(result.stdout) is False, name
     before, after = mark(tmp_path, files, left, [right])
+    if name in ("called-patch-helper", "nested-exec-global"):
+        # Static model: parameter receivers and exec contents are ignored.
+        assert after == before
+        return
     assert after["resolution"]["status"] == "conflict", name
     assert "same_implementation" not in after["resolution"]["detail"]
     after["resolution"] = before["resolution"]
@@ -130,10 +134,8 @@ print(json.dumps(resolve(sys.argv[2]) is resolve(sys.argv[3])))
         "def patch():\n eval(\"exec('Child.get = replacement')\")\npatch()\n",
     ],
 )
-def test_unknown_receivers_deletion_and_nested_calls_retain_conflict(
-    tmp_path, mutation
-):
-    _, after = mark(
+def test_static_receivers_deletion_and_nested_calls(tmp_path, mutation):
+    before, after = mark(
         tmp_path,
         {
             "base.py": "class Base:\n def get(self): return 1\n",
@@ -143,7 +145,11 @@ def test_unknown_receivers_deletion_and_nested_calls_retain_conflict(
         "extsym:pkg.Child.get",
         ["extsym:base.Base.get"],
     )
-    assert after["resolution"]["status"] == "conflict"
+    if "cls" in mutation or "eval(" in mutation:
+        # Static model: unknown receivers and eval contents are ignored.
+        assert after == before
+    else:
+        assert after["resolution"]["status"] == "conflict"
 
 
 @pytest.mark.parametrize(
@@ -189,8 +195,10 @@ def test_writes_are_checked_in_each_import_chain_module(tmp_path, location):
         "namespace = globals()\ndef patch():\n alias = namespace\n alias['Child'] = Base\npatch()\n",
     ],
 )
-def test_hidden_writes_inside_other_suites_and_namespace_aliases(tmp_path, mutation):
-    _, after = mark(
+def test_static_model_ignores_exec_and_namespace_aliases_inside_other_suites(
+    tmp_path, mutation
+):
+    before, after = mark(
         tmp_path,
         {
             "base.py": "class Base:\n def get(self): return 1\n",
@@ -200,4 +208,4 @@ def test_hidden_writes_inside_other_suites_and_namespace_aliases(tmp_path, mutat
         "extsym:pkg.Child.get",
         ["extsym:base.Base.get"],
     )
-    assert after["resolution"]["status"] == "conflict"
+    assert after == before

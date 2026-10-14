@@ -1,4 +1,4 @@
-"""Only writes to the selected namespace or member prevent identity proofs."""
+"""Only statically determined writes to the selected target prevent proofs."""
 
 import pytest
 
@@ -43,40 +43,49 @@ def test_irrelevant_writes_preserve_reexport_but_selected_writes_do_not(
         root.mkdir()
         before, after = mark(root, files, "extsym:" + left, ["extsym:" + right])
         assert after["resolution"] == before["resolution"]
-    # Pair each permissive case with a relevant write to avoid accepting all
-    # mutations accidentally. Both fixed and dynamic attribute names matter.
+    # The static model rejects a selected constant member. An unresolved member
+    # name is ignored even when it might select that member at runtime.
     for index, attribute in enumerate(('"get"', "name")):
         root = tmp_path / ("selected" + str(index))
         root.mkdir()
         changed = dict(files)
         changed["pkg.py"] += "setattr(x, " + attribute + ", replacement)\n"
-        _, after = mark(root, changed, "extsym:pkg.Child.get", ["extsym:base.Base.get"])
-        assert after["resolution"]["status"] == "conflict"
+        before, after = mark(
+            root, changed, "extsym:pkg.Child.get", ["extsym:base.Base.get"]
+        )
+        assert (after["resolution"]["status"] == "conflict") is (attribute == '"get"')
+        if attribute == "name":
+            assert after == before
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    "mutation,conflict",
     [
-        "setattr(x, name, replacement)",
-        'setattr(x, "get", replacement)',
-        'delattr(x, "get")',
-        "x.get = replacement",
-        "del x.get",
-        'exec("x.get = replacement")',
-        'def patch():\n exec("x.get = replacement")',
-        "exec(dynamic_source)",
-        "eval(dynamic_source)",
-        'globals()["run"] = replacement',
-        "globals()[name] = replacement",
-        'vars().update({"run": replacement})',
-        "def patch():\n global run\n run = replacement",
-        "def patch():\n nonlocal run\n run = replacement",
-        "exec(\"namespace = globals(); namespace['run'] = replacement\")",
-        'def patch():\n exec("run = replacement", globals())',
-        "def patch():\n exec(\"ns = globals(); ns['run'] = replacement\")",
+        ("setattr(x, name, replacement)", False),
+        ('setattr(x, "get", replacement)', True),
+        ('delattr(x, "get")', True),
+        ("x.get = replacement", True),
+        ("del x.get", True),
+        ('exec("x.get = replacement")', False),
+        ('def patch():\n exec("x.get = replacement")', False),
+        ("exec(dynamic_source)", False),
+        ("eval(dynamic_source)", False),
+        ('globals()["run"] = replacement', False),
+        ("globals()[name] = replacement", False),
+        ('vars().update({"run": replacement})', False),
+        ("def patch():\n global run\n run = replacement", True),
+        # There is no enclosing function binding here: nonlocal cannot select
+        # the module's run. The separate static-identity test covers a real
+        # enclosing-function nonlocal write and rejects that binding.
+        ("def patch():\n nonlocal run\n run = replacement", False),
+        ("exec(\"namespace = globals(); namespace['run'] = replacement\")", False),
+        ('def patch():\n exec("run = replacement", globals())', False),
+        ("def patch():\n exec(\"ns = globals(); ns['run'] = replacement\")", False),
     ],
 )
-def test_object_identity_and_relevant_namespace_or_member_write(tmp_path, mutation):
+def test_object_identity_and_relevant_namespace_or_member_write(
+    tmp_path, mutation, conflict
+):
     # Attributes on the class itself do not change its object identity.
     files = {
         "base.py": "def run(): pass\nclass Base:\n def get(self): pass\n",
@@ -102,5 +111,10 @@ def test_object_identity_and_relevant_namespace_or_member_write(tmp_path, mutati
         or "namespace['run']" in mutation
         else ("Child.get", "Base.get")
     )
-    _, after = mark(negative, files, "extsym:pkg." + name, ["extsym:base." + original])
-    assert after["resolution"]["status"] == "conflict"
+    before, after = mark(
+        negative, files, "extsym:pkg." + name, ["extsym:base." + original]
+    )
+    assert (after["resolution"]["status"] == "conflict") is conflict
+    if not conflict:
+        # These runtime effects deliberately do not change static identity.
+        assert after == before

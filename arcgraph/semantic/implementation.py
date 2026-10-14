@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .external_targets import read_allowed, safe_file, target_condition
 from .snapshot import canonical, sha
+from .static_writes import member_writes, suite_nodes
 
 
 class Unproved(ValueError):
@@ -12,7 +13,10 @@ class Unproved(ValueError):
 
 
 class ImplementationProof:
-    """Follow imports and C3 member lookup; never import or execute project code.
+    """Follow static imports and C3 lookup; never execute project code.
+
+    Like pyright's primary answers, identity describes static declarations,
+    not runtime patches, namespace dictionaries, exec/eval or decorator effects.
 
     Only captured workspace paths and the build's private dependency copy are
     searched. Declarations from an ambient interpreter are never implementation
@@ -35,7 +39,10 @@ class ImplementationProof:
         self.modules = {}
         self.results = {}
         self.directory_names = {}
-        self.code_trees = {}
+        self.writes = {}
+        self.scopes = {}
+        self.checking_writes = False
+        self.receivers = {}
 
     def exact_file(self, path, root):
         if not safe_file(path, root):
@@ -202,116 +209,52 @@ class ImplementationProof:
         binding = None
         sys_bound = False
         definitions = 0
-        namespace_aliases = set()
-        global_aliases = set()
-        module_scope = not any(
-            isinstance(node, ast.ClassDef) and node.body is body
-            for node in ast.walk(self.module(module)[0])
+        namespace = next(
+            (
+                node
+                for node in ast.walk(self.module(module)[0])
+                if getattr(node, "body", None) is body
+            ),
+            None,
         )
+        module_scope = namespace is None or isinstance(namespace, ast.Module)
+        function_scope = isinstance(namespace, (ast.FunctionDef, ast.AsyncFunctionDef))
+        writes = 0
 
-        def namespace(value, global_only=False):
-            if isinstance(value, ast.Name):
-                return value.id in (
-                    global_aliases if global_only else namespace_aliases
-                )
-            if (
-                isinstance(value, ast.Call)
-                and isinstance(value.func, ast.Name)
-                and not value.args
-            ):
-                return (
-                    value.func.id == "globals"
-                    and module_scope
-                    or value.func.id in ("locals", "vars")
-                    and not global_only
-                )
-            return False
-
-        # Locals in a nested function/class belong to that nested namespace.
-        # globals() still denotes the module namespace in any nested suite.
-        assignments = []
-        pending = [(node, False) for node in body]
-        while pending:
-            node, nested = pending.pop()
-            if isinstance(node, (ast.Assign, ast.AnnAssign)):
-                assignments.append((node, nested))
-            nested = nested or isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            )
-            pending.extend((child, nested) for child in ast.iter_child_nodes(node))
-        for _ in range(64):
-            previous = (namespace_aliases.copy(), global_aliases.copy())
-            for statement, nested in assignments:
-                if statement.value is not None and namespace(statement.value, nested):
-                    targets = (
-                        statement.targets
-                        if isinstance(statement, ast.Assign)
-                        else [statement.target]
-                    )
-                    names = {t.id for t in targets if isinstance(t, ast.Name)}
-                    namespace_aliases.update(names)
-                    if module_scope and (
-                        not nested or namespace(statement.value, True)
-                    ):
-                        global_aliases.update(names)
-            if previous == (namespace_aliases, global_aliases):
-                break
-        else:
-            raise Unproved("proof_limit")
-
-        def key_writes(key, selected):
-            return not isinstance(key, ast.Constant) or key.value == selected
-
-        def namespace_write(node, selected, global_only=False):
-            if isinstance(node, ast.Subscript) and isinstance(
-                node.ctx, (ast.Store, ast.Del)
-            ):
-                return namespace(node.value, global_only) and key_writes(
-                    node.slice, selected
-                )
-            if not isinstance(node, ast.Call) or not isinstance(
-                node.func, ast.Attribute
-            ):
-                return False
-            if not namespace(node.func.value, global_only):
-                return False
-            method = node.func.attr
-            if method in ("__setitem__", "__delitem__", "pop", "setdefault"):
-                return not node.args or key_writes(node.args[0], selected)
-            if method in ("clear", "popitem"):
-                return True
-            if method == "update":
-                if any(k.arg is None or k.arg == selected for k in node.keywords):
-                    return True
-                return any(
-                    not isinstance(arg, ast.Dict)
-                    or any(k is None or key_writes(k, selected) for k in arg.keys)
-                    for arg in node.args
-                )
-            return False
-
-        def code_aliases(code, global_only=False):
-            for _ in range(64):
-                previous = (namespace_aliases.copy(), global_aliases.copy())
-                for v in ast.walk(code):
-                    if isinstance(v, ast.Assign) and namespace(v.value, global_only):
-                        names = {t.id for t in v.targets if isinstance(t, ast.Name)}
-                        namespace_aliases.update(names)
-                        if module_scope and (
-                            not global_only or namespace(v.value, True)
-                        ):
-                            global_aliases.update(names)
-                if previous == (namespace_aliases, global_aliases):
-                    return
-            raise Unproved("proof_limit")
-
-        def unknown_writes(node, selected=name, depth=0):
-            if depth > 64:
-                raise Unproved("proof_limit")
-            if namespace_write(node, selected):
-                return True
+        def unknown_writes(node, selected=name):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                return node.name == selected
+                expressions = list(node.decorator_list)
+                if isinstance(node, ast.ClassDef):
+                    expressions.extend(
+                        [*node.bases, *(item.value for item in node.keywords)]
+                    )
+                else:
+                    expressions.extend([*node.args.defaults, *node.args.kw_defaults])
+                return node.name == selected or any(
+                    unknown_writes(value, selected)
+                    for value in expressions
+                    if value is not None
+                )
+            if isinstance(node, ast.Lambda):
+                return any(
+                    unknown_writes(value, selected)
+                    for value in [*node.args.defaults, *node.args.kw_defaults]
+                    if value is not None
+                )
+            if isinstance(
+                node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+            ):
+                expressions = (
+                    [node.key, node.value]
+                    if isinstance(node, ast.DictComp)
+                    else [node.elt]
+                )
+                expressions.extend(
+                    value
+                    for generator in node.generators
+                    for value in [generator.iter, *generator.ifs]
+                )
+                return any(unknown_writes(value, selected) for value in expressions)
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 return any(
                     a.name == "*" or (a.asname or a.name.split(".")[0]) == selected
@@ -321,68 +264,35 @@ class ImplementationProof:
                 node.ctx, (ast.Store, ast.Del)
             ):
                 return node.id == selected
-            if isinstance(node, (ast.Global, ast.Nonlocal)):
-                return selected in node.names
+            if isinstance(node, ast.ExceptHandler) and node.name == selected:
+                return True
             if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == selected:
                 return True
             if isinstance(node, ast.MatchMapping) and node.rest == selected:
                 return True
-            if isinstance(node, ast.Call):
-                if selected == "__all__" and any(
-                    isinstance(v, ast.Name) and v.id == "__all__"
-                    for v in ast.walk(node)
-                ):
-                    return True
-                if (
-                    selected == "sys"
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id in ("setattr", "delattr")
-                    and node.args
-                    and any(
-                        isinstance(v, ast.Name) and v.id == "sys"
-                        for v in ast.walk(node.args[0])
-                    )
-                ):
-                    return True
-                if isinstance(node.func, ast.Name) and node.func.id in ("exec", "eval"):
-                    code = self.literal_code(node)
-                    if code is not None:
-                        code_aliases(code)
-                    return code is None or unknown_writes(code, selected, depth + 1)
-            if isinstance(node, ast.Subscript) and isinstance(
-                node.ctx, (ast.Store, ast.Del)
-            ):
-                return selected == "__all__" and any(
-                    isinstance(v, ast.Name) and v.id == selected
-                    for v in ast.walk(node.value)
-                )
-            if isinstance(node, ast.Attribute) and isinstance(
-                node.ctx, (ast.Store, ast.Del)
-            ):
-                return selected == "sys" and any(
-                    isinstance(v, ast.Name) and v.id == selected
-                    for v in ast.walk(node.value)
-                )
-            if (
-                selected == "__all__"
-                and isinstance(node, (ast.Assign, ast.AnnAssign))
-                and node.value is not None
-                and any(
-                    isinstance(v, ast.Name) and v.id == selected
-                    for v in ast.walk(node.value)
-                )
-            ):
-                return True
+            # Calls, namespace subscripts and runtime effects do not bind names
+            # in this static model. Their ordinary argument expressions may.
             return any(
-                unknown_writes(child, selected, depth)
-                for child in ast.iter_child_nodes(node)
+                unknown_writes(child, selected) for child in ast.iter_child_nodes(node)
             )
 
         def visit(statements):
-            nonlocal binding, sys_bound, definitions
+            nonlocal binding, sys_bound, definitions, writes
             for node in statements:
                 if before is not None and node.lineno >= before:
                     continue
+                overload = isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and any(
+                    ast.unparse(d).split(".")[-1] == "overload"
+                    for d in node.decorator_list
+                )
+                if (
+                    not isinstance(node, (ast.If, ast.ImportFrom))
+                    and not overload
+                    and unknown_writes(node)
+                ):
+                    writes += 1
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         local = alias.asname or alias.name.split(".")[0]
@@ -399,6 +309,7 @@ class ImplementationProof:
                         if (alias.asname or alias.name) in ("sys", "*"):
                             sys_bound = False
                         if (alias.asname or alias.name) == name:
+                            writes += 1
                             binding = ("alias", origin + "." + alias.name)
                         elif alias.name == "*":
                             try:
@@ -407,6 +318,7 @@ class ImplementationProof:
                                 binding = ("unknown", str(exc))
                             else:
                                 if exported:
+                                    writes += 1
                                     binding = ("alias", origin + "." + name)
                 elif isinstance(
                     node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
@@ -440,6 +352,7 @@ class ImplementationProof:
                         if unknown_writes(node, "sys"):
                             sys_bound = False
                         if unknown_writes(node):
+                            writes += 1
                             binding = (
                                 "unknown",
                                 "conditional_binding: " + module + "." + name,
@@ -456,123 +369,88 @@ class ImplementationProof:
                         sys_bound = False
 
         visit(body)
+        if writes > 1 and binding is not None and binding[0] != "unknown":
+            return ("unknown", "multiple_bindings: " + module + "." + name)
 
-        def nested_write(node, depth=0):
-            if depth > 64:
-                raise Unproved("proof_limit")
-            if isinstance(node, (ast.Global, ast.Nonlocal)):
-                return module_scope and name in node.names
-            if namespace_write(node, name, True):
-                return True
-            if name == "__all__" and isinstance(node, ast.Name) and node.id == name:
-                return True
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in ("exec", "eval")
+        def nested_write(node):
+            if not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
             ):
-                code = self.literal_code(node)
-                if code is None:
-                    return True
-                code_aliases(code, True)
-                if any(namespace(arg, True) for arg in node.args[1:]):
-                    return unknown_writes(code)
-                # Constant default exec uses the nested local namespace. Only
-                # explicit globals/nonlocals or namespace writes affect ours.
-                return any(nested_write(v, depth + 1) for v in ast.walk(code))
-            return False
+                return False
+            nodes = list(suite_nodes(node.body))
+            declared = any(
+                isinstance(value, ast.Global)
+                and module_scope
+                and name in value.names
+                or isinstance(value, ast.Nonlocal)
+                and function_scope
+                and name in value.names
+                for value in nodes
+                if value is not None
+            )
+            if declared and any(unknown_writes(value) for value in node.body):
+                return True
+            return any(nested_write(value) for value in nodes if value is not None)
 
-        for statement in body:
-            if isinstance(
-                statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            ):
-                if any(nested_write(v) for v in ast.walk(statement)):
-                    return ("unknown", "nested_namespace_write: " + module + "." + name)
-        if members:
-            line = self.member_write(self.module(module)[0], members)
-            if line is not None and binding is not None and binding[0] != "unknown":
-                direct = any(
-                    getattr(v, "lineno", None) == line
-                    and (
-                        isinstance(v, ast.Attribute)
-                        and isinstance(v.ctx, (ast.Store, ast.Del))
-                        and isinstance(v.value, ast.Name)
-                        and v.value.id == name
-                        or isinstance(v, ast.Call)
-                        and isinstance(v.func, ast.Name)
-                        and v.func.id in ("setattr", "delattr")
-                        and v.args
-                        and isinstance(v.args[0], ast.Name)
-                        and v.args[0].id == name
-                    )
-                    for v in ast.walk(self.module(module)[0])
-                )
-                if direct:
-                    return ("unknown", "assignment_binding: " + module + "." + name)
-                return (
-                    "unknown",
-                    "unproved_hidden_write: "
-                    + module
-                    + "."
-                    + name
-                    + " at line "
-                    + str(line),
-                )
+        if any(nested_write(node) for node in suite_nodes(body) if node is not None):
+            return ("unknown", "nested_namespace_write: " + module + "." + name)
         return binding
 
-    def literal_code(self, node):
-        if (
-            not node.args
-            or not isinstance(node.args[0], ast.Constant)
-            or not isinstance(node.args[0].value, str)
-        ):
-            return None
-        text = node.args[0].value
-        mode = "exec" if node.func.id == "exec" else "eval"
-        key = (text, mode)
-        if key not in self.code_trees:
-            self.remaining -= 1
-            if self.remaining < 0:
-                raise Unproved("proof_limit")
-            self.code_trees[key] = ast.parse(text, mode=mode)
-        return self.code_trees[key]
+    def module_writes(self, module, source):
+        if module not in self.writes:
+            self.writes[module] = member_writes(
+                source[0], module, self.import_from, self.snapshot, self.scopes
+            )
+        return self.writes[module]
 
-    def member_write(self, tree, members, depth=0):
-        """Any receiver may alias the class; only selected attributes matter."""
-        if depth > 64:
-            raise Unproved("proof_limit")
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.ctx, (ast.Store, ast.Del))
-                and node.attr in members
-            ):
-                return node.lineno
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id in ("setattr", "delattr") and len(node.args) >= 2:
-                    attr = node.args[1]
-                    if not isinstance(attr, ast.Constant) or attr.value in members:
-                        return node.lineno
-                if node.func.id in ("exec", "eval"):
-                    code = self.literal_code(node)
-                    if (
-                        code is None
-                        or self.member_write(code, members, depth + 1) is not None
-                    ):
-                        return node.lineno
-            if isinstance(node, ast.Subscript) and isinstance(
-                node.ctx, (ast.Store, ast.Del)
-            ):
-                value, key = node.value, node.slice
-                if (
-                    isinstance(value, ast.Attribute)
-                    and value.attr == "__dict__"
-                    or isinstance(value, ast.Call)
-                    and isinstance(value.func, ast.Name)
-                    and value.func.id == "vars"
-                    and value.args
-                ) and (not isinstance(key, ast.Constant) or key.value in members):
-                    return node.lineno
+    def static_reference(self, reference, seen=()):
+        if reference in seen or len(seen) >= 64:
+            return None
+        if reference in ("builtins.setattr", "builtins.delattr"):
+            return reference
+        if self.module(reference) is not None:
+            return reference
+        parts = reference.split(".")
+        for length in range(len(parts) - 1, 0, -1):
+            module = ".".join(parts[:length])
+            source = self.module(module)
+            if source is None:
+                continue
+            self.module_writes(module, source)
+            expression = ast.parse(".".join(parts[length:]), mode="eval").body
+            target = self.scopes[module].reference(expression)
+            if target is None or target == reference:
+                return target
+            return self.static_reference(target, (*seen, reference))
+        return reference
+
+    def member_write(self, owner, name):
+        """Reject only writes whose receiver resolves to this class or module."""
+        for module, source in tuple(self.modules.items()):
+            if source is None:
+                continue
+            for receiver, attribute, line, callee in self.module_writes(module, source):
+                if attribute != name:
+                    continue
+                if callee is not None and self.static_reference(callee) not in (
+                    "builtins.setattr",
+                    "builtins.delattr",
+                ):
+                    continue
+                reference = self.static_reference(receiver)
+                if reference is None:
+                    continue
+                try:
+                    self.checking_writes = True
+                    if reference not in self.receivers:
+                        self.receivers[reference] = self.resolve(reference, ())
+                    resolved = self.receivers[reference]
+                except (Unproved, OSError, ValueError, SyntaxError, UnicodeError):
+                    continue
+                finally:
+                    self.checking_writes = False
+                if resolved[:2] == owner[:2]:
+                    return module, line
         return None
 
     def exported(self, module, name, seen):
@@ -613,6 +491,11 @@ class ImplementationProof:
     def member(self, value, name, seen, members=()):
         kind, qualified, node = value
         module = qualified if kind == "module" else self.defining_module(qualified)
+        if kind in ("module", "class") and not self.checking_writes:
+            write = self.member_write(value, name)
+            if write is not None:
+                writer, line = write
+                raise Unproved(f"static_member_write: {writer}.{name} at line {line}")
         if kind == "module":
             binding = self.binding(module, node.body, name, seen, members=members)
             # A module getter only supplies missing attributes. Explicit imports
@@ -680,8 +563,6 @@ class ImplementationProof:
         node = value[2]
         if node is None:
             return [value]
-        if node.keywords or node.decorator_list:
-            raise Unproved("dynamic_class: " + value[1])
         module = self.defining_module(value[1])
         parents = []
         for base in node.bases:
