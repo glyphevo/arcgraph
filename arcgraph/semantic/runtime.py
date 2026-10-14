@@ -218,6 +218,37 @@ class SessionPool:
         return receipt
 
     @contextmanager
+    def readonly_view(self, root, receipt):
+        """Freeze checked modes through launch, then restore them for cleanup.
+
+        This guards accidental damage and drift from concurrent tools. It does
+        not isolate a process running as the same user and controlling timing;
+        that process can also rewrite ArcGraph itself.
+        """
+        container_mode = root.parent.stat().st_mode
+        try:
+            for row in reversed(receipt):
+                (root / row[0]).chmod(row[3] & ~0o222)
+            root.parent.chmod(container_mode & ~0o222)
+            sealed = tuple((*r[:3], r[3] & ~0o222, *r[4:]) for r in receipt)
+            try:
+                yield
+            finally:
+                if self.content_receipt(root) != sealed:
+                    raise InstallError(
+                        "Private pyright installation changed during collection."
+                    )
+        finally:
+            root.parent.chmod(container_mode)
+            # Never follow a replacement link while restoring cleanup modes.
+            for row in receipt:
+                path = root / row[0]
+                if not path.is_symlink() and path.exists():
+                    info = path.stat()
+                    if (info.st_dev, info.st_ino) == row[1:3]:
+                        path.chmod(row[3])
+
+    @contextmanager
     def package_view(self):
         # Independent URI partitions preserve declaration/reexport mapping.
         # Copy bytes: mutations of the retained installation cannot reach a view.
@@ -275,27 +306,29 @@ def session(root, config, *, transcript=None, pool=None):
     )
     with pool.package_view() as package:
         pool.check_node()
-        pool.check_view(package.parent)
-        peer = Client(
-            [str(pool.node), str(package / "langserver.index.js"), "--stdio"],
-            root,
-            pool.env,
-            {"python": {"analysis": config}},
-            transcript=transcript,
-        )
-        try:
-            yield peer, {
-                "node": str(pool.node),
-                "node_version": pool.version,
-                "pyright_version": VERSION,
-                "typeshed": str(package / "dist/typeshed-fallback"),
-            }
-        finally:
-            peer.close()
-            if pool.content_receipt() != pool.receipt:
-                raise InstallError(
-                    "Private pyright installation changed during collection."
-                )
+        receipt = pool.check_view(package.parent)
+        with pool.readonly_view(package.parent, receipt):
+            pool.check_node()
+            peer = Client(
+                [str(pool.node), str(package / "langserver.index.js"), "--stdio"],
+                root,
+                pool.env,
+                {"python": {"analysis": config}},
+                transcript=transcript,
+            )
+            try:
+                yield peer, {
+                    "node": str(pool.node),
+                    "node_version": pool.version,
+                    "pyright_version": VERSION,
+                    "typeshed": str(package / "dist/typeshed-fallback"),
+                }
+            finally:
+                peer.close()
+                if pool.content_receipt() != pool.receipt:
+                    raise InstallError(
+                        "Private pyright installation changed during collection."
+                    )
 
 
 def semantic_core_check(
