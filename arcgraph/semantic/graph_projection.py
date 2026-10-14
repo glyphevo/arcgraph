@@ -105,6 +105,7 @@ def project_graph(
     primary_producer,
     primary=None,
     conflict_unverified_external=False,
+    frozen_root=None,
     model_output=False,
 ):
     """Retain out-of-scope defaults; alter only exactly mapped callsite supports.
@@ -401,8 +402,30 @@ def project_graph(
                 + "; retained analyzer fallback"
             )
     if conflict_unverified_external:
+        implementation_proof = None
+        if frozen_root is not None:
+            from .implementation import ImplementationProof
+
+            implementation_proof = ImplementationProof(
+                frozen_root,
+                view.bundle.snapshot,
+                {
+                    **{d.id: d.qualname for d in view.definitions},
+                    **{
+                        symbols[d.id]: d.qualname
+                        for d in view.definitions
+                        if d.id in symbols
+                    },
+                },
+            )
         mark_unverified_external(
-            view, by_key, decisions, primary_producer, primary, symbols
+            view,
+            by_key,
+            decisions,
+            primary_producer,
+            primary,
+            symbols,
+            implementation_proof=implementation_proof,
         )
     return [
         edge if model_output else edge.model_dump(mode="json")
@@ -411,7 +434,14 @@ def project_graph(
 
 
 def mark_unverified_external(
-    view, by_key, decisions, primary_producer, primary, symbols
+    view,
+    by_key,
+    decisions,
+    primary_producer,
+    primary,
+    symbols,
+    *,
+    implementation_proof=None,
 ):
     """Mark unmatched legacy external targets after the usual support projection."""
     if (
@@ -451,7 +481,7 @@ def mark_unverified_external(
         for edge in by_key.values():
             if not edge.target.startswith("extsym:"):
                 continue
-            expressions = set()
+            expressions, reasons = set(), set()
             for fact in call_facts(edge.model_dump(mode="json")):
                 key = (
                     edge.source,
@@ -463,7 +493,23 @@ def mark_unverified_external(
                     positive.get(key)
                     and edge.target not in positive[key] | verified[key]
                 ):
-                    expressions.add(str(fact.get("call_expression")))
+                    failures = []
+                    for target in sorted(positive[key]):
+                        same, reason = (
+                            implementation_proof.same(edge.target, target)
+                            if implementation_proof is not None
+                            else (False, "frozen_implementation_proof_unavailable")
+                        )
+                        if same:
+                            break
+                        failures.append(reason)
+                    else:
+                        expressions.add(str(fact.get("call_expression")))
+                        reasons.add(
+                            f"{key[1]}:{key[2]} {fact.get('call_expression')}: "
+                            + "; ".join(sorted(set(failures)))
+                        )
+                        continue
             if expressions:
                 edge.resolution.status = "conflict"
                 edge.resolution.detail = (
@@ -471,4 +517,6 @@ def mark_unverified_external(
                     + "Unverified analyzer external target: admitted pyright positive answers exist, "
                     + "but no semantic support verifies this target; call expressions: "
                     + ", ".join(sorted(expressions))
+                    + "; implementation proof failed: "
+                    + " | ".join(sorted(reasons))
                 )

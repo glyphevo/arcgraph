@@ -465,6 +465,7 @@ class SemanticBuild:
                     primary_producer=primary.producer.id,
                     primary=primary,
                     conflict_unverified_external=True,
+                    frozen_root=self.root,
                     model_output=True,
                 )
             with self._phase("input_verification"):
