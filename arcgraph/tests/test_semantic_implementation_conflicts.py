@@ -121,6 +121,11 @@ def mark(
             "extsym:impl.run",
         ),
         (
+            "from impl import run\nrun.__code__ = replacement\n",
+            "extsym:pkg.run",
+            "extsym:impl.run",
+        ),
+        (
             "from impl import run\ndef __getattr__(name): return None\n",
             "extsym:pkg.run",
             "extsym:impl.run",
@@ -253,7 +258,6 @@ def test_inherited_member_uses_c3_without_overrides(tmp_path):
             "from impl import run\ndef mutate():\n global run\n run = replacement\nmutate()\n",
             "nested_namespace_write",
         ),
-        ("from impl import run\nrun.__code__ = replacement\n", "assignment_binding"),
         (
             "import sys\nsys = replacement\nif sys.platform == 'linux':\n from impl import run\n",
             "conditional_binding",
