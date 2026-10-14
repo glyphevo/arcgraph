@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -119,6 +120,19 @@ def _node_identity(node):
     return (str(node), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
 
 
+class _ViewPermissionError(PermissionError):
+    """View recovery already diagnosed permissions; skip the mode receipt check."""
+
+
+def _restore_view_mode(path, mode):
+    immutable = bool(getattr(path.stat(), "st_flags", 0) & stat.UF_IMMUTABLE)
+    # Like tempfile._resetperms, clear flags before chmod.
+    if hasattr(os, "chflags"):
+        os.chflags(path, 0)
+    path.chmod(mode)
+    return immutable
+
+
 class SessionPool:
     """One checked private installation for a single sequential collection."""
 
@@ -132,7 +146,6 @@ class SessionPool:
             self.temporary.cleanup()
 
     def content_receipt(self, root=None):
-        import stat
         from .install import no_links
         from .external_targets import read_allowed
         from .snapshot import sha
@@ -224,8 +237,14 @@ class SessionPool:
         This guards accidental damage and drift from concurrent tools. It does
         not isolate a process running as the same user and controlling timing;
         that process can also rewrite ArcGraph itself.
+
+        On POSIX, removing directory write bits prevents creating, deleting or
+        renaming entries, and removing file write bits prevents in-place writes.
+        On Windows, chmod only marks existing files read-only: in-place writes
+        and deletion are denied, but directory entries can still be replaced.
         """
         container_mode = root.parent.stat().st_mode
+        pending = None
         try:
             for row in reversed(receipt):
                 (root / row[0]).chmod(row[3] & ~0o222)
@@ -238,15 +257,37 @@ class SessionPool:
                     raise InstallError(
                         "Private pyright installation changed during collection."
                     )
+        except BaseException as exc:
+            pending = exc
+            raise
         finally:
-            root.parent.chmod(container_mode)
-            # Never follow a replacement link while restoring cleanup modes.
+            restore_error = None
+            immutable = False
+
+            try:
+                immutable |= _restore_view_mode(root.parent, container_mode)
+            except OSError as exc:
+                restore_error = exc
             for row in receipt:
-                path = root / row[0]
-                if not path.is_symlink() and path.exists():
-                    info = path.stat()
-                    if (info.st_dev, info.st_ino) == row[1:3]:
-                        path.chmod(row[3])
+                try:
+                    path = root / row[0]
+                    # Never follow a replacement link or restore another inode.
+                    if not path.is_symlink() and path.exists():
+                        info = path.stat()
+                        if (info.st_dev, info.st_ino) == row[1:3]:
+                            immutable |= _restore_view_mode(path, row[3])
+                except OSError as exc:
+                    if restore_error is None:
+                        restore_error = exc
+            if restore_error is not None:
+                raise _ViewPermissionError(
+                    f"Unable to restore private pyright view permissions: {restore_error}"
+                ) from (pending if pending is not None else restore_error)
+            if immutable and pending is None:
+                raise _ViewPermissionError(
+                    "Private pyright view permissions changed during collection: "
+                    "user-immutable flags were cleared for cleanup."
+                )
 
     @contextmanager
     def package_view(self):
@@ -256,10 +297,14 @@ class SessionPool:
             copied = Path(name) / "installation"
             shutil.copytree(self.package.parent, copied, symlinks=True)
             receipt = self.check_view(copied)
+            permission_failure = False
             try:
                 yield copied / "package"
+            except _ViewPermissionError:
+                permission_failure = True
+                raise
             finally:
-                if self.content_receipt(copied) != receipt:
+                if not permission_failure and self.content_receipt(copied) != receipt:
                     raise InstallError(
                         "Private pyright installation changed during collection."
                     )
