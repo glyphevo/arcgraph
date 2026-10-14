@@ -205,44 +205,36 @@ class ImplementationProof:
             (*package[: len(package) - node.level + 1], *(node.module or "").split("."))
         ).rstrip(".")
 
-    def type_checking_reference(self, reference, seen):
-        """Follow import aliases to the two typing sentinels, without execution."""
-        if reference in ("typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"):
-            return True
-        seen = self.step("condition:" + reference, seen)
-        parts = reference.split(".")
-        for length in range(len(parts) - 1, 0, -1):
-            module = ".".join(parts[:length])
-            source = self.module(module)
-            if source is None:
-                continue
-            binding = self.binding(module, source[0].body, parts[length], seen)
-            if binding is None or binding[0] not in ("alias", "module_alias"):
-                return None
-            return self.type_checking_reference(
-                ".".join((binding[1], *parts[length + 1 :])), seen
-            )
-        return None
-
     def condition(self, module, body, node, seen, sys_bound):
         key = (module, tuple(body), node, sys_bound)
         if key in self.conditions:
             return self.conditions[key]
 
         def condition_name(expression):
-            parts = ast.unparse(expression).split(".")
-            if not all(part.isidentifier() for part in parts):
+            # Pyright prunes only the original sentinel name or an attribute
+            # of a directly imported typing module, not arbitrary re-exports.
+            if isinstance(expression, ast.Name) and expression.id == "TYPE_CHECKING":
+                local = expression.id
+                kind = "alias"
+                origins = ("typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING")
+            elif (
+                isinstance(expression, ast.Attribute)
+                and expression.attr == "TYPE_CHECKING"
+                and isinstance(expression.value, ast.Name)
+            ):
+                local = expression.value.id
+                kind = "module_alias"
+                origins = ("typing", "typing_extensions")
+            else:
                 return None
             try:
-                binding = self.binding(module, body, parts[0], seen, node.lineno)
+                binding = self.binding(module, body, local, seen, node.lineno)
                 source = self.module(module)[0].body
                 if binding is None and body is not source:
-                    binding = self.binding(module, source, parts[0], seen, node.lineno)
-                if binding is None or binding[0] not in ("alias", "module_alias"):
-                    return None
-                return self.type_checking_reference(
-                    ".".join((binding[1], *parts[1:])), seen
-                )
+                    binding = self.binding(module, source, local, seen, node.lineno)
+                if binding is not None and binding[0] == kind and binding[1] in origins:
+                    return True
+                return None
             except Unproved:
                 return None
 
@@ -437,9 +429,9 @@ class ImplementationProof:
                                 "conditional_binding: " + module + "." + name,
                             )
                     else:
-                        # A known result can still evaluate a binding expression
-                        # before a decisive operand. Skipped operands do not bind.
-                        if any(unknown_writes(value) for value in evaluated):
+                        # Pyright's definition list retains a binding expression
+                        # even in an operand skipped by boolean short-circuiting.
+                        if unknown_writes(node.test):
                             writes.append(None)
                             binding = (
                                 "unknown",
