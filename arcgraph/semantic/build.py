@@ -284,17 +284,20 @@ class SemanticBuild:
             )
         except (OSError, ValueError) as exc:
             self.status = semantic_core_status("unavailable", reason=str(exc), fix=FIX)
-        elapsed = time.perf_counter() - started
-        self.timings["structure_records"] = elapsed
-        self.timings["total"] += elapsed
+        finally:
+            elapsed = time.perf_counter() - started
+            self.timings["structure_records"] = elapsed
+            self.timings["total"] += elapsed
 
     def before_parse(self):
         started = time.perf_counter()
-        with self._phase("interpreter_guard"):
-            verify_interpreter(
-                self.indexer.repo_root, self.interpreter, self.environment
-            )
-        self.timings["total"] += time.perf_counter() - started
+        try:
+            with self._phase("interpreter_guard"):
+                verify_interpreter(
+                    self.indexer.repo_root, self.interpreter, self.environment
+                )
+        finally:
+            self.timings["total"] += time.perf_counter() - started
 
     def apply(self, content):
         """Admit before changing any graph models; failed attempts retain fallback."""
@@ -447,13 +450,23 @@ class SemanticBuild:
                 fallback = wrap_graph(
                     self.snapshot, self.root, fallback_producer, view, raw
                 )
-            decisions = project(
-                view,
-                primary,
-                fallback,
-                (primary_producer, fallback_producer),
-                timings=self.timings,
-            )
+            projection_started = time.perf_counter()
+            projection_timings = {}
+            try:
+                decisions = project(
+                    view,
+                    primary,
+                    fallback,
+                    (primary_producer, fallback_producer),
+                    timings=projection_timings,
+                )
+            finally:
+                # Account for the entire call even if it fails before reporting
+                # its phases. Admission and projection remain mutually exclusive.
+                elapsed = time.perf_counter() - projection_started
+                admission = projection_timings.get("admission", 0.0)
+                self.timings["admission"] = admission
+                self.timings["projection"] = elapsed - admission
             with self._phase("graph_bridge"):
                 if not decisions["admission"][0]["allowed"]:
                     raise ValueError(decisions["admission"][0]["reason"])
