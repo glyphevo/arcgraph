@@ -21,7 +21,7 @@ def cache_environment(home):
 
 
 def content_receipt(root):
-    """Include the pointer, archive, names, modes and bytes; ignore access times."""
+    """Include identity, modes, flags and bytes; use flags=0 without st_flags."""
     result = {}
     for path in (root, *sorted(root.rglob("*"))):
         info = path.lstat()
@@ -31,6 +31,7 @@ def content_receipt(root):
             info.st_dev,
             info.st_ino,
             info.st_mode,
+            getattr(info, "st_flags", 0),
             (
                 hashlib.sha256(path.read_bytes()).hexdigest()
                 if stat.S_ISREG(info.st_mode)

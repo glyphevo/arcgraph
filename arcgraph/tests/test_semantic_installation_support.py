@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -108,6 +109,33 @@ def test_checkpoint_refuses_mutation_before_assigning_another_user(
         finalizers[0]()
     with pytest.raises(AssertionError, match="last test: previous"):
         installation.use(consumer("next", []), monkeypatch)
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin", reason="UF_IMMUTABLE regression requires macOS chflags"
+)
+def test_receipt_rejects_immutable_flag_before_assigning_another_user(
+    installation, monkeypatch, request
+):
+    finalizers = []
+    installation.use(consumer(request.node.nodeid, finalizers), monkeypatch)
+    entry = installation.home / "installation/package/entry.js"
+    flags = entry.stat().st_flags
+    try:
+        os.chflags(entry, flags | stat.UF_IMMUTABLE)
+        assert entry.stat().st_flags & stat.UF_IMMUTABLE
+        for checkpoint in (
+            finalizers[0],
+            lambda: installation.use(consumer("next", []), monkeypatch),
+            installation.verify,
+        ):
+            with pytest.raises(AssertionError) as error:
+                checkpoint()
+            assert f"last test: {request.node.nodeid};" in str(error.value)
+            assert installation.last_test == request.node.nodeid
+    finally:
+        os.chflags(entry, flags)
+    installation.verify()
 
 
 @pytest.mark.parametrize("changed", [False, True])
