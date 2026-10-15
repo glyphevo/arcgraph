@@ -148,7 +148,7 @@ def test_ci_requires_semantic_dependencies_instead_of_skipping(
     monkeypatch.setenv("ARCGRAPH_TEST_PYRIGHT_TGZ", "/unused-pyright.tgz")
     monkeypatch.delenv(missing, raising=False)
     try:
-        prepared.__wrapped__(tmp_path, monkeypatch)
+        prepared.__wrapped__(tmp_path, monkeypatch, None)
     except BaseException as exc:
         assert isinstance(exc, pytest.fail.Exception), type(exc).__name__
         assert missing in str(exc)
@@ -174,7 +174,7 @@ def test_local_semantic_fixture_may_skip(tmp_path, monkeypatch):
     monkeypatch.delenv("ARCGRAPH_REQUIRE_SEMANTIC", raising=False)
     monkeypatch.delenv("ARCGRAPH_TEST_PYRIGHT_TGZ", raising=False)
     with pytest.raises(pytest.skip.Exception, match="ARCGRAPH_TEST_PYRIGHT_TGZ"):
-        prepared.__wrapped__(tmp_path, monkeypatch)
+        prepared.__wrapped__(tmp_path, monkeypatch, None)
 
 
 def test_unknown_primary_is_visible_without_changing_analyzer_resolution(

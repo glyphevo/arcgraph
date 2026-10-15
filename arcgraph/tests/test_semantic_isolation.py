@@ -55,7 +55,7 @@ def test_node_environment_whitelist_and_path_exclude_every_python(
 
 
 @pytest.fixture
-def prepared(tmp_path, monkeypatch):
+def prepared(tmp_path, monkeypatch, request):
     archive = os.environ.get("ARCGRAPH_TEST_PYRIGHT_TGZ")
     python = os.environ.get("ARCGRAPH_TEST_PROJECT_PYTHON")
     node = shutil.which("node")
@@ -77,12 +77,15 @@ def prepared(tmp_path, monkeypatch):
         check=True,
         timeout=30,
     )  # nosec B603
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("XDG_CACHE_HOME", str(home / "cache"))
-    monkeypatch.setenv("LOCALAPPDATA", str(home / "local"))
-    assert main(["setup", "semantic", "--from", archive]) == 0
+    if request.node.get_closest_marker("private_pyright"):
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(home / "cache"))
+        monkeypatch.setenv("LOCALAPPDATA", str(home / "local"))
+        assert main(["setup", "semantic", "--from", archive]) == 0
+    else:
+        request.getfixturevalue("shared_pyright").use(request, monkeypatch)
     markers = {
         name: tmp_path / (name + ".marker")
         for name in (
@@ -271,6 +274,7 @@ def test_whole_shadow_and_doctor_never_execute_site_project_or_inherited_python(
     assert current.read_bytes() == competing
 
 
+@pytest.mark.private_pyright
 def test_runtime_uses_verified_private_package_after_cache_replacement(
     prepared, tmp_path
 ):
@@ -303,6 +307,7 @@ def load_run(output):
     return json.loads((output / "semantic-shadow/run.json").read_text(encoding="utf-8"))
 
 
+@pytest.mark.private_pyright
 def test_collection_rejects_private_installation_drift_before_restarting(
     prepared, tmp_path, monkeypatch
 ):

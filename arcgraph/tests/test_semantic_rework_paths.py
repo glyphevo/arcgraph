@@ -15,6 +15,7 @@ from arcgraph.semantic.install import cache_root
 from arcgraph.tests.test_semantic_isolation import prepared as prepared
 
 
+@pytest.mark.private_pyright
 @pytest.mark.parametrize("anchor", ["temporary", "home", "cache", "macos"])
 @pytest.mark.parametrize("entry", ["doctor", "shadow"])
 def test_linked_trusted_anchor_supports_doctor_and_shadow(
