@@ -270,21 +270,13 @@ def overridden_stubs(tree, module):
     return declarations
 
 
-def _captured_uri(uri, origin, partition):
-    # One physical run copy retains independent declaration/reexport partitions;
-    # the LSP transcript still contains the unmodified wire URI.
-    if origin == "typeshed" and partition is not None:
-        return uri + f"#session-{partition}"
-    return uri
-
-
 class Capture:
     def __init__(self, root, config):
         self.root = root.resolve()
         self.config = config
         self.files = {}
 
-    def item(self, item, detail, partition=None):
+    def item(self, item, detail):
         path = file_path(item.get("uri"))
         if path is None or path.is_relative_to(self.root):
             return
@@ -327,7 +319,6 @@ class Capture:
             }
             row["text_digest"] = sha(row["text"].encode())
 
-            item["uri"] = _captured_uri(item["uri"], origin, partition)
             old = self.files.get(item["uri"])
             if old is not None and old != row:
                 raise ValueError(
@@ -354,7 +345,7 @@ class Capture:
                             "raw_digest": sha(proof_bytes),
                             "text_digest": sha(text.encode()),
                         }
-                        uri = _captured_uri(proof.as_uri(), origin, partition)
+                        uri = proof.as_uri()
                         previous = self.files.get(uri)
                         if previous is not None and previous != proof_row:
                             raise ValueError(

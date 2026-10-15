@@ -56,9 +56,7 @@ def collect(plan_path, root, config, output):
                     result = peer.request(method, params)
                     if method == "callHierarchy/outgoingCalls":
                         for entry in result or ():
-                            external.item(
-                                entry["to"], current_detail, len(sessions) - 1
-                            )
+                            external.item(entry["to"], current_detail)
                     row["result"] = result
                     return result
                 except (LspError, OSError, TimeoutError) as exc:
