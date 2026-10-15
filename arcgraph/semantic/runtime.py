@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import traceback
 
 from arcgraph.core.project_environment import project_environment_path
 from .install import VERSION, InstallError, validate_installation, validate_content
@@ -148,6 +149,26 @@ class SessionPool:
     def close(self):
         if self.temporary is not None:
             self.temporary.cleanup()
+
+    def _close_after_error(self, error):
+        try:
+            self.close()
+        except BaseException as cleanup:
+            # Keep the existing cause and expose the cleanup's full traceback.
+            error.add_note(
+                "Private pyright installation cleanup failed:\n"
+                + "".join(traceback.format_exception(cleanup, chain=False))
+            )
+
+    @contextmanager
+    def lifetime(self):
+        try:
+            yield self
+        except BaseException as error:
+            self._close_after_error(error)
+            raise
+        else:
+            self.close()
 
     def content_receipt(self, root=None):
         from .install import no_links
@@ -300,10 +321,10 @@ class SessionPool:
         try:
             yield self.package
             self.check_view(self.package.parent)
-        except BaseException:
+        except BaseException as error:
             # A failed collection cannot reuse its view; tempfile clears flags
             # before modes, while readonly_view preserves the original error.
-            self.close()
+            self._close_after_error(error)
             raise
 
     def prepare(self):
@@ -342,12 +363,9 @@ class SessionPool:
 def session(root, config, *, transcript=None, pool=None):
     """Launch from a checked private installation; reuse only within this run."""
     if pool is None:
-        pool = SessionPool()
-        try:
+        with SessionPool().lifetime() as pool:
             with session(root, config, transcript=transcript, pool=pool) as result:
                 yield result
-        finally:
-            pool.close()
         return
     pool.prepare()
     (root / "pyrightconfig.json").write_text(

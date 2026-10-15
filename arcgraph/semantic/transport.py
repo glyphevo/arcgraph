@@ -37,8 +37,7 @@ def collect(plan_path, root, config, output):
 
         wire_line(journal, {"snapshot": plan["snapshot_id"]})
         with ExitStack() as lifetime, ExitStack() as peers:
-            pool = SessionPool()
-            lifetime.callback(pool.close)
+            pool = lifetime.enter_context(SessionPool().lifetime())
             launch_started = time.perf_counter()
             peer, detail = peers.enter_context(
                 session(root, config, transcript=Transcript(), pool=pool)

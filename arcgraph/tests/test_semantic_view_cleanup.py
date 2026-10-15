@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import stat
 import sys
+import traceback
 
 import pytest
 
@@ -122,3 +123,129 @@ def test_restore_failure_is_explicit_and_keeps_original(
     assert "restore" in str(caught).lower()
     assert "installation changed" not in str(caught)
     assert (original if failure else restore_error) in exception_chain(caught)
+
+
+@pytest.mark.parametrize("failure", ["body", "drift", "permissions"])
+@pytest.mark.parametrize("owned", [False, True])
+def test_cleanup_failure_preserves_session_error(pool, monkeypatch, failure, owned):
+    instance, node = pool
+    cause = LookupError("existing cause")
+    body = ValueError("original body")
+    cleanup = instance.temporary.cleanup
+    restoring = runtime._restore_view_mode
+    pending = []
+
+    def exploding_cleanup():
+        error = sys.exception()
+        pending.append((error, type(error), str(error), error.__cause__))
+        raise RuntimeError("cleanup failed")
+
+    def denied_restore(path, mode):
+        if path.name == "langserver.index.js":
+            raise PermissionError("restore denied")
+        return restoring(path, mode)
+
+    class Client:
+        def __init__(self, argv, *args, **kwargs):
+            if failure == "drift":
+                path = Path(argv[1])
+                path.chmod(path.stat().st_mode | 0o200)
+                path.write_bytes(b"drift")
+            elif failure == "permissions":
+                monkeypatch.setattr(runtime, "_restore_view_mode", denied_restore)
+                raise body from cause
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(runtime, "Client", Client)
+    monkeypatch.setattr(instance.temporary, "cleanup", exploding_cleanup)
+    if owned:
+        monkeypatch.setattr(runtime, "SessionPool", lambda: instance)
+    caught = None
+    try:
+        try:
+            with runtime.session(node.parent, {}, pool=None if owned else instance):
+                if failure == "body":
+                    raise body from cause
+        except Exception as exc:
+            caught = exc
+        original, error_type, message, original_cause = pending[0]
+        assert caught is original, "Cleanup replaced the original session error"
+        assert type(caught) is error_type
+        assert str(caught) == message
+        assert caught.__cause__ is original_cause
+        expected_type = {
+            "body": ValueError,
+            "drift": runtime.InstallError,
+            "permissions": runtime._ViewPermissionError,
+        }[failure]
+        assert error_type is expected_type
+        if failure == "body":
+            assert original_cause is cause
+        elif failure == "permissions":
+            assert original_cause is body and body.__cause__ is cause
+            assert "restore denied" in message
+        else:
+            assert message == "Private pyright installation changed during collection."
+            assert original_cause is None
+        assert len(pending) == (2 if owned else 1)
+        rendered = "".join(traceback.format_exception(caught))
+        assert "RuntimeError: cleanup failed" in rendered
+        assert "exploding_cleanup" in rendered
+        assert len(caught.__notes__) == len(pending)
+        assert instance.private.exists(), "Failed cleanup should leave a retryable path"
+    finally:
+        monkeypatch.setattr(instance.temporary, "cleanup", cleanup)
+        cleanup()
+    assert not instance.private.exists()
+
+
+def test_collection_cleanup_failure_preserves_initialization_error(
+    pool, tmp_path, monkeypatch
+):
+    from arcgraph.semantic import transport
+
+    instance, node = pool
+    output = tmp_path / "collection"
+    output.mkdir()
+    original = ValueError("initialize failed")
+    cause = LookupError("existing cause")
+    cleanup = instance.temporary.cleanup
+
+    def exploding_cleanup():
+        raise RuntimeError("cleanup failed")
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def request(self, *args):
+            raise original from cause
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(runtime, "Client", Client)
+    monkeypatch.setattr(transport, "SessionPool", lambda: instance)
+    monkeypatch.setattr(
+        transport, "load", lambda path: {"snapshot_id": "test", "definitions": []}
+    )
+    monkeypatch.setattr(instance.temporary, "cleanup", exploding_cleanup)
+    caught = None
+    try:
+        try:
+            transport.collect(tmp_path / "plan.json", node.parent, {}, output)
+        except Exception as exc:
+            caught = exc
+        assert caught is original, "Collection teardown replaced the original error"
+        assert caught.__cause__ is cause
+        assert len(caught.__notes__) == 2
+        assert "RuntimeError: cleanup failed" in "".join(
+            traceback.format_exception(caught)
+        )
+        assert instance.private.exists()
+    finally:
+        monkeypatch.setattr(instance.temporary, "cleanup", cleanup)
+        cleanup()
+    assert not instance.private.exists()
