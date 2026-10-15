@@ -1,5 +1,6 @@
 """Permission recovery must preserve the session's error and remove its view."""
 
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import stat
@@ -195,6 +196,76 @@ def test_cleanup_failure_preserves_session_error(pool, monkeypatch, failure, own
         assert "exploding_cleanup" in rendered
         assert len(caught.__notes__) == len(pending)
         assert instance.private.exists(), "Failed cleanup should leave a retryable path"
+    finally:
+        monkeypatch.setattr(instance.temporary, "cleanup", cleanup)
+        cleanup()
+    assert not instance.private.exists()
+
+
+@pytest.mark.parametrize("owner", ["session", "exit_stack"])
+@pytest.mark.parametrize("failures", [(1,), (2,), (1, 2)])
+@pytest.mark.parametrize("cleanup_type", [RuntimeError, GeneratorExit])
+def test_generator_close_exposes_cleanup_failures(
+    pool, monkeypatch, owner, failures, cleanup_type
+):
+    instance, node = pool
+    cleanup = instance.temporary.cleanup
+    errors = [
+        cleanup_type("first cleanup failed"),
+        cleanup_type("second cleanup failed"),
+    ]
+    attempts = []
+
+    def failing_cleanup():
+        attempts.append(len(attempts) + 1)
+        if attempts[-1] in failures:
+            raise errors[attempts[-1] - 1]
+        cleanup()
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    def driver():
+        if owner == "session":
+            with runtime.session(node.parent, {}):
+                yield "inside"
+        else:
+            # Match collect's lifetime/peers stack order around a shared pool.
+            with ExitStack() as lifetime, ExitStack() as peers:
+                lifetime.enter_context(instance.lifetime())
+                peers.enter_context(runtime.session(node.parent, {}, pool=instance))
+                yield "inside"
+
+    monkeypatch.setattr(runtime, "Client", Client)
+    monkeypatch.setattr(runtime, "SessionPool", lambda: instance)
+    monkeypatch.setattr(instance.temporary, "cleanup", failing_cleanup)
+    generator = driver()
+    caught = None
+    try:
+        assert next(generator) == "inside"
+        try:
+            generator.close()
+        except BaseException as exc:
+            caught = exc
+        assert caught is not None, "generator.close() hid cleanup failure"
+        assert isinstance(caught, RuntimeError)
+        first = errors[failures[0] - 1]
+        if cleanup_type is RuntimeError:
+            assert caught is first
+        else:
+            assert caught.__cause__ is first
+        assert attempts == [1, 2]
+        rendered = "".join(traceback.format_exception(caught))
+        for attempt in failures:
+            assert str(errors[attempt - 1]) in rendered
+        assert len(getattr(caught, "__notes__", [])) == len(failures) - 1
+        generator.close()
+        assert attempts == [1, 2], "A closed generator ran cleanup again"
+        assert instance.private.exists() == (failures == (1, 2))
     finally:
         monkeypatch.setattr(instance.temporary, "cleanup", cleanup)
         cleanup()

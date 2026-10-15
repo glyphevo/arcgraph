@@ -154,6 +154,13 @@ class SessionPool:
         try:
             self.close()
         except BaseException as cleanup:
+            if isinstance(error, GeneratorExit):
+                # generator.close() discards GeneratorExit, including its notes.
+                if isinstance(cleanup, GeneratorExit):
+                    raise RuntimeError(
+                        "Private pyright installation cleanup raised GeneratorExit."
+                    ) from cleanup
+                raise
             # Keep the existing cause and expose the cleanup's full traceback.
             error.add_note(
                 "Private pyright installation cleanup failed:\n"
