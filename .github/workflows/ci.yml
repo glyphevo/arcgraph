@@ -58,7 +58,7 @@ jobs:
           ARCGRAPH_TEST_PROJECT_PYTHON: ${{ steps.semantic-project-python.outputs.python-path }}
         run: |
           mkdir -p output/arcgraph
-          python -m pytest arcgraph/tests scripts/tests -q --cov=arcgraph --cov-report=xml:output/arcgraph/coverage.xml --cov-report=term --cov-fail-under=92
+          python -m pytest arcgraph/tests scripts/tests -q -n auto --cov=arcgraph --cov-report=xml:output/arcgraph/coverage.xml --cov-report=term --cov-fail-under=92
 
       - name: Check formatting and lint
         run: |
@@ -127,7 +127,7 @@ jobs:
           ARCGRAPH_REQUIRE_TS: '1'
           ARCGRAPH_REQUIRE_SEMANTIC: '1'
           ARCGRAPH_TEST_PROJECT_PYTHON: ${{ steps.semantic-project-python.outputs.python-path }}
-        run: python -m pytest arcgraph/tests scripts/tests -q
+        run: python -m pytest arcgraph/tests scripts/tests -q -n auto
 
   package-matrix:
     name: Package / ${{ matrix.os }} / Python ${{ matrix.python }} / MCP ${{ matrix.mcp_line }}
@@ -228,7 +228,7 @@ jobs:
         env:
           ARCGRAPH_REQUIRE_TS: '1'
         run: |
-          python -m pytest -q \
+          python -m pytest -q -n auto \
             arcgraph/tests/test_typescript_baseline.py \
             arcgraph/tests/test_typescript_esm_resolution.py \
             arcgraph/tests/test_typescript_package_exports.py \

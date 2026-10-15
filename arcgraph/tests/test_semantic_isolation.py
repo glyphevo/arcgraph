@@ -349,14 +349,21 @@ def test_collection_rejects_private_installation_drift_before_restarting(
             yield result
         if len(sessions) == 1:
             entry = kwargs["pool"].package / "langserver.index.js"
-            entry.write_bytes(
-                entry.read_bytes()
-                + (
-                    "\nrequire('fs').writeFileSync("
-                    + json.dumps(str(marker))
-                    + ", 'executed');\n"
-                ).encode()
-            )
+            # Bypass the sealed mode deliberately to exercise the receipt check
+            # between sessions, rather than stopping at the earlier write denial.
+            mode = entry.stat().st_mode
+            entry.chmod(mode | 0o200)
+            try:
+                entry.write_bytes(
+                    entry.read_bytes()
+                    + (
+                        "\nrequire('fs').writeFileSync("
+                        + json.dumps(str(marker))
+                        + ", 'executed');\n"
+                    ).encode()
+                )
+            finally:
+                entry.chmod(mode)
 
     monkeypatch.setattr(transport, "SESSION_DEFINITIONS", 1)
     monkeypatch.setattr(transport, "session", changed)
@@ -368,3 +375,4 @@ def test_collection_rejects_private_installation_drift_before_restarting(
             output,
         )
     assert not marker.exists(), "Changed private code must be rejected before launch"
+    assert len(sessions) == 1, "Changed private code reached the next session"

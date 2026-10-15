@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import os
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -100,9 +101,9 @@ def test_node_replaced_during_view_preparation_fails_before_client(pool, monkeyp
     assert error and not launched, "Node drift reached Client construction"
 
 
-def test_session_view_is_independent_of_restored_private_mutation(pool, monkeypatch):
+def test_session_view_is_independent_of_restored_cache_mutation(pool, monkeypatch):
     instance, node = pool
-    base = instance.package / "langserver.index.js"
+    base = node.parent / "installation/package/langserver.index.js"
     original = base.read_bytes()
     observed = {}
 
@@ -134,11 +135,18 @@ def test_session_rechecks_view_after_context_entry_before_launch(pool, monkeypat
     @contextmanager
     def view():
         with original() as package:
-            (package / "langserver.index.js").write_bytes(b"poisoned")
+            entry = package / "langserver.index.js"
+            mode = entry.stat().st_mode
+            entry.chmod(mode | 0o200)
+            entry.write_bytes(b"poisoned")
+            entry.chmod(mode)
             try:
                 yield package
             finally:
-                (package / "langserver.index.js").write_bytes(b"original")
+                if entry.exists():
+                    entry.chmod(mode | 0o200)
+                    entry.write_bytes(b"original")
+                    entry.chmod(mode)
 
     class RecordingClient:
         def __init__(self, *args, **kwargs):
@@ -155,3 +163,31 @@ def test_session_rechecks_view_after_context_entry_before_launch(pool, monkeypat
             pass
 
     assert rejection(start) and not launched, "An unchecked view reached launch"
+
+
+@pytest.mark.skipif(not hasattr(os, "chflags"), reason="Requires real file flags")
+def test_reused_run_preserves_admitted_nonimmutable_flags(pool, monkeypatch):
+    instance, node = pool
+    instance.close()
+    cache = node.parent / "installation/package/langserver.index.js"
+    flags = cache.stat().st_flags
+    instance = runtime.SessionPool()
+
+    class Client:
+        def __init__(self, argv, *args, **kwargs):
+            assert Path(argv[1]).stat().st_flags & stat.UF_NODUMP
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(runtime, "Client", Client)
+    try:
+        os.chflags(cache, flags | stat.UF_NODUMP)
+        for _ in range(2):
+            with runtime.session(node.parent, {}, pool=instance):
+                pass
+            assert instance.content_receipt() == instance.receipt
+            assert cache.stat().st_flags == flags | stat.UF_NODUMP
+    finally:
+        instance.close()
+        os.chflags(cache, flags)

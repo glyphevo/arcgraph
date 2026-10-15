@@ -133,6 +133,10 @@ def _restore_view_mode(path, mode):
     return immutable
 
 
+def _without_immutable(rows):
+    return tuple((*r[:6], r[6] & ~getattr(stat, "UF_IMMUTABLE", 0)) for r in rows)
+
+
 class SessionPool:
     """One checked private installation for a single sequential collection."""
 
@@ -171,6 +175,7 @@ class SessionPool:
                         if stat.S_ISREG(info.st_mode)
                         else None
                     ),
+                    getattr(info, "st_flags", 0),
                 )
             )
         no_links(root, boundary=self.private)
@@ -215,16 +220,7 @@ class SessionPool:
 
     def check_view(self, root):
         receipt = self.content_receipt(root)
-
-        # Directories have independent sizes/inodes. Every file must have the
-        # admitted bytes and mode, and must not share the retained copy's inode.
-        def content(rows):
-            return [(r[0], r[3], r[4] if r[5] else None, r[5]) for r in rows]
-
-        if content(receipt) != content(self.receipt) or any(
-            view[5] is not None and view[1:3] == base[1:3]
-            for view, base in zip(receipt, self.receipt)
-        ):
+        if receipt != self.receipt:
             raise InstallError(
                 "Private pyright installation changed during collection."
             )
@@ -253,7 +249,11 @@ class SessionPool:
             try:
                 yield
             finally:
-                if self.content_receipt(root) != sealed:
+                current = self.content_receipt(root)
+
+                # Immutable flags are diagnosed after clearing them for cleanup;
+                # preserve an exception already propagating from the session.
+                if _without_immutable(current) != _without_immutable(sealed):
                     raise InstallError(
                         "Private pyright installation changed during collection."
                     )
@@ -276,6 +276,10 @@ class SessionPool:
                         info = path.stat()
                         if (info.st_dev, info.st_ino) == row[1:3]:
                             immutable |= _restore_view_mode(path, row[3])
+                            # The run copy survives successful sessions. Keep
+                            # admitted nonzero flags after clearing for chmod.
+                            if row[6] and hasattr(os, "chflags"):
+                                os.chflags(path, row[6])
                 except OSError as exc:
                     if restore_error is None:
                         restore_error = exc
@@ -291,23 +295,16 @@ class SessionPool:
 
     @contextmanager
     def package_view(self):
-        # Independent URI partitions preserve declaration/reexport mapping.
-        # Copy bytes: mutations of the retained installation cannot reach a view.
-        with tempfile.TemporaryDirectory(prefix="session-", dir=self.private) as name:
-            copied = Path(name) / "installation"
-            shutil.copytree(self.package.parent, copied, symlinks=True)
-            receipt = self.check_view(copied)
-            permission_failure = False
-            try:
-                yield copied / "package"
-            except _ViewPermissionError:
-                permission_failure = True
-                raise
-            finally:
-                if not permission_failure and self.content_receipt(copied) != receipt:
-                    raise InstallError(
-                        "Private pyright installation changed during collection."
-                    )
+        # Sequential sessions share the sealed run copy, never the cache inode.
+        self.check_view(self.package.parent)
+        try:
+            yield self.package
+            self.check_view(self.package.parent)
+        except BaseException:
+            # A failed collection cannot reuse its view; tempfile clears flags
+            # before modes, while readonly_view preserves the original error.
+            self.close()
+            raise
 
     def prepare(self):
         if self.temporary is not None:
@@ -332,6 +329,13 @@ class SessionPool:
         self.env = isolated_environment(self.private / "state", self.node)
         self.check_node()
         self.receipt = self.content_receipt()
+        # Verify bytes before removing write permissions, and derive the sealed
+        # receipt from those admitted bytes rather than trusting a new snapshot.
+        for row in reversed(self.receipt):
+            (copied / row[0]).chmod(row[3] & ~0o222)
+        self.private.chmod(self.private.stat().st_mode & ~0o222)
+        self.receipt = tuple((*r[:3], r[3] & ~0o222, *r[4:]) for r in self.receipt)
+        self.check_view(copied)
 
 
 @contextmanager
@@ -370,10 +374,6 @@ def session(root, config, *, transcript=None, pool=None):
                 }
             finally:
                 peer.close()
-                if pool.content_receipt() != pool.receipt:
-                    raise InstallError(
-                        "Private pyright installation changed during collection."
-                    )
 
 
 def semantic_core_check(

@@ -109,5 +109,8 @@ def test_checked_view_is_read_only_at_client_and_removable_after_session(
     assert not observed[
         "parent_writable"
     ], "The session container could replace the checked root"
-    assert not observed["root"].exists(), "Read-only session was not removed"
-    assert instance.content_receipt() == instance.receipt
+    if not constructor_fails:
+        assert observed["root"].exists(), "Collection lost its shared installation"
+        assert instance.content_receipt() == instance.receipt
+    instance.close()
+    assert not observed["root"].exists(), "Read-only collection was not removed"
