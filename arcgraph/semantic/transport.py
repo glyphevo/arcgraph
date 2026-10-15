@@ -10,11 +10,12 @@ from .lsp import LspError
 from .runtime import SessionPool, capabilities, initialize_params, session
 from .external_targets import Capture
 from .contract import digest
+from .reuse import ReuseRejected
 
 SESSION_DEFINITIONS = 512
 
 
-def collect(plan_path, root, config, output):
+def collect(plan_path, root, config, output, *, reuse=None):
     plan = load(plan_path)
     started = time.perf_counter()
     checksum = hashlib.sha256()
@@ -46,14 +47,32 @@ def collect(plan_path, root, config, output):
             sessions = [dict(first_definition=0, **detail)]
             errors = []
 
+            cached = None
+            reused_definitions = 0
+            queried_definitions = 0
+
             def request(method, params, label):
                 nonlocal count
-                counters[label] += 1
+                if cached is None:
+                    counters[label] += 1
                 tick = time.perf_counter()
                 row = {"method": method, "params": params}
                 try:
-                    result = peer.request(method, params)
+                    if cached is None:
+                        result = peer.request(method, params)
+                    else:
+                        previous = next(cached)
+                        if previous["method"] != method or previous["params"] != params:
+                            raise ReuseRejected(
+                                "Reused native request does not match current plan"
+                            )
+                        result = previous["result"]
                     if method == "callHierarchy/outgoingCalls":
+                        if cached is not None:
+                            recapture = Capture(root, config)
+                            for entry in result or ():
+                                recapture.item(entry["to"], current_detail)
+                            reuse.verify_capture(recapture.files)
                         for entry in result or ():
                             external.item(entry["to"], current_detail)
                     row["result"] = result
@@ -74,11 +93,22 @@ def collect(plan_path, root, config, output):
             initialize = request("initialize", initialize_params(root), "initialize")
             current_detail = detail
             unit = capabilities(initialize)
+            if reuse is not None and reuse.encoding != unit:
+                raise ReuseRejected("Reused journal position encoding changed")
             peer.notify("initialized", {})
             startup = time.perf_counter() - started
             opened = set()
             for index, definition in enumerate(plan["definitions"]):
-                if index and index % SESSION_DEFINITIONS == 0:
+                cached = (
+                    reuse.rows(definition, root, current_detail)
+                    if reuse is not None
+                    else None
+                )
+                if (
+                    cached is None
+                    and queried_definitions
+                    and queried_definitions % SESSION_DEFINITIONS == 0
+                ):
                     errors.extend(peer.stderr)
                     peers.close()
                     launch_started = time.perf_counter()
@@ -87,6 +117,7 @@ def collect(plan_path, root, config, output):
                     )
                     launch_seconds += time.perf_counter() - launch_started
                     current_detail = next_detail
+                    # No cached rows are consumed by a physical handshake.
                     tick = time.perf_counter()
                     next_initialize = request(
                         "initialize", initialize_params(root), "initialize"
@@ -99,8 +130,12 @@ def collect(plan_path, root, config, output):
                     peer.notify("initialized", {})
                     sessions.append(dict(first_definition=index, **next_detail))
                     opened.clear()
+                if cached is None:
+                    queried_definitions += 1
+                else:
+                    reused_definitions += 1
                 path = definition["path"]
-                if path not in opened:
+                if cached is None and path not in opened:
                     from .snapshot import canonical
 
                     peer.notify(
@@ -131,6 +166,8 @@ def collect(plan_path, root, config, output):
                         request(
                             "callHierarchy/outgoingCalls", {"item": item}, "outgoing"
                         )
+                    if cached is not None and next(cached, None) is not None:
+                        raise ReuseRejected("Unused reused native responses")
                 except (LspError, OSError, TimeoutError):
                     continue
             errors.extend(peer.stderr)
@@ -157,5 +194,11 @@ def collect(plan_path, root, config, output):
         total_seconds=time.perf_counter() - started,
         external_capture=digest(external.files),
     )
+    if reuse is not None:
+        detail["reuse"] = {
+            "definitions": reused_definitions,
+            "queried": queried_definitions,
+            "affected_paths": sorted(reuse.affected),
+        }
     dump(detail, output / "transport.json")
     return detail

@@ -35,6 +35,14 @@ from .structure_provider import admit_structure, analyze
 from .transport import collect
 from .external_targets import Registry
 from .artifact_inputs import FrozenInputs
+from .reuse import (
+    Reuse,
+    ReuseRejected,
+    backend_identity,
+    certificate,
+    dependency_index,
+    guard_external_dependencies,
+)
 
 PROFILE = "semantic-core/2"
 LEGACY_PROFILE = "legacy/1"
@@ -154,6 +162,7 @@ class SemanticBuild:
             "unavailable", reason="Semantic analysis has not completed.", fix=FIX
         )
         self.bundle = None
+        self.dependencies = None
         self.snapshot = None
         self.timings = {}
         pointer = current_pointer_path(indexer.output_dir)
@@ -222,6 +231,7 @@ class SemanticBuild:
         )
         auxiliary.capture_directory = self.root
         auxiliary_files = auxiliary.scan()
+        self.auxiliary_files = auxiliary_files
         dependency_digest = freeze_dependencies(
             self.environment, self.directory / "environment"
         )
@@ -282,6 +292,28 @@ class SemanticBuild:
                 parse_notices=notices,
                 hosted_paths=hosted,
             )
+            try:
+                stubs = {
+                    f.path: self.root / f.path
+                    for f in self.auxiliary_files
+                    if f.path.endswith(".pyi")
+                }
+                # Dependency bookkeeping must not change the structural
+                # parser's selected version or fallback state for the build.
+                stub_trees = (
+                    StructureView(
+                        self.indexer.repo_root, self.indexer.project_environment
+                    ).read(stubs)[0]
+                    if stubs
+                    else {}
+                )
+                self.dependencies = dependency_index(
+                    [*self.files, *self.auxiliary_files],
+                    {**trees, **stub_trees},
+                    self.indexer.source_roots,
+                )
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                self.dependencies = None
         except (OSError, ValueError) as exc:
             self.status = semantic_core_status("unavailable", reason=str(exc), fix=FIX)
         finally:
@@ -362,10 +394,64 @@ class SemanticBuild:
                     ],
                 }
                 dump(plan, self.generation / "plan.json")
-            with self._phase("transport"):
-                detail = collect(
-                    self.generation / "plan.json", self.root, config, self.generation
+            with self._phase("reuse_verification"):
+                backend = backend_identity()
+                try:
+                    self.dependencies = guard_external_dependencies(
+                        self.dependencies,
+                        self.directory / "environment",
+                        Path(backend["installation"]) / "dist/typeshed-fallback",
+                    )
+                except (OSError, ValueError):
+                    self.dependencies = None
+                proof = certificate(
+                    self.snapshot,
+                    plan,
+                    backend,
+                    config,
+                    self.indexer.source_roots,
+                    self.dependencies,
                 )
+                reuse = None
+                if getattr(self.indexer, "_semantic_previous", None) is not None:
+                    try:
+                        reuse = Reuse(self, plan, proof)
+                    except (
+                        OSError,
+                        ValueError,
+                        KeyError,
+                        TypeError,
+                        RuntimeError,
+                        EOFError,
+                        StopIteration,
+                    ):
+                        # Unverifiable inputs never contribute cached evidence.
+                        reuse = None
+            with self._phase("transport"):
+                args = (
+                    self.generation / "plan.json",
+                    self.root,
+                    config,
+                    self.generation,
+                )
+                try:
+                    detail = (
+                        collect(*args, reuse=reuse)
+                        if reuse is not None
+                        else collect(*args)
+                    )
+                except ReuseRejected:
+                    detail = collect(*args)
+            with self._phase("reuse_verification"):
+                if (
+                    backend_identity() != backend
+                    or detail["node"] != backend["node"]["interpreter_real_path"]
+                    or detail["node_version"] != backend["node_version"]
+                ):
+                    raise ValueError(
+                        "input_changed_during_run: semantic backend changed"
+                    )
+                dump(proof, self.generation / "reuse.json")
             with self._phase("external_registry"):
                 if detail["requests"]["error"] or detail["requests"]["timeout"]:
                     raise ValueError(

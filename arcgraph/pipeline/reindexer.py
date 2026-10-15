@@ -22,6 +22,7 @@ from arcgraph.core.scanner import (
     TYPESCRIPT_EMIT_SKIP_WARNING_KIND,
     FileScanner,
     SourceRoot,
+    detect_source_roots,
     infer_source_roots,
 )
 from arcgraph.core.semantic import COMPAT_FRONTEND_NAME
@@ -167,6 +168,24 @@ class ArcGraphReindexer:
             if isinstance(detection, dict)
             else None
         )
+        if (
+            semantic_full
+            and self.source_roots is None
+            and source_root_detection is not None
+            and source_root_detection.strategy
+            in {
+                "pyproject_arcgraph",
+                "pyproject_hatch",
+                "pyproject_setuptools",
+                "pyproject_name",
+                "setup_cfg",
+                "package_heuristic",
+                "repo_root_fallback",
+            }
+        ):
+            resolved = detect_source_roots(self.repo_root)
+            source_roots = resolved.roots
+            source_root_detection = resolved.detection
         indexer = ArcGraphIndexer(
             self.repo_root,
             self.output_dir,
@@ -177,12 +196,45 @@ class ArcGraphReindexer:
             **saved_inputs,
         )
         if semantic_full:
-            metadata, build_dir = indexer._build_inner()
+            from arcgraph.semantic.reuse import unchanged
+            from arcgraph.semantic.runtime import semantic_core_enabled
+
+            scanner = FileScanner(
+                self.repo_root,
+                indexer.source_roots,
+                indexer.ignore_rules,
+                file_extensions=indexer._file_extensions_for(indexer._build_plan()),
+            )
+            files = scanner.scan()
+            delta = self._delta(store.read_files(), files)
+            enabled = semantic_core_enabled(self.repo_root)
+            previous = (
+                store.metadata.get("toolchain_status", {})
+                .get("semantic_core", {})
+                .get("status")
+            )
+            if enabled and previous in {"active", "partial"}:
+                if (
+                    not any(delta.values())
+                    and not self._emit_skip_summary_changed(
+                        scanner.warnings, store.read_warnings()
+                    )
+                    and unchanged(store, indexer, files)
+                ):
+                    return {
+                        "schema_version": store.metadata["schema_version"],
+                        "index_version": store.metadata["index_version"],
+                        "status": "unchanged",
+                        "changed": delta,
+                        "build_dir": str(store.sqlite_path.parent),
+                    }
+                indexer._semantic_previous = store
+            metadata, directory = indexer._build_inner()
             return {
                 "schema_version": metadata.schema_version,
                 "status": "reindexed",
                 "index_version": metadata.index_version,
-                "build_dir": str(build_dir),
+                "build_dir": str(directory),
                 "changed": self._delta(
                     store.read_files(),
                     GraphStoreReader.from_build(
