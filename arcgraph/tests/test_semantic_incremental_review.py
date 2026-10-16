@@ -65,9 +65,9 @@ def test_package_all_submodule_sync_equals_full(
     "source",
     [
         '__all__ = ["helper"] + ["other"]',
-        '__all__ = ["helper"]; __all__ += ["other"]',
-        '__all__ = []; __all__.extend(["helper"])',
-        '__all__ = []; __all__.append("helper")',
+        '__all__ = ["helper"]; __all__ += [unknown]',
+        "__all__ = []; __all__.extend([unknown])",
+        "__all__ = []; __all__.append(unknown)",
         "from exports import __all__",
         "from exports import names as __all__",
         "import exports as __all__",

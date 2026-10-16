@@ -229,15 +229,11 @@ class ArcGraphReindexer:
                 "status": "reindexed",
                 "index_version": metadata.index_version,
                 "build_dir": str(directory),
-                "changed": (
-                    self._delta(
-                        store.read_files(),
-                        GraphStoreReader.from_build(
-                            self.output_dir, metadata.index_version
-                        ).read_files(),
-                    )
-                    if roots_changed
-                    else {"added": [], "modified": [], "deleted": []}
+                "changed": self._delta(
+                    store.read_files(),
+                    GraphStoreReader.from_build(
+                        self.output_dir, metadata.index_version
+                    ).read_files(),
                 ),
                 "reason": (
                     "semantic_core_incremental"

@@ -330,6 +330,11 @@ class SemanticBuild:
                             if path is None
                         ),
                     ],
+                    sources={
+                        f.path: canonical((self.root / f.path).read_bytes())
+                        for f in [*self.files, *self.auxiliary_files]
+                        if Path(f.path).stem == "__init__"
+                    },
                 )
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
                 self.dependencies = None

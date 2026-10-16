@@ -198,7 +198,7 @@ def unchanged(store, indexer, files):
         return False
 
 
-def dependency_index(files, trees, roots):
+def dependency_index(files, trees, roots, *, sources=None):
     """Every lexical import, including unreachable/type-only/star imports.
 
     Module prefixes include implicit package initializers. Stub and implementation
@@ -260,7 +260,7 @@ def dependency_index(files, trees, roots):
         # Every module is resolved in the context of its containing packages.
         names.update(p for p in packages if p)
         if Path(path).stem == "__init__":
-            exports = package_exports(tree)
+            exports = package_exports(tree, (sources or {}).get(path))
             if exports is None:
                 return None
             names.update(
@@ -303,9 +303,41 @@ def dependency_index(files, trees, roots):
     return {"modules": modules, "imports": imports}
 
 
-def package_exports(tree):
-    """Union literal export lists; any other use/binding of __all__ is unknown."""
-    allowed, exports = set(), set()
+def package_exports(tree, source=None):
+    """Conservative exports from literal assignments and binder-supported edits.
+
+    Branches and repeated assignments retain their union. Removal needs source
+    tokens: AST constants alone cannot distinguish adjacent string literals,
+    which the pinned binder rejects rather than removing the combined name.
+    """
+    allowed, assignments, visited = set(), {}, set()
+
+    def literal(node):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            return None
+        if source is not None:
+            try:
+                segment = ast.get_source_segment(source, node)
+                if segment is None:
+                    return None
+                tokens = [
+                    token
+                    for token in tokenize.generate_tokens(io.StringIO(segment).readline)
+                    if token.type
+                    not in {tokenize.NEWLINE, tokenize.NL, tokenize.ENDMARKER}
+                ]
+            except (IndexError, tokenize.TokenError, IndentationError):
+                return None
+            if len(tokens) != 1 or tokens[0].type != tokenize.STRING:
+                return None
+        return node.value
+
+    def literals(node, types):
+        if not isinstance(node, types):
+            return None
+        values = [literal(item) for item in node.elts]
+        return None if any(value is None for value in values) else set(values)
+
     for node in ast.walk(tree):
         if (
             isinstance(
@@ -333,24 +365,86 @@ def package_exports(tree):
             if isinstance(target, ast.Name) and target.id == "__all__":
                 if len(targets) != 1:
                     return None
-                value = node.value
-                if not isinstance(value, (ast.List, ast.Tuple)) or any(
-                    not isinstance(v, ast.Constant) or not isinstance(v.value, str)
-                    for v in value.elts
-                ):
+                values = literals(node.value, (ast.List, ast.Tuple))
+                if values is None:
                     return None
                 allowed.add(target)
-                exports.update(v.value for v in value.elts)
+                assignments[node] = values
         if isinstance(node, (ast.Import, ast.ImportFrom)) and any(
             (a.asname or a.name.split(".")[0]) == "__all__" for a in node.names
         ):
             return None
-    if any(
+
+    def statements(nodes, names, initialized):
+        current = set(names)
+        for node in nodes:
+            if node in assignments:
+                visited.add(node)
+                current.update(assignments[node])
+                initialized = True
+            elif isinstance(node, ast.If):
+                left, left_initialized = statements(node.body, current, initialized)
+                right, right_initialized = statements(node.orelse, current, initialized)
+                if left is None or right is None:
+                    return None, False
+                current = left | right
+                initialized = left_initialized and right_initialized
+            elif (
+                isinstance(node, ast.AugAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "__all__"
+            ):
+                values = literals(node.value, ast.List)
+                if (
+                    not initialized
+                    or not isinstance(node.op, ast.Add)
+                    or values is None
+                ):
+                    return None, False
+                allowed.add(node.target)
+                current.update(values)
+            elif (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute)
+                and isinstance(node.value.func.value, ast.Name)
+                and node.value.func.value.id == "__all__"
+            ):
+                call = node.value
+                method = call.func.attr
+                if not initialized or len(call.args) != 1 or call.keywords:
+                    return None, False
+                if method == "extend":
+                    values = literals(call.args[0], ast.List)
+                elif method in {"append", "remove"}:
+                    value = literal(call.args[0])
+                    values = None if value is None else {value}
+                else:
+                    return None, False
+                if values is None or method == "remove" and source is None:
+                    return None, False
+                allowed.add(call.func.value)
+                if method == "remove":
+                    # Pyright filters every matching entry, unlike list.remove.
+                    current.difference_update(values)
+                else:
+                    current.update(values)
+        return current, initialized
+
+    exports, _ = statements(tree.body, set(), False)
+    if exports is None or any(
         isinstance(node, ast.Name) and node.id == "__all__" and node not in allowed
         for node in ast.walk(tree)
     ):
         return None
-    return exports
+    # Keep the pre-existing conservative treatment of literal assignments in
+    # other suites/scopes; their mutations remain unknown via the name check.
+    return exports | {
+        value
+        for node, values in assignments.items()
+        if node not in visited
+        for value in values
+    }
 
 
 def absolute_import_roots(text):
