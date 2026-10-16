@@ -209,7 +209,7 @@ class ArcGraphIndexer:
                     elif frontend.name == TYPESCRIPT_FRONTEND_NAME:
                         frontend_roots.append((frontend, frontend._repo_root))
                         frontend._repo_root = semantic.root
-            return self._build_captured(
+            result = self._build_captured(
                 commit_sha,
                 index_version,
                 files,
@@ -232,6 +232,15 @@ class ArcGraphIndexer:
                     if isinstance(frontend, PythonSemanticFrontend):
                         frontend._semantic_context = None
                 semantic.close()
+        if (
+            semantic is not None
+            and semantic.adopted
+            and semantic.status["status"] in {"active", "partial"}
+        ):
+            # Count only a generation adopted and published by this build.
+            # Every exception, including publication or cleanup, leaves zero.
+            self._semantic_reused_definitions = semantic.reused_definitions
+        return result
 
     def _build_captured(
         self, commit_sha, index_version, files, warnings, active_frontends, semantic

@@ -172,6 +172,8 @@ class SemanticBuild:
         self.bundle = None
         self.dependencies = None
         self.snapshot = None
+        self.adopted = False
+        self.reused_definitions = 0
         self.timings = {}
         pointer = current_pointer_path(indexer.output_dir)
         if pointer is None:
@@ -357,6 +359,8 @@ class SemanticBuild:
 
     def apply(self, content):
         """Admit before changing any graph models; failed attempts retain fallback."""
+        self.adopted = False
+        self.reused_definitions = 0
         started = time.perf_counter()
         if self.bundle is None:
             if self.status["reason"] == "Semantic analysis has not completed.":
@@ -477,9 +481,6 @@ class SemanticBuild:
                         "input_changed_during_run: semantic backend changed"
                     )
                 dump(proof, self.generation / "reuse.json")
-                self.indexer._semantic_reused_definitions = (
-                    detail.get("reuse") or {}
-                ).get("definitions", 0)
             with self._phase("external_registry"):
                 if detail["requests"]["error"] or detail["requests"]["timeout"]:
                     raise ValueError(
@@ -665,7 +666,6 @@ class SemanticBuild:
                     ),
                     fix=FIX if uncovered else None,
                 )
-                self.adopted = True
             with self._phase("release_records"):
                 self.bundle = None
                 del primary, fallback, decisions, mapping, bridge
@@ -683,7 +683,11 @@ class SemanticBuild:
             subprocess.SubprocessError,
         ) as exc:
             self.status = semantic_core_status("unavailable", reason=str(exc), fix=FIX)
-        return self._finish(content, started)
+        result = self._finish(content, started)
+        if self.status["status"] in {"active", "partial"}:
+            self.reused_definitions = (detail.get("reuse") or {}).get("definitions", 0)
+            self.adopted = True
+        return result
 
     def _finish(self, content, started):
         tick = time.perf_counter()
