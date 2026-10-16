@@ -237,7 +237,8 @@ def test_isolated_worker_failure_recomputes_original_scan(
             if failure == "invalid"
             else json.dumps(
                 {
-                    "format": "semantic-import-scan/1",
+                    "format": "semantic-import-scan/2",
+                    "coverage": reuse.input_coverage(records),
                     "input": (
                         reuse.sha(kwargs["input"]) if failure == "runtime" else "wrong"
                     ),
@@ -294,3 +295,91 @@ def test_isolated_guard_uses_callers_relative_directories(tmp_path, monkeypatch)
     ) == legacy_guard_external_dependencies(
         index, Path("environment"), Path("typeshed")
     )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["subset", "empty", "missing_file", "missing_all", "bytes", "path", "size"],
+)
+def test_isolated_worker_checks_actual_input_coverage(tmp_path, monkeypatch, failure):
+    environment = tmp_path / "environment"
+    environment.mkdir()
+    first = environment / "first.py"
+    second = environment / "second.pyi"
+    first.write_bytes(b"import utils\n")
+    second.write_bytes(b"import models\n")
+    typeshed = tmp_path / "typeshed"
+    typeshed.mkdir()
+    records = {
+        "index": {"modules": {"demo.py": ["utils", "models"]}, "imports": {}},
+        "environment": str(environment),
+        "typeshed": str(typeshed),
+    }
+    original = {p: p.read_bytes() for p in (first, second)}
+    real_run, real_scan = reuse.subprocess.run, reuse.scan
+    calls = []
+
+    def scanner(value):
+        calls.append(value)
+        return real_scan(value)
+
+    def process(args, **kwargs):
+        # The worker genuinely runs on a truncated/changed view, then the host
+        # sees its original inputs again. The request/runtime envelope is valid.
+        if failure in {"missing_file", "missing_all"}:
+            second.unlink()
+            if failure == "missing_all":
+                first.unlink()
+        elif failure == "bytes":
+            second.write_bytes(b"# no models! \n")
+        elif failure == "path":
+            second.rename(environment / "renamed.pyi")
+        elif failure == "size":
+            second.write_bytes(original[second] + b"# extra\n")
+        try:
+            result = json.loads(real_run(args, **kwargs).stdout)
+        finally:
+            (environment / "renamed.pyi").unlink(missing_ok=True)
+            for path, raw in original.items():
+                path.write_bytes(raw)
+        if failure in {"subset", "empty"}:
+            result["roots"] = ["utils"] if failure == "subset" else []
+            result.pop("coverage", None)
+        return SimpleNamespace(stdout=json.dumps(result).encode("utf-8"))
+
+    monkeypatch.setattr(reuse.subprocess, "run", process)
+    monkeypatch.setattr(reuse, "scan", scanner)
+    assert reuse._isolated_import_scan(records) == set(real_scan(records))
+    assert calls == [records]
+
+
+def test_isolated_worker_accepts_complete_coverage_without_host_tokenization(
+    tmp_path, monkeypatch
+):
+    environment = tmp_path / "environment"
+    environment.mkdir()
+    (environment / "first.py").write_bytes(b"import utils\n")
+    (environment / "second.pyi").write_bytes(b"import models\n")
+    (environment / "empty.py").write_bytes(b"")
+    typeshed = tmp_path / "typeshed"
+    typeshed.mkdir()
+    records = {
+        "index": {"modules": {"demo.py": ["utils", "models"]}, "imports": {}},
+        "environment": str(environment),
+        "typeshed": str(typeshed),
+    }
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError(
+            "The host must only enumerate and hash valid worker inputs"
+        )
+
+    from arcgraph.semantic import import_scan
+
+    monkeypatch.setattr(reuse, "scan", forbidden)
+    monkeypatch.setattr(import_scan, "absolute_import_roots", forbidden)
+    monkeypatch.setattr(import_scan, "canonical", forbidden)
+    monkeypatch.setattr(
+        import_scan, "unicodedata", SimpleNamespace(normalize=forbidden)
+    )
+    assert reuse._isolated_import_scan(records) == {"utils", "models"}

@@ -131,7 +131,7 @@ def python_files(root):
             continue
         seen.add(resolved)
         with os.scandir(directory) as entries:
-            for entry in entries:
+            for entry in sorted(entries, key=lambda entry: entry.name):
                 if entry.is_dir():
                     if entry.name != "__pycache__":
                         pending.append(Path(entry.path))
@@ -155,7 +155,51 @@ def _matching_words(text, names):
     return found
 
 
-def guard(index, environment, typeshed):
+def _coverage_row(coverage, row):
+    coverage.update(json.dumps(row, separators=(",", ":")).encode("utf-8") + b"\n")
+
+
+def _file_inputs(environment, typeshed, coverage):
+    """Bind each root and each processed path/size/raw digest, in fixed order."""
+    roots = (
+        environment,
+        typeshed,
+        *(path for _, path in pth_roots(environment) if path is not None),
+    )
+    for slot, root in enumerate(roots):
+        if coverage is not None:
+            _coverage_row(coverage, ["root", slot, str(root)])
+        for path in sorted(python_files(root)):
+            raw = path.read_bytes()
+            if coverage is not None:
+                _coverage_row(
+                    coverage,
+                    [
+                        "file",
+                        slot,
+                        path.relative_to(root).as_posix(),
+                        len(raw),
+                        hashlib.sha256(raw).hexdigest(),
+                    ],
+                )
+            yield raw
+
+
+def input_coverage(records):
+    """Independently enumerate/hash host inputs; never decode or tokenize Python."""
+    coverage = hashlib.sha256()
+    if isinstance(records, dict):
+        for _ in _file_inputs(
+            Path(records["environment"]), Path(records["typeshed"]), coverage
+        ):
+            pass
+    else:
+        for text, names in records:
+            _coverage_row(coverage, [text, sorted(names)])
+    return coverage.hexdigest()
+
+
+def guard(index, environment, typeshed, *, coverage=None):
     """Unknown external-to-workspace import paths invalidate the whole run.
 
     Rather than assert that third-party reexports cannot reach the workspace,
@@ -177,35 +221,35 @@ def guard(index, environment, typeshed):
         else None
     )
     blocked = set()
-    for root in (
-        environment,
-        typeshed,
-        *(path for _, path in pth_roots(environment) if path is not None),
-    ):
-        for path in python_files(root):
-            text = unicodedata.normalize("NFKC", canonical(path.read_bytes()))
-            possible = (
-                _matching_words(text, names - blocked)
-                if word_names
-                else (
-                    set(identifiers.findall(text)) - blocked
-                    if identifiers is not None
-                    else set()
-                )
+    for raw in _file_inputs(environment, typeshed, coverage):
+        text = unicodedata.normalize("NFKC", canonical(raw))
+        possible = (
+            _matching_words(text, names - blocked)
+            if word_names
+            else (
+                set(identifiers.findall(text)) - blocked
+                if identifiers is not None
+                else set()
             )
-            if not possible:
-                continue
-            blocked.update(scan([[text, possible]]))
+        )
+        if not possible:
+            continue
+        blocked.update(scan([[text, possible]]))
     return {**index, "external_roots": sorted(blocked)}
 
 
-def scan(records):
+def scan(records, *, coverage=None):
     if isinstance(records, dict):
         return guard(
-            records["index"], Path(records["environment"]), Path(records["typeshed"])
+            records["index"],
+            Path(records["environment"]),
+            Path(records["typeshed"]),
+            coverage=coverage,
         )["external_roots"]
     blocked = set()
     for text, names in records:
+        if coverage is not None:
+            _coverage_row(coverage, [text, sorted(names)])
         possible = set(names) - blocked
         if possible:
             try:
@@ -217,15 +261,18 @@ def scan(records):
 
 def main():
     raw = sys.stdin.buffer.read()
+    coverage = hashlib.sha256()
+    roots = scan(json.loads(raw), coverage=coverage)
     result = {
-        "format": "semantic-import-scan/1",
+        "format": "semantic-import-scan/2",
         "input": hashlib.sha256(raw).hexdigest(),
+        "coverage": coverage.hexdigest(),
         "runtime": [
             sys.version,
             sys.getfilesystemencoding(),
             sys.getfilesystemencodeerrors(),
         ],
-        "roots": scan(json.loads(raw)),
+        "roots": roots,
     }
     sys.stdout.write(json.dumps(result))
 

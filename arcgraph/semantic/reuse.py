@@ -15,7 +15,12 @@ from arcgraph.core.utils import symlink_below
 from .contract import Snapshot, digest
 from .external_targets import file_path
 from .frozen import interpreter_identity
-from .import_scan import absolute_import_roots as absolute_import_roots, guard, scan
+from .import_scan import (
+    absolute_import_roots as absolute_import_roots,
+    guard,
+    input_coverage,
+    scan,
+)
 from .install import INTEGRITY, VERSION, validate_installation
 from .journal import JournalReplay, load, replay_sources
 from .runtime import _node_identity, capabilities, initialize_params
@@ -459,12 +464,22 @@ def guard_external_dependencies(index, environment, typeshed, *, isolated=False)
 
 
 def _isolated_import_scan(records):
-    """No site, project interpreter, project modules, or persistent cache."""
+    """Check coverage without host tokenization; no site or persistent cache.
+
+    Coverage binds processed bytes, not the correctness of the returned roots.
+    Those rely on the same trusted import_scan.py, bound by backend_identity's
+    wrapper digest before/after collection. Same-user edits to ArcGraph itself
+    are outside this boundary.
+    """
     payload = json.dumps(records).encode("utf-8")
     environment = {}
     if os.name == "nt" and "SystemRoot" in os.environ:
         environment["SystemRoot"] = os.environ["SystemRoot"]
     try:
+        # Hash first so full builds can overlap this work with transport startup.
+        # The worker must independently cover these same bytes; frozen input
+        # identities are still rechecked before publication.
+        coverage = input_coverage(records)
         process = subprocess.run(  # nosec B603
             [
                 sys.executable,
@@ -492,8 +507,8 @@ def _isolated_import_scan(records):
             else {name for _, possible in records for name in possible}
         )
         if (
-            set(result) == {"format", "input", "roots", "runtime"}
-            and result["format"] == "semantic-import-scan/1"
+            set(result) == {"format", "input", "coverage", "roots", "runtime"}
+            and result["format"] == "semantic-import-scan/2"
             and result["input"] == sha(payload)
             and result["runtime"]
             == [
@@ -505,6 +520,7 @@ def _isolated_import_scan(records):
             and all(isinstance(name, str) for name in roots)
             and roots == sorted(set(roots))
             and set(roots) <= names
+            and result["coverage"] == coverage
         ):
             return set(roots)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
