@@ -6,12 +6,14 @@ from pathlib import Path
 
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import (
+    AUTOMATIC_SOURCE_ROOT_STRATEGIES,
     TYPESCRIPT_FILE_EXTENSIONS,
     TYPESCRIPT_FRONTEND_NAME,
     FileScanner,
     SourceRoot,
     infer_source_roots,
     logical_module_name,
+    detect_source_roots,
 )
 from arcgraph.core.project_environment import dependency_environment_changed
 from arcgraph.core.schemas import Freshness
@@ -45,6 +47,15 @@ def compute_freshness(store: GraphStoreReader) -> Freshness:
                 status="stale", stale=True, reason="dependency_environment_changed"
             )
         source_roots = _source_roots_from_metadata(store.metadata)
+        detection = store.metadata.get("source_root_detection") or {}
+        if (
+            detection.get("strategy") in AUTOMATIC_SOURCE_ROOT_STRATEGIES
+            and detect_source_roots(repo_root).roots != source_roots
+        ):
+            # The configured search scope is part of the dependency environment.
+            return Freshness(
+                status="stale", stale=True, reason="dependency_environment_changed"
+            )
         indexed_files = store.read_files()
         file_extensions = _indexed_file_extensions(
             indexed_files, store.metadata.get("language_tiers", {})

@@ -19,6 +19,7 @@ from arcgraph.core.merge import EvidenceMergeEngine
 from arcgraph.core.metadata import current_commit, make_index_version
 from arcgraph.core.operation_lock import arcgraph_operation_lock
 from arcgraph.core.scanner import (
+    AUTOMATIC_SOURCE_ROOT_STRATEGIES,
     TYPESCRIPT_EMIT_SKIP_WARNING_KIND,
     FileScanner,
     SourceRoot,
@@ -169,23 +170,16 @@ class ArcGraphReindexer:
             else None
         )
         if (
-            semantic_full
-            and self.source_roots is None
+            self.source_roots is None
             and source_root_detection is not None
-            and source_root_detection.strategy
-            in {
-                "pyproject_arcgraph",
-                "pyproject_hatch",
-                "pyproject_setuptools",
-                "pyproject_name",
-                "setup_cfg",
-                "package_heuristic",
-                "repo_root_fallback",
-            }
+            and source_root_detection.strategy in AUTOMATIC_SOURCE_ROOT_STRATEGIES
         ):
             resolved = detect_source_roots(self.repo_root)
             source_roots = resolved.roots
             source_root_detection = resolved.detection
+        roots_changed = source_roots != (
+            self.source_roots or self._recover_source_roots(store.metadata)
+        )
         indexer = ArcGraphIndexer(
             self.repo_root,
             self.output_dir,
@@ -235,11 +229,15 @@ class ArcGraphReindexer:
                 "status": "reindexed",
                 "index_version": metadata.index_version,
                 "build_dir": str(directory),
-                "changed": self._delta(
-                    store.read_files(),
-                    GraphStoreReader.from_build(
-                        self.output_dir, metadata.index_version
-                    ).read_files(),
+                "changed": (
+                    self._delta(
+                        store.read_files(),
+                        GraphStoreReader.from_build(
+                            self.output_dir, metadata.index_version
+                        ).read_files(),
+                    )
+                    if roots_changed
+                    else {"added": [], "modified": [], "deleted": []}
                 ),
                 "reason": "semantic_core_full_build",
             }
@@ -251,7 +249,8 @@ class ArcGraphReindexer:
             previous=store.python_source(""),
         )
         if (
-            dependency_environment_changed(store.metadata, self.repo_root)
+            roots_changed
+            or dependency_environment_changed(store.metadata, self.repo_root)
             or parser_changed
         ):
             metadata, build_dir = indexer._build_inner()
@@ -259,7 +258,12 @@ class ArcGraphReindexer:
                 "schema_version": metadata.schema_version,
                 "index_version": metadata.index_version,
                 "status": "reindexed",
-                "changed": {"added": [], "modified": [], "deleted": []},
+                "changed": self._delta(
+                    store.read_files(),
+                    GraphStoreReader.from_build(
+                        self.output_dir, metadata.index_version
+                    ).read_files(),
+                ),
                 "reason": "dependency_environment_changed",
                 "build_dir": str(build_dir),
             }

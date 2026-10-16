@@ -193,8 +193,21 @@ def test_sync_recovers_each_explicit_artifact_and_matches_full(
 
 def stable_summary(value, output):
     if isinstance(value, dict):
+        if "manifest_sha256" in value:
+            from arcgraph.semantic.build import generation_directory
+            from arcgraph.semantic.snapshot import sha
+
+            reader = GraphStoreReader.from_current(output)
+            manifest = generation_directory(reader.sqlite_path.parent) / "manifest.json"
+            assert value["manifest_sha256"] == sha(manifest.read_bytes())
+            # The manifest binds physical journal URIs and the publication revision.
+            # Verify each binding before normalizing this per-generation identity.
         return {
-            k: stable_summary(v, output)
+            k: (
+                "<semantic-generation-manifest>"
+                if k == "manifest_sha256"
+                else stable_summary(v, output)
+            )
             for k, v in value.items()
             if k
             not in (

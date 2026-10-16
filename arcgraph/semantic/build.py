@@ -11,7 +11,7 @@ import time
 
 from arcgraph import __version__
 from arcgraph.core.project_environment import project_environment_path
-from arcgraph.core.scanner import FileScanner
+from arcgraph.core.scanner import FileScanner, SourceRoot
 from arcgraph.core.schemas import Node
 from arcgraph.core.graph_store import current_pointer_path, GraphStoreReader
 from arcgraph.core.structure import StructureView
@@ -43,6 +43,7 @@ from .reuse import (
     dependency_index,
     guard_external_dependencies,
 )
+from .search_paths import pth_roots, search_identity
 
 PROFILE = "semantic-core/2"
 LEGACY_PROFILE = "legacy/1"
@@ -96,9 +97,8 @@ def freshness_reason(store, root):
         if artifact_reason is not None:
             return artifact_reason
         if not unavailable:
-            manifest = json.loads(
-                (directory / "manifest.json").read_text(encoding="utf-8")
-            )
+            manifest_raw = (directory / "manifest.json").read_bytes()
+            manifest = json.loads(manifest_raw)
             if manifest.get("storage_format") != STORAGE:
                 return "semantic_generation_storage_unsupported: rebuild required"
             if manifest.get("projection_profile") != PROFILE:
@@ -117,6 +117,10 @@ def freshness_reason(store, root):
                     return "semantic_generation_unsafe"
                 if sha(path.read_bytes()) != checksum:
                     return "semantic_generation_artifact_changed"
+            if sha(manifest_raw) != (store.metadata.get("evidence_manifest") or {}).get(
+                "semantic_generation", {}
+            ).get("manifest_sha256"):
+                return "semantic_generation_artifact_changed"
         for file in snapshot.files:
             if sha((root / file.path).read_bytes()) != file.raw_digest:
                 return "semantic_snapshot_changed"
@@ -131,6 +135,10 @@ def freshness_reason(store, root):
         )
         expected = dict(snapshot.environment)
         if environment_identity(environment)[0] != expected["dependencies"]:
+            return "semantic_dependency_changed"
+        if not unavailable and load(directory / "reuse.json").get(
+            "search_paths"
+        ) != search_identity(environment, virtual=True):
             return "semantic_dependency_changed"
         identity = interpreter_identity(root, environment)
         if any(expected.get(key) != value for key, value in identity.items()):
@@ -238,6 +246,10 @@ class SemanticBuild:
         if environment_identity(self.environment)[0] != dependency_digest:
             raise ValueError("input_changed_during_run: dependency snapshot differs")
         self.dependency_digest = dependency_digest
+        try:
+            self.search_paths = search_identity(self.directory / "environment")
+        except (OSError, ValueError, RuntimeError):
+            self.search_paths = None
         paths = {f.path for f in [*files, *auxiliary_files]} | set(
             self.configuration_bytes
         )
@@ -310,7 +322,14 @@ class SemanticBuild:
                 self.dependencies = dependency_index(
                     [*self.files, *self.auxiliary_files],
                     {**trees, **stub_trees},
-                    self.indexer.source_roots,
+                    [
+                        *self.indexer.source_roots,
+                        *(
+                            SourceRoot(name.removeprefix("source/"))
+                            for name, path in pth_roots(self.directory / "environment")
+                            if path is None
+                        ),
+                    ],
                 )
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
                 self.dependencies = None
@@ -402,7 +421,7 @@ class SemanticBuild:
                         self.directory / "environment",
                         Path(backend["installation"]) / "dist/typeshed-fallback",
                     )
-                except (OSError, ValueError):
+                except (OSError, ValueError, RuntimeError):
                     self.dependencies = None
                 proof = certificate(
                     self.snapshot,
@@ -412,6 +431,7 @@ class SemanticBuild:
                     self.indexer.source_roots,
                     self.dependencies,
                 )
+                proof["search_paths"] = self.search_paths
                 reuse = None
                 if getattr(self.indexer, "_semantic_previous", None) is not None:
                     try:
@@ -685,6 +705,13 @@ class SemanticBuild:
         verify(self.snapshot, self.root)
         verify_environment(self.directory / "environment", self.dependency_digest)
         verify_interpreter(self.indexer.repo_root, self.interpreter, self.environment)
+        if (
+            self.search_paths is not None
+            and search_identity(self.directory / "environment") != self.search_paths
+        ):
+            raise ValueError(
+                "input_changed_during_run: semantic search directory changed"
+            )
 
     def publish(self, build_dir):
         self.inputs.verify()

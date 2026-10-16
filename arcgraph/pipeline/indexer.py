@@ -265,6 +265,11 @@ class ArcGraphIndexer:
             runtime_trace_path=self.runtime_trace_path,
             frozen_inputs=semantic.inputs if semantic is not None else None,
         )
+        if semantic is not None and getattr(semantic, "adopted", False):
+            # Bind the retained evidence to the graph published in this revision.
+            metadata.evidence_manifest["semantic_generation"] = {
+                "manifest_sha256": semantic.generation_hashes["manifest.json"]
+            }
 
         # Generate structural hierarchy BEFORE merge so structural nodes
         # go through the same pipeline (canonical identity, semantic facts,

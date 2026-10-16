@@ -393,7 +393,7 @@ def test_reuse_rejects_a_changed_position_encoding(tmp_path, monkeypatch):
         )
 
 
-def test_unverified_search_path_cannot_hit_unchanged(prepared, tmp_path):
+def test_verified_empty_search_path_can_hit_unchanged(prepared, tmp_path):
     project, environment, _, _ = prepared
     configure(project)
     outside = tmp_path / "unverified-search-root"
@@ -404,6 +404,6 @@ def test_unverified_search_path_cannot_hit_unchanged(prepared, tmp_path):
     active_build(project, output)
     result = ArcGraphReindexer(project, output).reindex_changed()
     assert (
-        result["status"] == "reindexed"
-    ), "Unverified import inputs cannot count as unchanged"
+        result["status"] == "unchanged"
+    ), "Content-bound empty search directories can count as unchanged"
     assert_full(project, output, tmp_path / "full")

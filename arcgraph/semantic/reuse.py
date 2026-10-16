@@ -20,6 +20,7 @@ from .install import INTEGRITY, VERSION, validate_installation
 from .journal import JournalReplay, load, replay_sources
 from .runtime import _node_identity, capabilities, initialize_params
 from .snapshot import canonical, sha
+from .search_paths import pth_roots, python_files
 
 FORMAT = "semantic-native-reuse/1"
 REQUIRED = {
@@ -109,6 +110,10 @@ def checked_generation(store, destination=None):
     if symlink_below(boundary, directory / "manifest.json"):
         raise ValueError("Unsafe semantic generation")
     raw = (directory / "manifest.json").read_bytes()
+    if sha(raw) != (store.metadata.get("evidence_manifest") or {}).get(
+        "semantic_generation", {}
+    ).get("manifest_sha256"):
+        raise ValueError("Semantic manifest differs from the published graph")
     manifest = json.loads(raw)
     artifacts = manifest["artifacts"]
     if (
@@ -157,8 +162,7 @@ def unchanged(store, indexer, files):
             return False
         _, snapshot, _, proof = checked_generation(store)
         if proof["dependencies"] is None:
-            # In particular, an unmodelled .pth search root may change without
-            # any captured source or environment file changing.
+            # An unknown dependency closure cannot certify unchanged answers.
             return False
         auxiliary = FileScanner(
             indexer.repo_root,
@@ -255,6 +259,15 @@ def dependency_index(files, trees, roots):
             names.add("__init__")
         # Every module is resolved in the context of its containing packages.
         names.update(p for p in packages if p)
+        if Path(path).stem == "__init__":
+            exports = package_exports(tree)
+            if exports is None:
+                return None
+            names.update(
+                (package + "." if package else "") + name
+                for package in packages
+                for name in exports
+            )
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names.update(a.name for a in node.names)
@@ -290,15 +303,100 @@ def dependency_index(files, trees, roots):
     return {"modules": modules, "imports": imports}
 
 
+def package_exports(tree):
+    """Union literal export lists; any other use/binding of __all__ is unknown."""
+    allowed, exports = set(), set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(
+                node,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.ClassDef,
+                    ast.ExceptHandler,
+                    ast.MatchAs,
+                    ast.MatchStar,
+                ),
+            )
+            and node.name == "__all__"
+            or isinstance(node, ast.MatchMapping)
+            and node.rest == "__all__"
+        ):
+            return None
+        targets = (
+            node.targets
+            if isinstance(node, ast.Assign)
+            else [node.target] if isinstance(node, ast.AnnAssign) else []
+        )
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id == "__all__":
+                if len(targets) != 1:
+                    return None
+                value = node.value
+                if not isinstance(value, (ast.List, ast.Tuple)) or any(
+                    not isinstance(v, ast.Constant) or not isinstance(v.value, str)
+                    for v in value.elts
+                ):
+                    return None
+                allowed.add(target)
+                exports.update(v.value for v in value.elts)
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+            (a.asname or a.name.split(".")[0]) == "__all__" for a in node.names
+        ):
+            return None
+    if any(
+        isinstance(node, ast.Name) and node.id == "__all__" and node not in allowed
+        for node in ast.walk(tree)
+    ):
+        return None
+    return exports
+
+
+def absolute_import_roots(text):
+    """Tokenize all branches, including syntax newer than the host AST grammar."""
+    roots, state, from_root = set(), None, None
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type in {
+            tokenize.NL,
+            tokenize.COMMENT,
+            tokenize.INDENT,
+            tokenize.DEDENT,
+        }:
+            continue
+        if token.type == tokenize.NEWLINE or token.string == ";":
+            state = None
+        elif state == "from":
+            from_root = token.string if token.type == tokenize.NAME else None
+            state = "from-module"
+        elif state == "from-module":
+            if token.string == "import":
+                if from_root is not None:
+                    roots.add(from_root)
+                state = "from-symbols"
+        elif state == "from-symbols":
+            continue
+        elif state == "import":
+            if token.type == tokenize.NAME:
+                roots.add(token.string)
+                state = "import-tail"
+        elif state == "import-tail":
+            if token.string == ",":
+                state = "import"
+        elif token.type == tokenize.NAME and token.string in {"from", "import"}:
+            state = token.string
+    return roots
+
+
 def guard_external_dependencies(index, environment, typeshed):
     """Unknown external-to-workspace import paths invalidate the whole run.
 
     Rather than assert that third-party reexports cannot reach the workspace,
     conservatively block each workspace top-level name mentioned by an external
-    import. Tokenize all branches, independent of host AST grammar; tokenization
-    failure blocks every possibly referenced name. Plain .pth search paths are
-    unmodelled and disable reuse entirely. Runtime import hooks are not executed
-    by the backend's static model.
+    absolute import. Relative fragments and imported symbol names are excluded.
+    Tokenization failure blocks every possibly referenced name in that file.
+    Static .pth directories are content-bound separately; import hooks are never
+    executed by the backend's static model.
     """
     if index is None:
         return None
@@ -311,16 +409,13 @@ def guard_external_dependencies(index, environment, typeshed):
         else None
     )
     blocked = set()
-    for root in (environment, typeshed):
-        for path in root.rglob("*"):
-            if path.suffix not in {".py", ".pyi", ".pth"}:
-                continue
+    for root in (
+        environment,
+        typeshed,
+        *(path for _, path in pth_roots(environment) if path is not None),
+    ):
+        for path in python_files(root):
             text = unicodedata.normalize("NFKC", canonical(path.read_bytes()))
-            if path.suffix == ".pth" and any(
-                line.strip() and not line.startswith(("#", "import ", "import\t"))
-                for line in text.splitlines()
-            ):
-                return None
             possible = (
                 set(identifiers.findall(text)) - blocked
                 if identifiers is not None
@@ -328,22 +423,8 @@ def guard_external_dependencies(index, environment, typeshed):
             )
             if not possible:
                 continue
-            importing = False
             try:
-                for token in tokenize.generate_tokens(io.StringIO(text).readline):
-                    if token.type == tokenize.NAME and token.string in {
-                        "from",
-                        "import",
-                    }:
-                        importing = True
-                    elif token.type == tokenize.NEWLINE or token.string == ";":
-                        importing = False
-                    elif (
-                        importing
-                        and token.type == tokenize.NAME
-                        and token.string in possible
-                    ):
-                        blocked.add(token.string)
+                blocked.update(absolute_import_roots(text) & possible)
             except (tokenize.TokenError, IndentationError, SyntaxError):
                 blocked.update(possible)
     return {**index, "external_roots": sorted(blocked)}
@@ -419,6 +500,8 @@ class Reuse:
             raise ValueError("Previous artifact input binding changed")
         if (
             any(old_proof[k] != proof[k] for k in ("backend", "configuration", "roots"))
+            or old_proof["search_paths"] != proof["search_paths"]
+            or proof["search_paths"] is None
             or snapshot.environment != semantic.snapshot.environment
             or snapshot.target_python != semantic.snapshot.target_python
             or snapshot.platform != semantic.snapshot.platform

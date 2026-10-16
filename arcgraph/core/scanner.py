@@ -34,6 +34,19 @@ class SourceRootDetection:
     exclude: tuple[str, ...] = ()
 
 
+AUTOMATIC_SOURCE_ROOT_STRATEGIES = frozenset(
+    {
+        "pyproject_arcgraph",
+        "pyproject_hatch",
+        "pyproject_setuptools",
+        "pyproject_name",
+        "setup_cfg",
+        "package_heuristic",
+        "repo_root_fallback",
+    }
+)
+
+
 @dataclass(frozen=True)
 class ResolvedSourceRoots:
     """Unified result from workspace discovery: roots + detection metadata."""
