@@ -136,6 +136,7 @@ def test_enabled_sync_full_build_uses_operation_budget(workload, monkeypatch):
     result = ArcGraphReindexer(root, output).reindex_changed(
         cleanup_after_publish=False
     )
+    # The full-build stub never collects or reuses semantic responses.
     assert result["reason"] == "semantic_core_full_build"
     assert_one_budget(attempts)
     assert structure._build_failure_seconds.get() is None

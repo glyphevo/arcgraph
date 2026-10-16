@@ -472,6 +472,9 @@ class SemanticBuild:
                         "input_changed_during_run: semantic backend changed"
                     )
                 dump(proof, self.generation / "reuse.json")
+                self.indexer._semantic_reused_definitions = (
+                    detail.get("reuse") or {}
+                ).get("definitions", 0)
             with self._phase("external_registry"):
                 if detail["requests"]["error"] or detail["requests"]["timeout"]:
                     raise ValueError(

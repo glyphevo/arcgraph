@@ -173,6 +173,7 @@ class ArcGraphIndexer:
     def _build_inner(self) -> tuple[IndexMetadata, Path]:
         from arcgraph.semantic.runtime import semantic_core_enabled
 
+        self._semantic_reused_definitions = 0
         enabled = semantic_core_enabled(self.repo_root)
         self.semantic_core = enabled
         commit_sha = current_commit(self.repo_root)

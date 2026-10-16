@@ -239,7 +239,11 @@ class ArcGraphReindexer:
                     if roots_changed
                     else {"added": [], "modified": [], "deleted": []}
                 ),
-                "reason": "semantic_core_full_build",
+                "reason": (
+                    "semantic_core_incremental"
+                    if getattr(indexer, "_semantic_reused_definitions", 0) > 0
+                    else "semantic_core_full_build"
+                ),
             }
         parser_changed = store.metadata.get("extractor_metadata", {}).get(
             "python-v1-compat-shim"
