@@ -5,22 +5,21 @@ import io
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
+import sys
 import tokenize
-import unicodedata
 
 from arcgraph.core.scanner import FileScanner, TYPESCRIPT_FILE_EXTENSIONS
 from arcgraph.core.utils import symlink_below
 from .contract import Snapshot, digest
 from .external_targets import file_path
 from .frozen import interpreter_identity
+from .import_scan import absolute_import_roots as absolute_import_roots, guard, scan
 from .install import INTEGRITY, VERSION, validate_installation
 from .journal import JournalReplay, load, replay_sources
 from .runtime import _node_identity, capabilities, initialize_params
-from .snapshot import canonical, sha
-from .search_paths import pth_roots, python_files
+from .snapshot import sha
 
 FORMAT = "semantic-native-reuse/1"
 REQUIRED = {
@@ -447,81 +446,70 @@ def package_exports(tree, source=None):
     }
 
 
-def absolute_import_roots(text):
-    """Tokenize all branches, including syntax newer than the host AST grammar."""
-    roots, state, from_root = set(), None, None
-    for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if token.type in {
-            tokenize.NL,
-            tokenize.COMMENT,
-            tokenize.INDENT,
-            tokenize.DEDENT,
-        }:
-            continue
-        if token.type == tokenize.NEWLINE or token.string == ";":
-            state = None
-        elif state == "from":
-            from_root = token.string if token.type == tokenize.NAME else None
-            state = "from-module"
-        elif state == "from-module":
-            if token.string == "import":
-                if from_root is not None:
-                    roots.add(from_root)
-                state = "from-symbols"
-        elif state == "from-symbols":
-            continue
-        elif state == "import":
-            if token.type == tokenize.NAME:
-                roots.add(token.string)
-                state = "import-tail"
-        elif state == "import-tail":
-            if token.string == ",":
-                state = "import"
-        elif token.type == tokenize.NAME and token.string in {"from", "import"}:
-            state = token.string
-    return roots
+def guard_external_dependencies(index, environment, typeshed, *, isolated=False):
+    """Run the same closed guard on the host or in its isolated tool worker."""
+    if index is None or not isolated or environment is None or typeshed is None:
+        return guard(index, environment, typeshed)
+    request = {
+        "index": index,
+        "environment": str(environment.absolute()),
+        "typeshed": str(typeshed.absolute()),
+    }
+    return {**index, "external_roots": sorted(_isolated_import_scan(request))}
 
 
-def guard_external_dependencies(index, environment, typeshed):
-    """Unknown external-to-workspace import paths invalidate the whole run.
-
-    Rather than assert that third-party reexports cannot reach the workspace,
-    conservatively block each workspace top-level name mentioned by an external
-    absolute import. Relative fragments and imported symbol names are excluded.
-    Tokenization failure blocks every possibly referenced name in that file.
-    Static .pth directories are content-bound separately; import hooks are never
-    executed by the backend's static model.
-    """
-    if index is None:
-        return None
-    names = {m.split(".")[0] for values in index["modules"].values() for m in values}
-    identifiers = (
-        re.compile(
-            r"(?<!\w)(" + "|".join(re.escape(n) for n in sorted(names)) + r")(?!\w)"
+def _isolated_import_scan(records):
+    """No site, project interpreter, project modules, or persistent cache."""
+    payload = json.dumps(records).encode("utf-8")
+    environment = {}
+    if os.name == "nt" and "SystemRoot" in os.environ:
+        environment["SystemRoot"] = os.environ["SystemRoot"]
+    try:
+        process = subprocess.run(  # nosec B603
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-B",
+                str(Path(__file__).with_name("import_scan.py")),
+            ],
+            input=payload,
+            capture_output=True,
+            env=environment,
+            cwd=Path(__file__).parent,
+            timeout=600,
+            check=True,
         )
-        if names
-        else None
-    )
-    blocked = set()
-    for root in (
-        environment,
-        typeshed,
-        *(path for _, path in pth_roots(environment) if path is not None),
-    ):
-        for path in python_files(root):
-            text = unicodedata.normalize("NFKC", canonical(path.read_bytes()))
-            possible = (
-                set(identifiers.findall(text)) - blocked
-                if identifiers is not None
-                else set()
-            )
-            if not possible:
-                continue
-            try:
-                blocked.update(absolute_import_roots(text) & possible)
-            except (tokenize.TokenError, IndentationError, SyntaxError):
-                blocked.update(possible)
-    return {**index, "external_roots": sorted(blocked)}
+        result = json.loads(process.stdout)
+        roots = result["roots"]
+        names = (
+            {
+                m.split(".")[0]
+                for values in records["index"]["modules"].values()
+                for m in values
+            }
+            if isinstance(records, dict)
+            else {name for _, possible in records for name in possible}
+        )
+        if (
+            set(result) == {"format", "input", "roots", "runtime"}
+            and result["format"] == "semantic-import-scan/1"
+            and result["input"] == sha(payload)
+            and result["runtime"]
+            == [
+                sys.version,
+                sys.getfilesystemencoding(),
+                sys.getfilesystemencodeerrors(),
+            ]
+            and isinstance(roots, list)
+            and all(isinstance(name, str) for name in roots)
+            and roots == sorted(set(roots))
+            and set(roots) <= names
+        ):
+            return set(roots)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        pass
+    return set(scan(records))
 
 
 def affected_paths(old, new, changed, native):
