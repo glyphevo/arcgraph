@@ -208,12 +208,28 @@ def _ends_in_exit(block: list[ast.stmt]) -> bool:
     return bool(block) and isinstance(block[-1], _EXITS)
 
 
+def _fixed_subscript_name(node):
+    """A repeatable element expression; tuple-only consumers ensure immutability."""
+    if not isinstance(node, ast.Subscript) or not isinstance(node.value, ast.Name):
+        return None
+    index = node.slice
+    if isinstance(index, ast.UnaryOp) and isinstance(index.op, ast.USub):
+        index = index.operand
+    if isinstance(index, ast.Constant) and type(index.value) is int:
+        return ast.unparse(node)
+    return None
+
+
 def _is_name(node: ast.AST, name: str) -> bool:
     """Whether ``node`` reads name, or binds and reads it as (name := ...)."""
 
     if isinstance(node, ast.NamedExpr):
         node = node.target
-    return isinstance(node, ast.Name) and node.id == name
+    return (
+        isinstance(node, ast.Name)
+        and node.id == name
+        or _fixed_subscript_name(node) == name
+    )
 
 
 def _compared_with_none(
@@ -899,8 +915,9 @@ class TypeRefAnalyzer:
     def _record_receiver_narrowings(self, node: Node, context: "_TypeContext") -> None:
         """Positive isinstance and None-exclusion guards in a bounded body.
 
-        Only plain local names and one concrete class are supported. No tuple
-        tests, arbitrary predicates or captured refinements. A return/raise
+        Plain local names and fixed tuple element presence tests are supported.
+        No tuple isinstance tests, arbitrary predicates or captured refinements.
+        A return/raise
         after a None check also bounds the surviving statements.
         """
         node.properties.pop("receiver_narrowings", None)
@@ -1046,6 +1063,10 @@ class TypeRefAnalyzer:
                     # and exits; the fact ends at this statement block's end.
                     names = {
                         part.id for part in ast.walk(test) if isinstance(part, ast.Name)
+                    } | {
+                        subject
+                        for part in ast.walk(test)
+                        if (subject := _fixed_subscript_name(part)) is not None
                     }
                     for name in sorted(names):
                         for body in [stmt.body, stmt.orelse]:
@@ -1061,7 +1082,8 @@ class TypeRefAnalyzer:
                                 (name, statements[index + 1 :], {"exclude_none": True})
                             )
                 for name, body, value in entries:
-                    found = context.lexical.lookup(node, name)
+                    root_name = context.lexical.root_name(name) or name
+                    found = context.lexical.lookup(node, root_name)
                     if not body or not found or found[0].id != node.id:
                         continue
                     if loops is None:
@@ -1085,7 +1107,7 @@ class TypeRefAnalyzer:
                                 for loop in loops
                                 if (loop.lineno, loop.col_offset)
                                 > (test.end_lineno, test.end_col_offset)
-                                and _binds_name(loop, name)
+                                and _binds_name(loop, root_name)
                             ],
                             "check": (
                                 [stmt.end_lineno, stmt.end_col_offset]

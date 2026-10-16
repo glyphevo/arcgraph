@@ -11,7 +11,13 @@ import ast
 from collections.abc import Callable
 from typing import Any
 
-from arcgraph.analyzers.type_unions import single_value_type, union_alternatives
+from arcgraph.analyzers.constructor_methods import CONSTRUCTOR_METHODS
+from arcgraph.analyzers.type_unions import (
+    single_value_type,
+    tuple_element_type,
+    union_alternatives,
+    unknown_union_result,
+)
 
 # Methods whose return type the library or the language documents, keyed by
 # the receiver's type id. The value is the returned type id and, for a list,
@@ -215,6 +221,7 @@ GENERATOR_TYPE_ID = "extsym:types.GeneratorType"
 ASYNC_GENERATOR_TYPE_ID = "extsym:types.AsyncGeneratorType"
 
 EXTERNAL_METHODS_BY_TYPE: dict[str, frozenset[str]] = {
+    **CONSTRUCTOR_METHODS,
     GENERATOR_TYPE_ID: frozenset({"close", "send", "throw", "__next__"}),
     "extsym:sqlite3.Connection": frozenset(
         {
@@ -1303,6 +1310,16 @@ def sliced_value_type(source: dict[str, Any] | None) -> dict[str, Any] | None:
     if value.get("type_id") not in _SLICED_TYPE_IDS:
         return None
     sliced = {**value, "strategy": "slice_value"}
+    if value.get("type_id") == "builtin:tuple" and not tuple_element_type(value).get(
+        "type_id"
+    ):
+        # A slice changes positions and length. Preserve tuple methods, but
+        # never reuse a heterogeneous tuple's old positional arguments.
+        sliced["type_args"] = [
+            unknown_union_result("tuple slice element"),
+            {"type_expression": "..."},
+        ]
+        sliced["type_expression"] = "tuple"
     if wrapped or value.get("typed_value_evidence"):
         sliced["typed_value_evidence"] = True
     return sliced

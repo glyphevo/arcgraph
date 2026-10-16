@@ -786,9 +786,15 @@ class CallAnalyzer:
             callsite.get("line", 0),
             callsite.get("column", 0),
         ) > (proof.get("line", 0), proof.get("column", 0))
-        available_value = bool(
-            ref.get("typed_value_evidence")
-        ) and context.value_ref_available(source, ref, int(callsite.get("line") or 0))
+        available_value = bool(ref.get("typed_value_evidence")) and (
+            context.value_ref_available(source, ref, int(callsite.get("line") or 0))
+            or bool(
+                (local := context.local_expression_types.get((source.id, root or "")))
+                and context.value_ref_available(
+                    source, local, int(callsite.get("line") or 0)
+                )
+            )
+        )
         return (
             bool(ref.get("narrowed_receiver"))
             or available_proof
@@ -952,7 +958,7 @@ class CallAnalyzer:
                 )
 
         if source.id in context.lexical.strict:
-            lexical_binding = context.lexical.binding(source, raw_name)
+            lexical_binding = context.lexical.binding(source, raw_name, callsite)
             if lexical_binding and lexical_binding.get("kind") == "import_alias":
                 return self._import_alias_target(source, raw_name, context)
         local_definition = self._local_definition_target(
@@ -1131,10 +1137,14 @@ class CallAnalyzer:
                 ):
                     return {**positioned, "typed_value_evidence": True}
             if source.id in context.lexical.strict:
-                return context.lexical.type_ref(source, node.id)
-            return context.type_ref_at(source, node.id) or module_scope_refs.get(
-                node.id
-            )
+                known = context.lexical.type_ref(source, node.id)
+            else:
+                known = context.type_ref_at(source, node.id) or module_scope_refs.get(
+                    node.id
+                )
+            if known and self._type_id(known):
+                return known
+            return self._local_expression_type_ref(source, node.id, context) or known
 
         if isinstance(node, ast.Attribute):
             full_name = self._unparse(node)
@@ -1268,19 +1278,34 @@ class CallAnalyzer:
             if isinstance(node.slice, ast.Slice):
                 return sliced_value_type(receiver_type)
             args = (receiver_type or {}).get("type_args", [])
+            index = None
+            if isinstance(node.slice, ast.Constant) and type(node.slice.value) is int:
+                index = node.slice.value
+            elif (
+                isinstance(node.slice, ast.UnaryOp)
+                and isinstance(node.slice.op, ast.USub)
+                and isinstance(node.slice.operand, ast.Constant)
+                and type(node.slice.operand.value) is int
+            ):
+                index = -node.slice.operand.value
             if (
-                (receiver_type or {}).get("origin") == "documented_tuple"
-                and isinstance(node.slice, ast.Constant)
-                and type(node.slice.value) is int
+                self._type_id(receiver_type) == "builtin:tuple"
+                and union_alternatives(receiver_type) is None
+                and not receiver_type.get("isinstance_receiver")
+                and index is not None
                 and args
                 and not any(a.get("type_expression") == "..." for a in args)
             ):
-                index = node.slice.value
+                if not -len(args) <= index < len(args):
+                    return unknown_union_result(self._unparse(node))
+                selected = {**args[index], "typed_value_evidence": True}
                 return (
-                    {**args[index], "typed_value_evidence": True}
-                    if -len(args) <= index < len(args)
-                    else unknown_union_result(self._unparse(node))
-                )
+                    context.narrowed_type_ref(
+                        source, self._unparse(node), fallback=selected
+                    )
+                    if isinstance(node.value, ast.Name)
+                    else None
+                ) or selected
             value = self._subscript_value_type_ref(receiver_type)
             if (
                 value is None
@@ -1297,14 +1322,17 @@ class CallAnalyzer:
             isinstance(node, ast.BoolOp)
             and isinstance(node.op, ast.Or)
             and len(node.values) == 2
-            and isinstance(node.values[0], ast.Name)
-            and node.values[0].id in source.properties.get("nullable_bindings", {})
         ):
             left = self._receiver_type_ref_node(source, node.values[0], context)
             right = self._receiver_type_ref_node(source, node.values[1], context)
-            return nullable_default_type(left, right) or unknown_union_result(
-                self._unparse(node)
-            )
+            narrowed_default = nullable_default_type(left, right)
+            if narrowed_default is not None:
+                return narrowed_default
+            if isinstance(node.values[0], ast.Name) and node.values[0].id in (
+                source.properties.get("nullable_bindings", {})
+            ):
+                return unknown_union_result(self._unparse(node))
+            return None
 
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
@@ -1417,6 +1445,182 @@ class CallAnalyzer:
             return None
 
         return None
+
+    def _local_expression_type_ref(
+        self, source: Node, name: str, context: _CallResolutionContext
+    ) -> dict[str, Any] | None:
+        """Read a stable local's initializer at its own evaluation position.
+
+        Late evidence may type an expression the first type pass could not type.
+        Never evaluate a later value at the use site, use guessed return types,
+        or recover a value invalidated by a write in another execution scope.
+        """
+        found = context.lexical.lookup(source, name)
+        position = context.callsite_position
+        if (
+            source.kind not in {"function", "method"}
+            or not found
+            or found[0].id != source.id
+            or position is None
+            or position[0] != source.id
+            or not context.lexical.stable(*found, position=position[1:])
+        ):
+            return None
+        binding = found[1][0]
+        if (
+            binding.get("kind") != "assignment"
+            or binding.get("annotation")
+            or binding.get("unpack_path")
+            or not binding_in_effect(binding, position)
+        ):
+            return None
+        key = (source.id, name)
+        if key in context.local_expression_types:
+            cached = context.local_expression_types[key]
+            return (
+                context.narrowed_type_ref(source, name, fallback=cached)
+                if union_alternatives(cached) is not None
+                else cached
+            )
+        # Bound recursion even for very long chains of aliases.
+        if getattr(context, "local_expression_depth", 0) >= 32:
+            return None
+        context.local_expression_types[key] = None
+        value = self._parse_expression(str(binding.get("value") or ""))
+        if value is None:
+            return None
+        context.local_expression_depth = (
+            getattr(context, "local_expression_depth", 0) + 1
+        )
+        context.callsite_position = (
+            source.id,
+            int(binding.get("line") or 0),
+            int(binding.get("column") or 0),
+        )
+        try:
+            for operand in ast.walk(value):
+                if isinstance(operand, ast.Name):
+                    held = context.lexical.lookup(source, operand.id)
+                    if (
+                        held
+                        and held[0].kind == "module"
+                        and (
+                            (held[0].path, operand.id) in context.lexical.global_writes
+                            or not context.lexical.stable(*held)
+                            or held[1][0].get("kind")
+                            not in {
+                                "import_alias",
+                                "class_definition",
+                                "function_definition",
+                            }
+                        )
+                    ):
+                        # A module value needs the type pass's capture proof,
+                        # not a summary inferred without its defining bindings.
+                        return None
+                if (
+                    isinstance(operand, ast.Call)
+                    and isinstance(operand.func, ast.Name)
+                    and context.lexical.blocked(
+                        source,
+                        {
+                            "name": operand.func.id,
+                            "line": context.callsite_position[1],
+                            "column": context.callsite_position[2],
+                        },
+                        require_stable=True,
+                    )
+                ):
+                    return None
+                if isinstance(operand, ast.Call):
+                    callee = self._resolve_call_node(source, operand, context)
+                    if (
+                        callee is None
+                        or callee.strategy in _NAME_GUESS_STRATEGIES
+                        or callee.strategy == "unique_short_name"
+                        or callee.strategy == "external_receiver_type"
+                        and callee.confidence == "heuristic"
+                    ):
+                        # Unknown arguments do not invalidate a declared return,
+                        # but a callee selected by name is never type evidence.
+                        return None
+            ref = self._receiver_type_ref_node(source, value, context)
+        finally:
+            context.callsite_position = position
+            context.local_expression_depth -= 1
+        if (
+            ref is None
+            or not self._type_id(ref)
+            or self._type_id(ref) in _UNKNOWN_TYPE_IDS
+            or ref.get("heuristic_type_evidence")
+        ):
+            return None
+        type_id = self._type_id(ref) or ""
+        if type_id.startswith("extsym:"):
+            qualified = type_id.removeprefix("extsym:")
+            parts = qualified.split(".")
+            module = next(
+                (
+                    context.lexical.nodes["mod:" + ".".join(parts[:split])]
+                    for split in range(len(parts) - 1, 0, -1)
+                    if "mod:" + ".".join(parts[:split]) in context.lexical.nodes
+                ),
+                None,
+            )
+            if module is not None:
+                if qualified not in context.local_project_class_types:
+                    project_class = None
+                    current = qualified
+                    seen = set()
+                    for _ in range(32):
+                        if current in seen:
+                            break
+                        seen.add(current)
+                        owner_name, _, member_name = current.rpartition(".")
+                        owner = context.lexical.nodes.get("mod:" + owner_name)
+                        if owner is None:
+                            break
+                        held = self._module_name_at(
+                            owner, member_name, context.lexical, None
+                        )
+                        if held is None:
+                            break
+                        if held[0] == "def":
+                            target = context.by_id.get(held[1])
+                            if target is not None and target.kind == "class":
+                                project_class = target.id
+                            break
+                        if held[0] != "import" or not held[1]:
+                            break
+                        current = held[1]
+                    context.local_project_class_types[qualified] = project_class
+                project_class = context.local_project_class_types[qualified]
+                if project_class is None:
+                    # A workspace alias is not an external-class boundary.
+                    # Unknown or rebound re-exports cannot prove construction.
+                    return None
+                ref = {**ref, "type_id": project_class}
+        if (
+            ref.get("strategy") == "external_symbol"
+            and str(ref.get("type_id") or "").startswith("extsym:")
+            and ref["type_id"] not in EXTERNAL_METHODS_BY_TYPE
+        ):
+            # A capitalized imported name alone is only a constructor guess.
+            # Keep existing boundary heuristics, never upgrade that guess.
+            return None
+        result = {
+            **ref,
+            "binding_id": binding.get("binding_id"),
+            "strategy": "local_expression",
+            "typed_value_evidence": True,
+        }
+        result.pop("type_ref_id", None)
+        context.local_expression_types[key] = result
+        return (
+            context.narrowed_type_ref(source, name, fallback=result)
+            if union_alternatives(result) is not None
+            else result
+        )
 
     @staticmethod
     def _literal_receiver_type(node: ast.AST) -> str | None:
@@ -2180,11 +2384,24 @@ class CallAnalyzer:
             # Boundary returns are written for callees guessed from receiver
             # names, such as conn.execute; nothing else follows from a guess.
             external_return = self._external_return_type_ref(target)
+            qualname = target.qualname or target.id.removeprefix("extsym:")
+            if (
+                guessed
+                and qualname.startswith("sqlalchemy.engine.Result.")
+                and qualname.rsplit(".", 1)[-1] in SQLALCHEMY_RESULT_METHODS
+            ):
+                # A boundary guessed from a receiver name keeps the legacy
+                # heuristic, not the new typed-result contract. Such evidence
+                # must never become a proven local initializer type.
+                external_return = {
+                    "type_id": "extsym:sqlalchemy.engine.Result",
+                    "type_expression": "sqlalchemy.engine.Result",
+                    "strategy": "external_return_boundary",
+                }
             if external_return is not None:
                 return {**external_return, "heuristic_type_evidence": guessed}
             if guessed:
                 return None
-            qualname = target.qualname or target.id.removeprefix("extsym:")
             owner, _, method = qualname.rpartition(".")
             # A documented function return is read only through a name that is
             # still its import, as the type analyzer reads an assigned call.
@@ -2282,7 +2499,9 @@ class CallAnalyzer:
             }
         if qualname in {
             "sqlalchemy.orm.Session.execute",
+            "sqlalchemy.orm.session.Session.execute",
             "sqlalchemy.engine.Connection.execute",
+            "sqlalchemy.engine.base.Connection.execute",
         }:
             return {
                 "type_id": "extsym:sqlalchemy.engine.Result",
@@ -2297,14 +2516,40 @@ class CallAnalyzer:
                 "type_expression": "sqlalchemy.sql.Select",
                 "strategy": "external_return_boundary",
             }
-        if qualname.startswith("sqlalchemy.engine.Result.") and (
-            method_name in SQLALCHEMY_RESULT_METHODS
-        ):
-            return {
-                "type_id": "extsym:sqlalchemy.engine.Result",
-                "type_expression": "sqlalchemy.engine.Result",
-                "strategy": "external_return_boundary",
-            }
+        owner = qualname.rpartition(".")[0]
+        result_types = {
+            f"sqlalchemy.engine.{prefix}{name}": name
+            for prefix in ("", "result.")
+            for name in ("Result", "ScalarResult", "MappingResult")
+        }
+        if owner in result_types:
+            result = result_types[owner]
+            if result == "Result" and method_name in {"scalars", "mappings"}:
+                adapted = (
+                    "ScalarResult" if method_name == "scalars" else "MappingResult"
+                )
+                return {
+                    "type_id": f"extsym:sqlalchemy.engine.{adapted}",
+                    "type_expression": f"sqlalchemy.engine.{adapted}",
+                    "strategy": "external_return_boundary",
+                }
+            if method_name in {"all", "fetchall", "fetchmany"}:
+                return {
+                    "type_id": "builtin:list",
+                    "type_expression": "list",
+                    "strategy": "external_return_boundary",
+                }
+            if method_name in {"unique", "yield_per"} or (
+                result != "ScalarResult" and method_name == "columns"
+            ):
+                return {
+                    "type_id": f"extsym:{owner}",
+                    "type_expression": owner,
+                    "strategy": "external_return_boundary",
+                }
+            # Row/scalar terminals do not return another Result. Their element
+            # type needs generic arguments; never fabricate a Result receiver.
+            return None
         return None
 
     def _class_constructor_target(
@@ -3522,7 +3767,15 @@ class CallAnalyzer:
         context: _CallResolutionContext,
     ) -> dict[str, str]:
         if source.id in context.lexical.strict:
-            return context.lexical.aliases(source)
+            position = context.callsite_position
+            return context.lexical.aliases(
+                source,
+                (
+                    {"line": position[1], "column": position[2]}
+                    if position and position[0] == source.id
+                    else None
+                ),
+            )
         aliases: dict[str, str] = {}
         if source.path:
             aliases.update(context.module_import_aliases_by_path.get(source.path, {}))
@@ -4306,7 +4559,12 @@ class CallAnalyzer:
 
         # An indexed module is named by its node id, another by its name.
         module = lexical.nodes.get(str(star.get("target_module")))
-        if module is None or module.kind != "module" or module.id in seen:
+        if (
+            module is None
+            or module.kind != "module"
+            or module.id in seen
+            or module.qualname != star.get("value")
+        ):
             return None
         own = lexical.bindings.get(module.id, {})
         if own.get("__all__") or (module.path, "__all__") in lexical.global_writes:

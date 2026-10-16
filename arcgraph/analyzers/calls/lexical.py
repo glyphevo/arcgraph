@@ -157,6 +157,10 @@ class LexicalScopes:
         line = binding.get("line")
         if limit is not None and isinstance(line, int) and line > limit:
             return False
+        if kind == "import_alias" and position is not None:
+            end = binding.get("statement_end")
+            if end is None or tuple(end) > position:
+                return False
         body_positions = owner.properties.get("scope_body_positions")
         if (
             kind != "parameter"
@@ -165,7 +169,11 @@ class LexicalScopes:
         ):
             region = binding.get("definition_region")
             if not (
-                kind == "function_definition"
+                kind in {"import_alias", "assignment"}
+                and position is not None
+                and (block := binding.get("block"))
+                and tuple(block[:2]) <= position <= tuple(block[2:])
+                or kind == "function_definition"
                 and position is not None
                 and isinstance(region, list)
                 and len(region) == 2
@@ -204,7 +212,9 @@ class LexicalScopes:
                 }
         return None
 
-    def aliases(self, source: Node) -> dict[str, str]:
+    def aliases(
+        self, source: Node, callsite: dict[str, Any] | None = None
+    ) -> dict[str, str]:
         result = {}
         names = {
             name
@@ -212,7 +222,7 @@ class LexicalScopes:
             for name in self.bindings.get(owner.id, {})
         }
         for name in names:
-            binding = self.binding(source, name)
+            binding = self.binding(source, name, callsite)
             if binding and binding.get("kind") == "import_alias":
                 target = import_binding_target(binding)
                 if target is not None:

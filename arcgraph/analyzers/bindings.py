@@ -776,6 +776,7 @@ class _BindingScopeVisitor(ast.NodeVisitor):
             "instance_attribute",
             "assignment",
             "annotated_assignment",
+            "import_alias",
         }:
             self._record_module_flow(record, node, kind, name)
         self._set_optional(record, "imported_name", imported_name)

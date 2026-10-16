@@ -102,6 +102,10 @@ class _CallResolutionContext:
         self.method_resolution_orders: dict[str, list[Any] | None] = {}
         self.dependency_client_contracts = {}
         self.project_environment = None
+        # Single-assignment expressions can consume evidence attached after the
+        # type pass (for example pytest fixture inputs). None also breaks cycles.
+        self.local_expression_types: dict[tuple[str, str], dict[str, Any] | None] = {}
+        self.local_project_class_types: dict[str, str | None] = {}
 
     def _typed_binding_refs(self, source: Node, name: str) -> list[dict[str, Any]]:
         recorded_refs: list[dict[str, Any]] = source.properties.get("type_refs", [])
@@ -340,7 +344,9 @@ class _CallResolutionContext:
             unknown_union_result(name),
         )
 
-    def narrowed_type_ref(self, source: Node, name: str) -> dict[str, Any] | None:
+    def narrowed_type_ref(
+        self, source: Node, name: str, *, fallback=None
+    ) -> dict[str, Any] | None:
         """A local guard holds only inside its body, until any subsequent write.
 
         Writes in callbacks, global declarations and nonlocals invalidate it.
@@ -355,13 +361,18 @@ class _CallResolutionContext:
             for entry in source.properties.get("receiver_narrowings", [])
         ):
             return None
-        if (source.id, name) in self.lexical.mutated:
+        root_name = self.lexical.root_name(name) if "[" in name else name
+        if (source.id, root_name) in self.lexical.mutated:
             return None
-        bindings = self.lexical.bindings.get(source.id, {}).get(name, [])
+        bindings = self.lexical.bindings.get(source.id, {}).get(root_name, [])
         if any(b.get("kind") in {"global", "nonlocal"} for b in bindings):
             return None
         return guarded_value_type(
-            source.properties, name, position, self.type_ref_at(source, name), bindings
+            source.properties,
+            name,
+            position,
+            fallback if fallback is not None else self.type_ref_at(source, name),
+            bindings,
         )
 
     def comprehension_type_ref(self, source: Node, name: str) -> dict[str, Any] | None:
