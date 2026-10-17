@@ -154,7 +154,7 @@ def test_fixtures_and_untracked_files_are_not_scanned(tmp_path: Path) -> None:
 
 
 def test_executed_non_py_fixture_is_checked(tmp_path: Path) -> None:
-    path = "arcgraph/tests/fixtures/semantic_prototype/replay-stdio.txt"
+    path = "arcgraph/tests/fixtures/semantic/replay-stdio.txt"
     root = _repo(
         tmp_path,
         {path: "from pathlib import Path\nPath('recorded-lsp.json').read_text()\n"},

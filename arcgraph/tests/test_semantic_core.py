@@ -36,7 +36,7 @@ from arcgraph.semantic.projection import project
 
 from arcgraph.semantic.snapshot import capture
 
-FIXTURE = Path(__file__).parent / "fixtures/semantic_prototype"
+FIXTURE = Path(__file__).parent / "fixtures/semantic"
 
 
 TARGET = f"{sys.version_info.major}.{sys.version_info.minor}"

@@ -893,7 +893,7 @@ def test_declaration_emits_are_not_counted_in_skip_warning(
     )
 
 
-def test_self_index_excludes_only_the_unshipped_semantic_experiment() -> None:
+def test_self_index_excludes_only_unshipped_semantic_fixtures() -> None:
     import fnmatch
     import subprocess
 
@@ -902,21 +902,7 @@ def test_self_index_excludes_only_the_unshipped_semantic_experiment() -> None:
         ["git", "ls-files"], cwd=root, text=True, encoding="utf-8"
     ).splitlines()
     expected = {
-        path
-        for path in tracked
-        if path.startswith(
-            (
-                "arcgraph/semantic_prototype/",
-                "arcgraph/tests/fixtures/semantic_prototype/",
-            )
-        )
-        or path
-        in {
-            "arcgraph/tests/test_semantic_prototype.py",
-            "arcgraph/tests/test_semantic_pipeline.py",
-            "arcgraph/tests/test_semantic_packaging.py",
-            "arcgraph/tests/test_structure_provider.py",
-        }
+        path for path in tracked if path.startswith("arcgraph/tests/fixtures/semantic/")
     }
     patterns = read_arcgraph_exclude(root)
     matched = {
@@ -934,12 +920,8 @@ def test_self_index_configuration_keeps_product_and_general_tests(
     (tmp_path / "pyproject.toml").write_bytes((root / "pyproject.toml").read_bytes())
     kept = {"arcgraph/core/scanner.py", "arcgraph/tests/test_scanner.py"}
     skipped = {
-        "arcgraph/semantic_prototype/future_module.py",
-        "arcgraph/tests/test_semantic_prototype.py",
-        "arcgraph/tests/test_semantic_pipeline.py",
-        "arcgraph/tests/test_semantic_packaging.py",
-        "arcgraph/tests/test_structure_provider.py",
-        "arcgraph/tests/fixtures/semantic_prototype/nested/example.py",
+        "arcgraph/tests/fixtures/semantic/replay.py",
+        "arcgraph/tests/fixtures/semantic/nested/example.py",
     }
     for rel in kept | skipped:
         file = tmp_path / rel

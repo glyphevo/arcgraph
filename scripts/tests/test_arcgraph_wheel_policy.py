@@ -19,8 +19,8 @@ from scripts.tests.test_arcgraph_release_gate import load_gate_module
 
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCT = "arcgraph/core/nonrequired_product.py"
-PROTOTYPE = "arcgraph/semantic_prototype/nested/record.py"
-NEIGHBOR = "arcgraph/semantic_prototype_product.py"
+SOURCE_ONLY_FILE = "arcgraph/tests/nested/record.py"
+NEIGHBOR = "arcgraph/tests_product.py"
 
 
 @pytest.mark.parametrize("checker", ["release", "smoke"])
@@ -29,9 +29,9 @@ NEIGHBOR = "arcgraph/semantic_prototype_product.py"
     [
         "intentional-omission",
         "missing-product",
-        "included-prototype",
-        "untracked-prototype",
-        "prototype-directory-entry",
+        "included-source-only",
+        "untracked-source-only",
+        "source-only-directory-entry",
         "broad-exclude",
         "appended-exclude",
         "global-exclude",
@@ -49,11 +49,11 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
     repo.mkdir()
     config = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     if case == "broad-exclude":
-        config = config.replace('"/arcgraph/semantic_prototype/**"', '"/arcgraph/**"')
+        config = config.replace('"/arcgraph/tests/**"', '"/arcgraph/**"')
     elif case == "appended-exclude":
         config = config.replace(
-            '    "/arcgraph/semantic_prototype/**",',
-            '    "/arcgraph/semantic_prototype/**",\n    "/arcgraph/core/**",',
+            '    "/arcgraph/tests/**",',
+            '    "/arcgraph/tests/**",\n    "/arcgraph/core/**",',
         )
     elif case == "global-exclude":
         config = config.replace(
@@ -62,7 +62,7 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
             "[tool.hatch.build.hooks.custom]",
         )
     elif case == "missing-exclude":
-        config = config.replace('    "/arcgraph/semantic_prototype/**",\n', "")
+        config = config.replace('    "/arcgraph/tests/**",\n', "")
     (repo / "pyproject.toml").write_text(config, encoding="utf-8")
     monkeypatch.setattr(gate, "REPO_ROOT", repo)
     monkeypatch.setattr(
@@ -77,18 +77,18 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
     tracked_package = sorted(
         {name for name in files if name.startswith("arcgraph/")}
         - gate.GENERATED_WHEEL_FILES
-        | {PROTOTYPE}
+        | {SOURCE_ONLY_FILE}
     )
     if case == "missing-product":
         del files[PRODUCT]
     elif case == "missing-neighbor":
         del files[NEIGHBOR]
-    elif case in ("included-prototype", "untracked-prototype"):
-        files[PROTOTYPE] = b"source only"
-        if case == "untracked-prototype":
-            tracked_package.remove(PROTOTYPE)
-    elif case == "prototype-directory-entry":
-        files["arcgraph/semantic_prototype/"] = b""
+    elif case in ("included-source-only", "untracked-source-only"):
+        files[SOURCE_ONLY_FILE] = b"source only"
+        if case == "untracked-source-only":
+            tracked_package.remove(SOURCE_ONLY_FILE)
+    elif case == "source-only-directory-entry":
+        files["arcgraph/tests/"] = b""
     elif case == "untracked-product":
         files["arcgraph/core/untracked_product.py"] = b"untracked"
     files[f"{DIST_INFO}/RECORD"] = (
@@ -100,11 +100,11 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.external_attr = (0o040755 if name.endswith("/") else 0o100644) << 16
             archive.writestr(info, data)
-    # The source-only prototype remains tracked and present in the sdist.
-    tracked = [*tracked_package, PROTOTYPE, "README.md", "pyproject.toml"]
+    # Tests remain tracked but are excluded from both artifact formats.
+    tracked = [*tracked_package, SOURCE_ONLY_FILE, "README.md", "pyproject.toml"]
     sdist = tmp_path / "arcgraph-0.1.0rc7.tar.gz"
     with tarfile.open(sdist, "w:gz") as archive:
-        for name in sorted(set(tracked) | {"PKG-INFO"}):
+        for name in sorted(set(tracked) - {SOURCE_ONLY_FILE} | {"PKG-INFO"}):
             info = tarfile.TarInfo("arcgraph-0.1.0rc7/" + name)
             info.size = 1
             archive.addfile(info, io.BytesIO(b"x"))
@@ -141,6 +141,4 @@ def test_both_artifact_gates_enforce_reviewed_wheel_membership(
     ):
         assert any("reviewed source-only policy" in error for error in errors), errors
     else:
-        assert any(
-            "source" in error and "semantic_prototype" in error for error in errors
-        ), errors
+        assert any("source" in error and "tests" in error for error in errors), errors

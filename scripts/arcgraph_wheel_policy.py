@@ -14,7 +14,7 @@ import tomllib
 from typing import Any, Iterable
 
 WHEEL_TEST_DIR = "arcgraph/tests"
-SOURCE_ONLY_PACKAGE_DIRS = ("arcgraph/semantic_prototype",)
+SOURCE_ONLY_PACKAGE_DIRS = (WHEEL_TEST_DIR,)
 
 
 def source_only_package_files(names: Iterable[str]) -> set[str]:
@@ -48,7 +48,7 @@ def validate_wheel_policy(repo_root: Path) -> list[str]:
         return [f"Cannot validate reviewed wheel exclusions: {exc}"]
     expected = {
         pattern
-        for directory in (WHEEL_TEST_DIR, *SOURCE_ONLY_PACKAGE_DIRS)
+        for directory in SOURCE_ONLY_PACKAGE_DIRS
         for pattern in ("/" + directory, "/" + directory + "/**")
     }
     if (

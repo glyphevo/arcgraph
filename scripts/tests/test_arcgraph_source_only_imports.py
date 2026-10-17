@@ -16,7 +16,7 @@ import subprocess
 
 import pytest
 
-from scripts.arcgraph_wheel_policy import SOURCE_ONLY_PACKAGE_DIRS, WHEEL_TEST_DIR
+from scripts.arcgraph_wheel_policy import SOURCE_ONLY_PACKAGE_DIRS
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -46,28 +46,28 @@ def _source_only_imports(path: str, source: str) -> list[str]:
 @pytest.mark.parametrize(
     ("path", "source"),
     [
-        ("arcgraph/core/example.py", "import arcgraph.semantic_prototype"),
+        ("arcgraph/core/example.py", "import arcgraph.tests"),
         (
             "arcgraph/core/example.py",
-            "import arcgraph.semantic_prototype.model as model",
+            "import arcgraph.tests.model as model",
         ),
-        ("arcgraph/core/example.py", "from arcgraph.semantic_prototype import model"),
+        ("arcgraph/core/example.py", "from arcgraph.tests import model"),
         (
             "arcgraph/core/example.py",
-            "from arcgraph import semantic_prototype as proto",
+            "from arcgraph import tests as proto",
         ),
-        ("arcgraph/core/example.py", "from ..semantic_prototype import model"),
-        ("arcgraph/core/example.py", "from .. import semantic_prototype"),
-        ("arcgraph/__init__.py", "from . import semantic_prototype"),
-        ("arcgraph/core/__init__.py", "from ..semantic_prototype.model import Record"),
-        ("arcgraph/core/nested/example.py", "from ... import semantic_prototype"),
+        ("arcgraph/core/example.py", "from ..tests import model"),
+        ("arcgraph/core/example.py", "from .. import tests"),
+        ("arcgraph/__init__.py", "from . import tests"),
+        ("arcgraph/core/__init__.py", "from ..tests.model import Record"),
+        ("arcgraph/core/nested/example.py", "from ... import tests"),
         (
             "arcgraph/core/example.py",
-            "def f():\n    import arcgraph.semantic_prototype",
+            "def f():\n    import arcgraph.tests",
         ),
         (
             "arcgraph/core/example.py",
-            "if TYPE_CHECKING:\n    from arcgraph.semantic_prototype import model",
+            "if TYPE_CHECKING:\n    from arcgraph.tests import model",
         ),
     ],
 )
@@ -80,10 +80,10 @@ def test_source_only_import_guard_rejects_static_forms(path: str, source: str) -
     [
         "import arcgraph.core.schemas",
         "from .. import core",
-        "from arcgraph import semantic_prototype_product",
-        "import arcgraph.semantic_prototype_product",
-        'message = "import arcgraph.semantic_prototype"',
-        "# import arcgraph.semantic_prototype",
+        "from arcgraph import tests_product",
+        "import arcgraph.tests_product",
+        'message = "import arcgraph.tests"',
+        "# import arcgraph.tests",
     ],
 )
 def test_source_only_import_guard_preserves_directory_boundary(source: str) -> None:
@@ -96,7 +96,7 @@ def test_tracked_wheel_modules_do_not_import_source_only_packages() -> None:
         .decode("utf-8")
         .split("\0")
     )
-    excluded = (WHEEL_TEST_DIR, *SOURCE_ONLY_PACKAGE_DIRS)
+    excluded = SOURCE_ONLY_PACKAGE_DIRS
     violations = []
     for path in tracked:
         if not path.endswith(".py") or any(

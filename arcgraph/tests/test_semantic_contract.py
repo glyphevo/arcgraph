@@ -20,7 +20,7 @@ from arcgraph.semantic.snapshot import (
     verify,
 )
 from arcgraph.semantic.structure_provider import analyze
-from arcgraph.tests.test_semantic_prototype import Replay
+from arcgraph.tests.fixtures.semantic.replay import Replay
 
 TARGET = ".".join(map(str, sys.version_info[:2]))
 
@@ -30,7 +30,7 @@ def make(tmp_path, source=None, environment=(("dependencies", "none"),)):
     src.mkdir()
     (src / "demo.py").write_text(
         source
-        or (Path(__file__).parent / "fixtures/semantic_prototype/source.txt").read_text(
+        or (Path(__file__).parent / "fixtures/semantic/source.txt").read_text(
             encoding="utf-8"
         ),
         encoding="utf-8",
@@ -261,10 +261,7 @@ def test_stdio_transport_bounds_and_errors(tmp_path, mode):
     with Client(
         [
             sys.executable,
-            str(
-                (Path(__file__).parent / "fixtures/semantic_prototype")
-                / "replay-stdio.txt"
-            ),
+            str((Path(__file__).parent / "fixtures/semantic") / "replay-stdio.txt"),
             mode,
         ],
         tmp_path,

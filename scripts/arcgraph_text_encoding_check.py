@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Indexer sample sources are data, apart from explicitly listed test programs.
 EXCLUDED_PREFIXES = ("arcgraph/tests/fixtures/",)
-EXECUTED_FIXTURES = ("arcgraph/tests/fixtures/semantic_prototype/replay-stdio.txt",)
+EXECUTED_FIXTURES = ("arcgraph/tests/fixtures/semantic/replay-stdio.txt",)
 
 # (path, call source with whitespace collapsed) -> why the call is safe.
 ALLOWED: dict[tuple[str, str], str] = {}

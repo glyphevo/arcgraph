@@ -280,7 +280,8 @@ def test_validate_wheel_contents_rejects_packaged_tests(tmp_path: Path) -> None:
             wheel.writestr(required_file, "")
 
     assert gate.validate_wheel_contents(wheel_path) == [
-        "ArcGraph wheel includes test files under arcgraph/tests"
+        "ArcGraph wheel includes source-only package files: arcgraph/tests/test_imports.py",
+        "ArcGraph wheel includes test files under arcgraph/tests",
     ]
 
 
