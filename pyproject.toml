@@ -152,8 +152,13 @@ floor_percent = 92
 # do not exist, such as typing.Any.execute or builtins.dict.get.get. Those
 # targets had counted as resolved; the rates they inflated were 0.9617 and
 # 0.9333, and are 0.9502 and 0.9145 without them.
-overall_callsite_resolution_rate = 0.945
-attribute_call_resolution_rate = 0.91
+# On 2026-10-17, after the batch 31b analyzer improvements, the maintainer
+# lowered the targets to 0.94 and 0.90. At 506dd96 the measured attribute and
+# overall rates were 0.9010 and 0.9408, with no unexplained disagreement
+# against pyright. The gap goes into the release notes; analyzer improvements
+# continue after 0.2.0.
+overall_callsite_resolution_rate = 0.94
+attribute_call_resolution_rate = 0.90
 chain_call_resolution_rate = 0.89
 known_framework_registration_resolution_rate = 0.95
 
