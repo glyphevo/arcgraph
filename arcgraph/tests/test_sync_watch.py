@@ -154,6 +154,7 @@ def test_watch_streams_events_and_truthfully_summarizes_omissions(
         lambda **_kwargs: {
             "status": "available",
             "published": True,
+            "reason": "semantic_core_incremental",
             "_exit_code": 7,
         },
     )
@@ -170,6 +171,9 @@ def test_watch_streams_events_and_truthfully_summarizes_omissions(
     assert len(frames) == 25
     assert all(frame["type"] == "watch_event" for frame in frames)
     assert all("_exit_code" not in frame["event"] for frame in frames)
+    assert all(
+        frame["event"]["reason"] == "semantic_core_incremental" for frame in frames
+    )
     assert result["event_summary"] == {
         "total": 25,
         "returned": 20,

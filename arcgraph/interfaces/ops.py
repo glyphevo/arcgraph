@@ -158,6 +158,7 @@ def sync_index(
         "index_version": after.get("index_version"),
         "freshness": after.get("freshness", {}),
         "changed": result.get("changed", {}),
+        **({"reason": result["reason"]} if "reason" in result else {}),
         "cleanup": prune_arcgraph_output(
             output_dir,
             keep_builds=DEFAULT_BUILD_RETENTION,
