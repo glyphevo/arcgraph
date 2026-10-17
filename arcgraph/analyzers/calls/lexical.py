@@ -181,11 +181,26 @@ class LexicalScopes:
             )
         ):
             region = binding.get("definition_region")
+            boundary = binding.get("settles_with")
+            settlement_region = binding.get("settlement_region")
             if not (
                 kind in {"import_alias", "assignment"}
                 and position is not None
-                and (block := binding.get("block"))
-                and tuple(block[:2]) <= position <= tuple(block[2:])
+                and (
+                    (block := binding.get("block"))
+                    and tuple(block[:2]) <= position <= tuple(block[2:])
+                    # The binding pass already proved that every continuing
+                    # path binds this name. Its sole, unmutated binding holds
+                    # after that statement, within the proof's enclosing body.
+                    or boundary
+                    and position > tuple(boundary[2:])
+                    and (
+                        not settlement_region
+                        or tuple(settlement_region[:2])
+                        <= position
+                        <= tuple(settlement_region[2:])
+                    )
+                )
                 or kind == "function_definition"
                 and position is not None
                 and isinstance(region, list)
