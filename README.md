@@ -38,7 +38,7 @@ With ArcGraph:
 
 ArcGraph is published on PyPI, and
 [RELEASE_NOTES.md](https://github.com/glyphevo/arcgraph/blob/main/RELEASE_NOTES.md)
-lists the published versions. This source version, 0.1.0, is a beta release.
+lists the published versions. This source version, 0.2.0, is a beta release.
 Install ArcGraph into a dedicated virtual environment or tool environment and
 reuse that one `arcgraph` executable across projects:
 

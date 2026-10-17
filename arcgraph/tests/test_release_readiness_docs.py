@@ -981,8 +981,8 @@ def test_release_checklist_docs_cover_full_gate() -> None:
     assert "python scripts/arcgraph.py ci" in checklist
     assert "python scripts/arcgraph_release_gate.py" in checklist
     assert "python scripts/arcgraph_release_candidate_check.py" in checklist
-    assert "v0.1.0-smoke.json" in checklist
-    assert "--sdist dist/arcgraph-0.1.0.tar.gz" in checklist
+    assert "v0.2.0-smoke.json" in checklist
+    assert "--sdist dist/arcgraph-0.2.0.tar.gz" in checklist
     assert "`clean-rebuild-identical` check" in checklist
     assert "clones that HEAD into a fresh directory" in checklist
     assert "identical bytes as the two files given" in checklist
@@ -1223,7 +1223,10 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     notes_index = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
     strategy = (REPO_ROOT / "docs" / "release-tooling.md").read_text(encoding="utf-8")
-    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
+    previous_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
+        encoding="utf-8"
+    )
+    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.2.0.md").read_text(
         encoding="utf-8"
     )
     guide = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(encoding="utf-8")
@@ -1237,18 +1240,18 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     )
     built_in = render_docs("release-checklist") + render_docs("package-readiness")
 
-    assert pyproject["project"]["version"] == "0.1.0"
+    assert pyproject["project"]["version"] == "0.2.0"
     assert "Development Status :: 4 - Beta" in pyproject["project"]["classifiers"]
     for text in (readme, notes_index, strategy, notes, guide, built_in):
-        assert re.search(r"0\.1\.0(?!rc|\d)", text)
+        assert re.search(r"0\.2\.0(?!rc|\d)", text)
     assert "arcgraph_external_trial_bundle.py" in readme
     assert "arcgraph_external_trial_bundle.py" in strategy
     assert "--artifact-dir" in package_docs
     assert "--artifact-dir" in render_docs("package-readiness")
-    assert "Change Preflight" in notes
-    assert "comparison projection to `1.2`" in notes
-    assert guide.count("arcgraph-0.1.0-py3-none-any.whl[mcp]") == 2
-    assert "arcgraph 0.1.0\n" in guide
+    assert "Change Preflight" in previous_notes
+    assert "comparison projection to `1.2`" in previous_notes
+    assert guide.count("arcgraph-0.2.0-py3-none-any.whl[mcp]") == 2
+    assert "arcgraph 0.2.0\n" in guide
     assert "arcgraph version --json" in guide
     assert "trial setup --client claude --dry-run" in guide
     assert "remote-ci.json" in guide
@@ -1288,7 +1291,7 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     assert "selection_source" in guide
     assert "distribution_record" in guide
     assert "warn" in guide and "review" in guide
-    for text in (notes, agent_workflows):
+    for text in (previous_notes, agent_workflows):
         lowered = " ".join(text.lower().split())
         assert "emit an explicit unresolved dynamic edge" not in lowered
         assert "represented as unresolved dynamic edges" not in lowered
@@ -2257,7 +2260,7 @@ def _current_public_texts() -> dict[str, str]:
 
 
 def test_current_docs_state_one_maturity_and_no_developer_preview() -> None:
-    """0.1.0 is beta; maturity is stated in a few places, not as a passing adjective."""
+    """ArcGraph is beta; maturity is stated in a few places, not as a passing adjective."""
 
     texts = _current_public_texts()
     assert "CODE_OF_CONDUCT.md" in texts and "docs/runbook.md" in texts
