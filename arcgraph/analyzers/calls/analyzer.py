@@ -52,6 +52,10 @@ from arcgraph.analyzers.calls.constants import (
     REDIS_METHODS,
     SOURCE_KINDS,
     SQLALCHEMY_RESULT_METHODS,
+    SQLALCHEMY_RESULT_TYPES,
+    SQLALCHEMY_RESULT_APIS,
+    SEQUENCE_TYPE_IDS,
+    SEQUENCE_METHODS,
     SQLALCHEMY_SESSION_METHODS,
     SQLALCHEMY_STATEMENT_METHODS,
     TARGET_KINDS,
@@ -498,7 +502,7 @@ class CallAnalyzer:
                     )
                 return None
         if self.enable_v2 and context.lexical.blocked(source, callsite):
-            return None
+            return self._possible_import_target(source, callsite, context)
         if self.enable_v2:
             resolved = self._resolve_target_v2(source, callsite, context)
             if resolved is not None:
@@ -532,6 +536,59 @@ class CallAnalyzer:
             target=target,
             strategy=self._resolution_strategy(raw_name),
             candidate_count=1,
+        )
+
+    def _possible_import_target(
+        self, source: Node, callsite: dict[str, Any], context: _CallResolutionContext
+    ) -> _ResolvedCallTarget | None:
+        """A possibly unbound import names only a possible call target.
+
+        No initializer/type inference consumes this fallback. Mixed writes,
+        deletes and complex receivers cannot establish even this import edge.
+        """
+        expression = self._parse_expression(str(callsite.get("call_expression") or ""))
+        if not isinstance(expression, ast.Call):
+            return None
+        parts = self._name(expression.func)
+        if not parts or not all(part.isidentifier() for part in parts.split(".")):
+            return None
+        root, *members = parts.split(".")
+        if root not in context.lexical.local_imports.get(source.id, ()):
+            return None
+        bindings = context.lexical.bindings[source.id].get(root, [])
+        if not bindings or any(
+            b.get("kind") != "import_alias" or b.get("static_only") for b in bindings
+        ):
+            return None
+        # Before the first import there is no completed binding to select.
+        position = context.lexical.callsite_position(callsite)
+        eligible = [
+            b
+            for b in bindings
+            if position and tuple(b.get("statement_end") or (10**9, 0)) <= position
+        ]
+        choices = list(
+            dict.fromkeys(
+                ".".join([target, *members])
+                for b in eligible
+                if (target := import_binding_target(b))
+            )
+        )
+        if not choices:
+            return None
+        result = self._imported_qualname_target(
+            choices[0], context, "possibly_unbound_import"
+        )
+        if result.target.kind != "external_symbol":
+            # Internal symbols require definite availability. An opaque import
+            # boundary can retain only its existing possible, heuristic target.
+            return None
+        return _ResolvedCallTarget(
+            target=result.target,
+            strategy="possibly_unbound_import",
+            candidate_count=len(choices),
+            confidence="heuristic",
+            edge_kind=result.edge_kind,
         )
 
     def _resolve_target_v2(
@@ -948,6 +1005,15 @@ class CallAnalyzer:
         *,
         callsite: dict[str, Any] | None = None,
     ) -> _ResolvedCallTarget | None:
+        if raw_name in context.lexical.local_imports.get(source.id, ()):
+            position = context.callsite_position
+            here = callsite or (
+                {"line": position[1], "column": position[2]}
+                if position and position[0] == source.id
+                else None
+            )
+            if context.lexical.binding(source, raw_name, here) is None:
+                return None
         if raw_name == "cls" and context.lexical.own_class_receiver(source):
             class_target = self._class_constructor_target(source, context)
             if class_target is not None:
@@ -1389,6 +1455,13 @@ class CallAnalyzer:
                     )
                     if union_alternatives(receiver) is not None:
                         return unknown_union_result(self._unparse(node))
+                return None
+            if (
+                resolved.strategy == "local_callable_alias"
+                and resolved.confidence == "heuristic"
+            ):
+                # An optional callback may use the imported default or a caller's
+                # value. Its possible edge does not prove the returned type.
                 return None
             return self._type_ref_from_target(
                 source,
@@ -2500,12 +2573,19 @@ class CallAnalyzer:
         if qualname in {
             "sqlalchemy.orm.Session.execute",
             "sqlalchemy.orm.session.Session.execute",
-            "sqlalchemy.engine.Connection.execute",
-            "sqlalchemy.engine.base.Connection.execute",
         }:
             return {
                 "type_id": "extsym:sqlalchemy.engine.Result",
                 "type_expression": "sqlalchemy.engine.Result",
+                "strategy": "external_return_boundary",
+            }
+        if qualname in {
+            "sqlalchemy.engine.Connection.execute",
+            "sqlalchemy.engine.base.Connection.execute",
+        }:
+            return {
+                "type_id": "extsym:sqlalchemy.engine.CursorResult",
+                "type_expression": "sqlalchemy.engine.CursorResult",
                 "strategy": "external_return_boundary",
             }
         if qualname.startswith("sqlalchemy.sql.Select.") and (
@@ -2517,14 +2597,12 @@ class CallAnalyzer:
                 "strategy": "external_return_boundary",
             }
         owner = qualname.rpartition(".")[0]
-        result_types = {
-            f"sqlalchemy.engine.{prefix}{name}": name
-            for prefix in ("", "result.")
-            for name in ("Result", "ScalarResult", "MappingResult")
-        }
-        if owner in result_types:
-            result = result_types[owner]
-            if result == "Result" and method_name in {"scalars", "mappings"}:
+        if owner in SQLALCHEMY_RESULT_TYPES:
+            result = SQLALCHEMY_RESULT_TYPES[owner]
+            if result in {"Result", "CursorResult"} and method_name in {
+                "scalars",
+                "mappings",
+            }:
                 adapted = (
                     "ScalarResult" if method_name == "scalars" else "MappingResult"
                 )
@@ -2535,12 +2613,18 @@ class CallAnalyzer:
                 }
             if method_name in {"all", "fetchall", "fetchmany"}:
                 return {
-                    "type_id": "builtin:list",
-                    "type_expression": "list",
+                    "type_id": "extsym:collections.abc.Sequence",
+                    "type_expression": "collections.abc.Sequence",
+                    "origin": "Sequence",
                     "strategy": "external_return_boundary",
                 }
-            if method_name in {"unique", "yield_per"} or (
-                result != "ScalarResult" and method_name == "columns"
+            if (
+                method_name in {"unique", "yield_per"}
+                or (result != "ScalarResult" and method_name == "columns")
+                or (
+                    result == "CursorResult"
+                    and method_name in {"splice_horizontally", "splice_vertically"}
+                )
             ):
                 return {
                     "type_id": f"extsym:{owner}",
@@ -2657,6 +2741,34 @@ class CallAnalyzer:
         ):
             # Before its assignment ends the name is not yet the alias.
             return None
+        context.callsite_position = (
+            source.id,
+            int(matches[0].get("line") or 0),
+            int(matches[0].get("column") or 0),
+        )
+        try:
+            resolved = self._callable_alias_value_target(source, value, context)
+        finally:
+            context.callsite_position = position
+        if resolved is None:
+            return None
+        return _ResolvedCallTarget(
+            target=resolved.target,
+            strategy="local_callable_alias",
+            candidate_count=resolved.candidate_count,
+            confidence=(
+                "heuristic" if matches[0].get("may_not_run") else resolved.confidence
+            ),
+            edge_kind=resolved.edge_kind,
+            receiver_expression=resolved.receiver_expression,
+            receiver_type=resolved.receiver_type,
+            receiver_type_ref_id=resolved.receiver_type_ref_id,
+        )
+
+    def _callable_alias_value_target(
+        self, source: Node, value: str, context: _CallResolutionContext
+    ) -> _ResolvedCallTarget | None:
+        """Read the alias's value where it was assigned, before later imports."""
         parsed = self._parse_expression(value)
         if isinstance(parsed, ast.Name):
             # helper = str: the name it is bound to, read as a bare call is,
@@ -2773,6 +2885,15 @@ class CallAnalyzer:
         ).lower()
         return "logger" in receiver_type
 
+    @staticmethod
+    def _known_external_methods(type_id: str | None) -> frozenset[str] | None:
+        if type_id in SEQUENCE_TYPE_IDS:
+            return SEQUENCE_METHODS
+        result = SQLALCHEMY_RESULT_TYPES.get(str(type_id).removeprefix("extsym:"))
+        if result is not None:
+            return SQLALCHEMY_RESULT_APIS[result]
+        return EXTERNAL_METHODS_BY_TYPE.get(type_id)
+
     def _known_type_lacks_method(
         self,
         source: Node,
@@ -2792,7 +2913,7 @@ class CallAnalyzer:
         if type_id.startswith("builtin:"):
             known = BUILTIN_METHODS_BY_TYPE.get(type_id.removeprefix("builtin:"))
         else:
-            known = EXTERNAL_METHODS_BY_TYPE.get(type_id)
+            known = self._known_external_methods(type_id)
         return known is not None and method_name not in known
 
     def _external_method_target(
@@ -2815,7 +2936,7 @@ class CallAnalyzer:
             "__getitem__",
         }:
             return None
-        known = EXTERNAL_METHODS_BY_TYPE.get(type_id)
+        known = self._known_external_methods(type_id)
         if known is not None and method_name not in known:
             # The type is known not to have the method.
             return None

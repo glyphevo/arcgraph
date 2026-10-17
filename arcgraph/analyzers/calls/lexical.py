@@ -83,6 +83,15 @@ class LexicalScopes:
                 if isinstance(binding, dict) and isinstance(binding.get("name"), str):
                     grouped[binding["name"]].append(binding)
             self.bindings[node.id] = dict(grouped)
+        self.local_imports = {
+            node.id: {
+                name
+                for name, bindings in self.bindings[node.id].items()
+                if any(b.get("kind") == "import_alias" for b in bindings)
+            }
+            for node in nodes
+            if node.kind in {"function", "method"}
+        }
         # Module names a function rebinds through a global declaration.
         self.global_writes: set[tuple[str | None, str]] = {
             (node.path, name)
@@ -165,7 +174,11 @@ class LexicalScopes:
         if (
             kind != "parameter"
             and body_positions is not None
-            and [line, binding.get("column")] not in body_positions
+            and (
+                [line, binding.get("column")] not in body_positions
+                or kind == "import_alias"
+                and binding.get("may_not_run")
+            )
         ):
             region = binding.get("definition_region")
             if not (
@@ -191,6 +204,27 @@ class LexicalScopes:
             if found and found[0].id == source.id
             else None
         )
+        if (
+            found
+            and found[0].id == source.id
+            and name in self.local_imports.get(source.id, ())
+        ):
+            owner, bindings, limit = found
+            # Repeating the same import does not change its identity. One
+            # completed, dominating import suffices; never merge assignments.
+            if (
+                all(b.get("kind") == "import_alias" for b in bindings)
+                and len({import_binding_target(b) for b in bindings}) == 1
+            ):
+                ready = [
+                    b
+                    for b in bindings
+                    if self.stable(owner, [b], limit, position=position)
+                ]
+                if ready:
+                    return max(
+                        ready, key=lambda b: (b.get("line", 0), b.get("column", 0))
+                    )
         if found and self.stable(*found, position=position):
             return found[1][0]
         return None
@@ -232,7 +266,11 @@ class LexicalScopes:
     def blocked(
         self, source: Node, callsite: dict[str, Any], *, require_stable: bool = False
     ) -> bool:
-        if not require_stable and source.id not in self.strict:
+        if (
+            not require_stable
+            and source.id not in self.strict
+            and not self.local_imports.get(source.id)
+        ):
             return False
         if source.properties.get("ambiguous_definition"):
             return True
@@ -240,9 +278,14 @@ class LexicalScopes:
         if root is None:
             return False
         found = self.lookup(source, root)
+        if not require_stable and source.id not in self.strict:
+            if root not in self.local_imports.get(source.id, ()):
+                return False
         if not found:
             return root not in BUILTIN_CALLS
         owner, bindings, limit = found
+        if owner.id == source.id and root in self.local_imports.get(source.id, ()):
+            return self.binding(source, root, callsite) is None
         if owner.id == source.id:
             limit = callsite.get("line")
         position = self.callsite_position(callsite) if owner.id == source.id else None

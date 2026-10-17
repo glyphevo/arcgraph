@@ -251,6 +251,79 @@ SQLALCHEMY_RESULT_METHODS = {
     "scalar_one_or_none",
     "scalars",
 }
+# Declared SQLAlchemy interfaces; a collection return is not a concrete list.
+SQLALCHEMY_RESULT_TYPES = {
+    f"sqlalchemy.engine.{prefix}{name}": name
+    for name, prefixes in {
+        "Result": ("", "result."),
+        "ScalarResult": ("", "result."),
+        "MappingResult": ("", "result."),
+        "CursorResult": ("", "cursor."),
+    }.items()
+    for prefix in prefixes
+}
+_SQLALCHEMY_ROW_METHODS = frozenset(
+    {
+        "all",
+        "fetchall",
+        "fetchmany",
+        "first",
+        "one",
+        "one_or_none",
+        "partitions",
+        "unique",
+        "close",
+        "yield_per",
+        "__enter__",
+        "__exit__",
+        "__iter__",
+        "__next__",
+    }
+)
+SQLALCHEMY_RESULT_APIS = {
+    "ScalarResult": _SQLALCHEMY_ROW_METHODS,
+    "MappingResult": _SQLALCHEMY_ROW_METHODS | {"columns", "fetchone", "keys"},
+    "Result": _SQLALCHEMY_ROW_METHODS
+    | {
+        "columns",
+        "fetchone",
+        "keys",
+        "scalars",
+        "mappings",
+        "scalar",
+        "scalar_one",
+        "scalar_one_or_none",
+        "tuples",
+        "freeze",
+        "merge",
+    },
+}
+SQLALCHEMY_RESULT_APIS["CursorResult"] = SQLALCHEMY_RESULT_APIS["Result"] | {
+    "splice_horizontally",
+    "splice_vertically",
+    "last_updated_params",
+    "last_inserted_params",
+    "lastrow_has_defaults",
+    "postfetch_cols",
+    "prefetch_cols",
+    "supports_sane_rowcount",
+    "supports_sane_multi_rowcount",
+}
+SEQUENCE_TYPE_IDS = frozenset(
+    {"extsym:collections.abc.Sequence", "extsym:typing.Sequence"}
+)
+SEQUENCE_METHODS = frozenset(
+    {
+        "count",
+        "index",
+        "__getitem__",
+        "__len__",
+        "__contains__",
+        "__iter__",
+        "__reversed__",
+    }
+)
+
 PROMETHEUS_METRIC_METHODS = {
     "clear",
     "dec",

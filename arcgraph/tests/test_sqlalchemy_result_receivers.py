@@ -44,9 +44,10 @@ def test_result_adapter_methods_use_the_adapted_result_type(
 
 
 @pytest.mark.parametrize("adapter", ["scalars", "mappings"])
-def test_adapter_all_returns_a_list_not_another_result(tmp_path, adapter):
+def test_adapter_all_returns_a_sequence_not_a_mutable_list(tmp_path, adapter):
     targets = result_targets(tmp_path, adapter, False, "all().append(None)")
-    assert "extsym:builtins.list.append" in targets
+    # SQLAlchemy declares Sequence[_R]/Sequence[RowMapping], not list.
+    assert "extsym:builtins.list.append" not in targets
     assert not any(target.endswith("Result.append") for target in targets)
 
 
