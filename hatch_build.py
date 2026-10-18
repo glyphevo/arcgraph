@@ -44,7 +44,7 @@ class CustomBuildHook(BuildHookInterface):
             # and fails the readiness smoke's commit check.
             source = {}
         else:
-            # No repository at all: this is the sdist -> wheel chain, where the
+            # No checkout at this root: this is the sdist -> wheel chain, where the
             # packaged file is the only provenance that can exist.
             source = existing.get("source", {})
         payload = {
@@ -91,6 +91,9 @@ def _read_existing(path: Path) -> dict[str, Any]:
 
 def _git_provenance(root: Path) -> dict[str, Any] | None:
     try:
+        git_root = _git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
+        if Path(git_root).resolve() != root.resolve():
+            return None
         commit = _git(root, "rev-parse", "HEAD").decode("ascii").strip()
         tree = _git(root, "rev-parse", "HEAD^{tree}").decode("ascii").strip()
         status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 
+import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from arcgraph import READ_SCHEMA_VERSION, SCHEMA_VERSION, __version__
 from arcgraph.interfaces.cli import main
@@ -248,3 +252,79 @@ def test_build_hook_keeps_packaged_provenance_without_a_repository(
     hook.initialize("standard", {})
     written = json.loads(packaged.read_text(encoding="utf-8"))
     assert written["source"]["commit_sha"] == "abc123"
+
+
+@pytest.mark.parametrize(
+    "layout",
+    ["checkout", "symlink_checkout", "worktree", "nested_sdist", "symlink_sdist"],
+)
+def test_build_hook_uses_only_its_own_git_root(
+    tmp_path: Path, monkeypatch, layout: str
+) -> None:
+    module = _load_hatch_build(monkeypatch)
+    outer = tmp_path / "outer"
+    outer.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(outer), *args], text=True, encoding="utf-8"
+        ).strip()
+
+    git("init", "--quiet")
+    package = outer / "arcgraph"
+    package.mkdir()
+    packaged_source = {
+        "commit_sha": "a" * 40,
+        "tree_sha": "b" * 40,
+        "working_tree_clean": True,
+        "working_tree_status_sha256": hashlib.sha256(b"").hexdigest(),
+    }
+    packaged = json.dumps({"source": packaged_source})
+    (package / "_build_provenance.json").write_text(packaged, encoding="utf-8")
+    git("add", "arcgraph")
+    git(
+        "-c",
+        "user.name=Leo Tang",
+        "-c",
+        "user.email=leotang-dev@users.noreply.github.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "Record fixture provenance",
+    )
+    expected = {
+        **packaged_source,
+        "commit_sha": git("rev-parse", "HEAD"),
+        "tree_sha": git("rev-parse", "HEAD^{tree}"),
+    }
+    root = outer
+    if layout == "worktree":
+        root = tmp_path / "worktree"
+        git("worktree", "add", "--quiet", "--detach", str(root), "HEAD")
+    elif layout in {"nested_sdist", "symlink_sdist"}:
+        root = outer / "unpacked-sdist"
+        (root / "arcgraph").mkdir(parents=True)
+        (root / "arcgraph/_build_provenance.json").write_text(
+            packaged, encoding="utf-8"
+        )
+        expected = packaged_source
+    if layout in {"symlink_checkout", "symlink_sdist"}:
+        alias = tmp_path / "alias"
+        try:
+            alias.symlink_to(root, target_is_directory=True)
+        except OSError as error:
+            pytest.skip(f"directory symlinks are unavailable: {error}")
+        root = alias
+
+    hook = _make_hook(module, root)
+    hook.initialize("standard", {})
+    try:
+        written = json.loads(
+            (root / "arcgraph/_build_provenance.json").read_text(encoding="utf-8")
+        )
+    finally:
+        hook.finalize("standard", {}, "unused.whl")
+
+    assert written["source"] == expected
