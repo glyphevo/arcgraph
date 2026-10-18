@@ -1140,7 +1140,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 "items": [
                     "Indexes built by 0.1.0 are refused: index.sqlite storage version 1 requires `arcgraph build`; there is no automatic migration. Rebuild change-safety baselines too.",
                     "Default build and sync no longer write nodes.jsonl, edges.jsonl and semantic_facts.jsonl; use `arcgraph --output-dir OUT export`. diagnostics.jsonl is still written.",
-                    "Confidence profile `evidence_only` (any `--profile` option, and `profile` of arcgraph_entrypoint_flow) excludes heuristic edges; `arcgraph ci` reports verified_resolution_rate alongside the unchanged rates.",
+                    "Confidence profile `evidence_only` (the confidence `--profile` of callers, callees, impact, context, explain and report, and `profile` of arcgraph_entrypoint_flow) excludes heuristic edges; `arcgraph ci` reports verified_resolution_rate alongside the unchanged rates.",
                     "Python structure and external definitions come from the project environment (`[tool.arcgraph] python_environment` or `.venv`); see `summary.toolchain_status.python_structure` and the doctor check project_dependency_environment.",
                     "The semantic core is optional and off by default; see `arcgraph docs` for setup and status.",
                 ],
@@ -1194,8 +1194,8 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             {
                 "title": "Unindexed FastAPI Routes Are Reported",
                 "items": [
-                    "FastAPI routes are indexed on module-level functions only. A route decorator of a module-level `APIRouter` or `FastAPI` object on a method, such as one of a class-based controller, or on a nested function, now gives one `adapter_fastapi_routes_not_indexed` warning per file, with the count and up to three examples, and the `framework_adapters` capability reads `partial`. Earlier such routes were left out without a word.",
-                    "A router reached another way, such as `self.router`, is not seen, and the decorated methods are still not routes.",
+                    "FastAPI routes are indexed on module-level functions and on methods of module-level classes. A route decorator of a module-level `APIRouter` or `FastAPI` object on a nested function gives one `adapter_fastapi_routes_not_indexed` warning per file, with the count and up to three examples, and the `framework_adapters` capability reads `partial`. Earlier such routes were left out without a word.",
+                    "A router reached another way, such as `self.router`, is not seen.",
                 ],
             },
             {
