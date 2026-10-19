@@ -8,6 +8,7 @@ from arcgraph.pipeline.indexer import ArcGraphIndexer
 from arcgraph.pipeline.reindexer import ArcGraphReindexer
 from arcgraph.tests.test_structure_rework import (
     MODERN,
+    HOST_READS_MODERN,
     check,
     fake_environment,
     snapshot,
@@ -90,10 +91,12 @@ def test_partial_fallback_reports_project_interpreter_and_version(tmp_path):
     assert state["version"].startswith("3.14.")
     assert set(state) == {"status", "interpreter", "version", "reason", "fix"}
     assert "exit code 3" in state["reason"] and "other blocks" in state["reason"]
-    assert len([n for n in reader.read_nodes() if n.name == "identity"]) == 256
-    assert [w.path for w in reader.read_warnings() if w.kind == "parse_error"] == [
-        "pkg/b/poison.py"
-    ]
+    assert len([n for n in reader.read_nodes() if n.name == "identity"]) == (
+        257 if HOST_READS_MODERN else 256
+    )
+    assert [w.path for w in reader.read_warnings() if w.kind == "parse_error"] == (
+        [] if HOST_READS_MODERN else ["pkg/b/poison.py"]
+    )
     doctor = check(tmp_path, "project_python")
     assert doctor["status"] == "warn" and doctor["message"] == state["reason"]
     assert check(tmp_path, "project_trace_interpreter")["status"] == "pass"

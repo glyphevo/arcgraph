@@ -13,6 +13,7 @@ import pytest
 
 from arcgraph.semantic.frozen import environment_identity, verify_environment
 from arcgraph.tests.test_semantic_isolation import prepared as prepared
+from arcgraph.tests.project_environment_support import isolated_test_python
 from scripts.semantic_shadow import stage_structure, stage_write
 
 
@@ -23,7 +24,7 @@ def completed(prepared, tmp_path):
     script = Path(__file__).resolve().parents[2] / "scripts/semantic_shadow.py"
     process = subprocess.run(
         [
-            sys.executable,
+            isolated_test_python(tmp_path),
             "-I",
             "-B",
             str(script),
@@ -117,6 +118,7 @@ def test_interpreter_replacement_is_refused_without_executing_it(completed, phas
     executable.write_text(
         f"#!/bin/sh\n/usr/bin/touch '{markers['venv-python']}'\nexit 1\n",
         encoding="utf-8",
+        newline="\n",
     )
     executable.chmod(0o700)
     action = stage_structure if phase == "structure" else stage_write

@@ -7,7 +7,6 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
-import sys
 import tempfile
 from typing import Any
 import uuid
@@ -24,6 +23,7 @@ from arcgraph.interfaces.trial_feedback import (
 )
 from arcgraph.pipeline.indexer import ArcGraphIndexer
 from arcgraph.tests import mcp_runtime_probe
+from arcgraph.tests.project_environment_support import isolated_test_python
 from arcgraph.tests.mcp_runtime_probe import (
     CANCEL_STARTED,
     CONCURRENT_MIXED,
@@ -1174,7 +1174,7 @@ def _server_parameters(
     if feedback_log is not None:
         args.extend(["--feedback-log", str(feedback_log)])
     return StdioServerParameters(
-        command=sys.executable,
+        command=isolated_test_python(output_dir.parent),
         args=args,
         cwd=output_dir.parent,
     )
@@ -1186,7 +1186,7 @@ def _probe_server_parameters(
 ) -> StdioServerParameters:
     repo_root, output_dir = indexed_sample
     return StdioServerParameters(
-        command=sys.executable,
+        command=isolated_test_python(output_dir.parent),
         args=[
             "-m",
             "arcgraph.tests.mcp_runtime_probe",

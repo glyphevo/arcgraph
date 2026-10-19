@@ -12,6 +12,8 @@ from arcgraph.semantic.frozen import interpreter_identity
 from arcgraph.semantic.snapshot import capture
 from arcgraph.semantic.structure_provider import analyze, admit_structure
 
+from arcgraph.tests.project_environment_support import runtime_environment
+
 
 def test_hanging_project_reads_have_one_budget_across_five_blocks(
     tmp_path, monkeypatch
@@ -98,16 +100,22 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
         (project / f"m{number:04d}.py").write_text(
             "def f(): return 1\n", encoding="utf-8"
         )
+    normal_budget = structure.PROJECT_FAILURE_BUDGET
     monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", 0.2, raising=False)
     original = StructureView._read_project
-    attempted, failed_seconds = [], []
+    attempted, failed_seconds, failed_budgets = [], [], []
 
     def counted(self, paths):
-        if mode.read_text(encoding="utf-8") != "timeout" or (
-            not paths and not marker.exists()
-        ):
+        if mode.read_text(encoding="utf-8") != "timeout":
+            assert self._project_failure_seconds[0] == 0
+            assert all(
+                self._project_failure_seconds is not old for old in failed_budgets
+            )
+            return original(self, paths)
+        if not paths and not marker.exists():
             return original(self, paths)
         attempted.append(len(paths))
+        failed_budgets.append(self._project_failure_seconds)
         started = time.monotonic()
         try:
             if not hasattr(self, "_project_timeout"):
@@ -132,6 +140,9 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
     assert sum(failed_seconds) < 0.8, failed_seconds
     store = GraphStoreReader.from_current(tmp_path / "out")
     assert len([node for node in store.read_nodes() if node.kind == "function"]) == 1281
+    # The shortened budget measures hanging work, not successful process startup.
+    # Recovery must have a fresh budget even when the normal limit is restored.
+    monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", normal_budget)
     mode.write_text("good", encoding="utf-8")
     indexer.build()
     store = GraphStoreReader.from_current(tmp_path / "out")
@@ -146,7 +157,7 @@ def test_whole_host_fallback_is_not_admitted(tmp_path):
     (environment / "bin").mkdir(parents=True)
     (environment / "pyvenv.cfg").write_text("version = 3.11\n", encoding="utf-8")
     binary = environment / "bin/python"
-    binary.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    binary.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
     binary.chmod(0o700)
     parser = StructureView(project)
     assert parser.status()["status"] == "host_fallback"
@@ -170,7 +181,7 @@ def test_partial_host_files_have_no_admitted_facts(tmp_path, monkeypatch):
     names = [f"part{i:03d}.py" for i in range(257)]
     for name in names:
         (project / name).write_text("def f(): return 1\n", encoding="utf-8")
-    parser = StructureView(project, Path(sys.prefix))
+    parser = StructureView(project, runtime_environment(tmp_path))
     assert parser.status()["status"] == "project"
     original = parser._read_project
 
@@ -207,7 +218,7 @@ def test_semantic_reads_continue_after_failed_block(
     names = [f"m{i:03d}.py" for i in range(128)] + ["zzz.py"]
     for name in names:
         (project / name).write_text("def f(): return 1\n", encoding="utf-8")
-    parser = StructureView(project, Path(sys.prefix))
+    parser = StructureView(project, runtime_environment(tmp_path))
     selected = parser.interpreter
     assert selected is not None
     original = parser._read_project
@@ -263,7 +274,7 @@ def test_semantic_reads_all_failed_blocks_remain_host_fallback(tmp_path, monkeyp
     names = [f"m{i:03d}.py" for i in range(128)] + ["zzz.py"]
     for name in names:
         (project / name).write_text("def f(): return 1\n", encoding="utf-8")
-    parser = StructureView(project, Path(sys.prefix))
+    parser = StructureView(project, runtime_environment(tmp_path))
     assert parser.interpreter is not None
     attempted = []
 
@@ -304,7 +315,7 @@ def test_semantic_fallback_messages_keep_block_details(
     names = [f"m{i:03d}.py" for i in range(128)] + ["zzz.py"]
     for name in names:
         (project / name).write_text("def f(): return 1\n", encoding="utf-8")
-    parser = StructureView(project, Path(sys.prefix))
+    parser = StructureView(project, runtime_environment(tmp_path))
     original = parser._read_project
 
     def selective(paths):
@@ -424,7 +435,7 @@ def test_default_read_keeps_whole_256_file_block_fallback(
     paths = {name: tmp_path / name for name in names}
     for path in paths.values():
         path.write_text("def f(): return 1\n", encoding="utf-8")
-    parser = StructureView(tmp_path, Path(sys.prefix))
+    parser = StructureView(tmp_path, runtime_environment(tmp_path))
     attempted = []
 
     def failing(block):
@@ -452,7 +463,7 @@ def test_semantic_recovery_candidate_must_match_entry_interpreter(
     project = tmp_path / "project"
     project.mkdir()
     (project / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")
-    parser = StructureView(project, Path(sys.prefix))
+    parser = StructureView(project, runtime_environment(tmp_path))
     selected = parser.interpreter
     snapshot = capture(
         project,

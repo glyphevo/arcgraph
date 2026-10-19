@@ -29,7 +29,7 @@ def collect(plan_path, root, config, output, *, reuse=None):
     restart_initialize_seconds = 0.0
     with (
         (output / "lsp.jsonl").open("w", encoding="utf-8") as transcript,
-        pending.open("w", encoding="utf-8") as journal,
+        pending.open("w", encoding="utf-8", newline="\n") as journal,
     ):
 
         class Transcript:

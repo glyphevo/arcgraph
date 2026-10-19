@@ -5,6 +5,8 @@ import json
 
 import pytest
 
+from arcgraph.tests.project_environment_support import isolated_test_python
+
 from arcgraph.change.contracts import (
     EvidencePurgeEvent,
     VerificationEvidence,
@@ -339,15 +341,16 @@ def test_uri_boundary_preserves_credential_redaction(uri):
     assert result == uri.replace("alice:pass@", "<redacted>@")
 
 
-def test_long_dotted_text_redaction_has_bounded_runtime():
+def test_long_dotted_text_redaction_has_bounded_runtime(tmp_path):
     # The old URI regex retries the entire suffix at every character. Bound
     # this regression in a subprocess, so a recurrence cannot hang pytest.
     import subprocess
-    import sys
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
     code = 'import sys; sys.path.insert(0, sys.argv[1]); from arcgraph.change.evidence import redact_sensitive_text; texts=("abcdefghijk."*200000, "1234567890-."*200000); assert all(redact_sensitive_text(text)==(text,False) for text in texts)'
     subprocess.run(
-        [sys.executable, "-I", "-c", code, str(root)], check=True, timeout=10
+        [isolated_test_python(tmp_path), "-I", "-c", code, str(root)],
+        check=True,
+        timeout=10,
     )

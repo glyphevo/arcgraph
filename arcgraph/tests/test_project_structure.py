@@ -3,11 +3,10 @@
 import ast
 import json
 import os
-import shutil
 import subprocess
 import sys
 
-import pytest
+from arcgraph.tests.project_environment_support import modern_python
 
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import FileScanner, SourceRoot
@@ -27,11 +26,7 @@ MODERN = "def identity[T](value: T) -> T:\n    return value\n"
 def project_env(root, *, modern=False):
     executable = sys.executable
     if modern:
-        executable = os.environ.get("ARCGRAPH_TEST_PROJECT_PYTHON") or shutil.which(
-            "python3.14"
-        )
-        if not executable:
-            pytest.skip("A provisioned Python 3.14 is needed for the syntax contract")
+        executable = modern_python()
     subprocess.run(
         [executable, "-I", "-m", "venv", "--without-pip", str(root / ".venv")],
         check=True,

@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from arcgraph.tests.project_environment_support import modern_python
+
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import FileScanner, SourceRoot
 from arcgraph.core.structure import StructureView
@@ -19,26 +21,19 @@ from arcgraph.pipeline.reindexer import ArcGraphReindexer
 from arcgraph.tests.test_summary_history import normalized
 
 MODERN = "def identity[T](value: T) -> T:\n    return value\n"
-
-
-def modern_python():
-    python = os.environ.get("ARCGRAPH_TEST_PROJECT_PYTHON") or shutil.which(
-        "python3.14"
-    )
-    if not python:
-        pytest.skip("A provisioned Python 3.14 is required")
-    return python
+HOST_READS_MODERN = sys.version_info >= (3, 12)
 
 
 def fake_environment(root, mode="good", requirement=">=3.14"):
     """An executable that succeeds on empty requests but can fail on real work."""
     python = modern_python()
     env = root / ".venv"
-    (env / "bin").mkdir(parents=True)
+    binary = env / ("Scripts" if os.name == "nt" else "bin")
+    binary.mkdir(parents=True)
     (env / "pyvenv.cfg").write_text("home = test\n", encoding="utf-8")
     flag = root / "parser-mode"
     flag.write_text(mode, encoding="utf-8")
-    executable = env / "bin/python"
+    executable = binary / ("python.exe" if os.name == "nt" else "python")
     executable.write_text(
         f"#!{sys.executable}\n"
         "import marshal, pathlib, subprocess, sys, time\n"
@@ -267,10 +262,12 @@ def test_large_project_uses_bounded_requests_and_only_failed_chunk_falls_back(
     flag.write_text("chunk", encoding="utf-8")
     view = StructureView(tmp_path)
     trees, warnings = view.read(paths)
-    assert 0 < len(warnings) <= 256
+    # A failed project block is still read by the host when it knows this syntax.
+    assert len(warnings) == (0 if HOST_READS_MODERN else 256)
     assert len(trees) + len(warnings) == 600
     assert "sample_000.py" in trees and "sample_599.py" in trees
     assert "exit code 3" in view.status()["reason"]
+    assert view.status()["status"] == "partial_fallback"
 
 
 def test_partial_fallback_sync_is_stable_recovers_and_matches_full(tmp_path):

@@ -36,6 +36,8 @@ from arcgraph.semantic.projection import project
 
 from arcgraph.semantic.snapshot import capture
 
+from arcgraph.tests.project_environment_support import runtime_environment
+
 FIXTURE = Path(__file__).parent / "fixtures/semantic"
 
 
@@ -59,7 +61,7 @@ def make_view(tmp_path, filename="policy-v2.txt", source=None):
         environment=(("dependencies", "none"),),
     )
     bundle = structure_provider.analyze(
-        snapshot, root, environment=Path(sys.prefix), access_facts=True
+        snapshot, root, environment=runtime_environment(tmp_path), access_facts=True
     )
     assert bundle.complete, bundle.reasons
     return snapshot, root, View(bundle)

@@ -22,6 +22,8 @@ from arcgraph.semantic.snapshot import (
 from arcgraph.semantic.structure_provider import analyze
 from arcgraph.tests.fixtures.semantic.replay import Replay
 
+from arcgraph.tests.project_environment_support import runtime_environment
+
 TARGET = ".".join(map(str, sys.version_info[:2]))
 
 
@@ -44,7 +46,7 @@ def make(tmp_path, source=None, environment=(("dependencies", "none"),)):
         platform="Darwin",
         environment=environment,
     )
-    view = View(analyze(snapshot, frozen, environment=Path(sys.prefix)))
+    view = View(analyze(snapshot, frozen, environment=runtime_environment(tmp_path)))
     backend = producer("pyright", "1.1.414", (TARGET,), {"wrapper": "semantic/1"})
     return snapshot, frozen, view, backend
 
@@ -81,7 +83,8 @@ def test_c01_dirty_untracked_relocation_and_environment_are_content_identity(tmp
             snapshot.model_copy(update={"environment": ((key, value),)}).id
             != snapshot.id
         )
-    for key, value in [("platform", "Windows"), ("target_python", "3.14")]:
+    other_python = "3.11" if TARGET != "3.11" else "3.14"
+    for key, value in [("platform", "Windows"), ("target_python", other_python)]:
         assert snapshot.model_copy(update={key: value}).id != snapshot.id
     unknown = snapshot.model_copy(
         update={"environment": (("dependencies", "unknown"),)}
@@ -274,7 +277,9 @@ def test_stdio_transport_bounds_and_errors(tmp_path, mode):
             with pytest.raises(
                 TimeoutError if mode in ("timeout", "stubborn") else LspError
             ):
-                peer.request("probe", {}, timeout=0.1)
+                peer.request(
+                    "probe", {}, timeout=0.1 if mode in ("timeout", "stubborn") else 2
+                )
     assert peer.process.poll() is not None
 
 
@@ -306,7 +311,7 @@ def test_source_root_module_mapping_binds_structure_to_default_graph(tmp_path):
     )
     mapped = snapshot.model_copy(update={"module_names": (("src/demo.py", "demo"),)})
     assert mapped.id != snapshot.id
-    view = View(analyze(mapped, root, environment=Path(sys.prefix)))
+    view = View(analyze(mapped, root, environment=runtime_environment(tmp_path)))
     assert "demo.Concrete.run" in {d.qualname for d in view.definitions}
     assert not any(d.qualname.startswith("src.") for d in view.definitions)
     base = next(d for d in view.definitions if d.qualname == "demo.Base.run")

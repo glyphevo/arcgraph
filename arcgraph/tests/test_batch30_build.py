@@ -21,7 +21,7 @@ def configure(root, value="true"):
         source += "semantic_core = " + value + "\n"
     else:
         source = "[tool.arcgraph]\nsemantic_core = " + value + "\n"
-    path.write_text(source, encoding="utf-8")
+    path.write_text(source, encoding="utf-8", newline="\n")
 
 
 def test_compact_storage_replays_exact_frozen_bytes_after_working_tree_changes(

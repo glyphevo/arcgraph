@@ -142,7 +142,8 @@ def test_coverage_python_does_not_claim_a_future_format(tmp_path):
 def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(tmp_path):
     import os
     import subprocess
-    import sys
+
+    from arcgraph.tests.project_environment_support import isolated_test_python
 
     import coverage
 
@@ -165,7 +166,7 @@ def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(tmp_pa
     )
     result = subprocess.run(
         [
-            sys.executable,
+            isolated_test_python(tmp_path),
             "-m",
             "pytest",
             str(tmp_path / "tests/test_service.py"),

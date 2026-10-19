@@ -213,7 +213,17 @@ def test_ci_matrix_and_quality_require_real_semantic_tests():
             step["env"]["ARCGRAPH_TEST_PROJECT_PYTHON"]
             == "${{ steps.semantic-project-python.outputs.python-path }}"
         )
-        assert any(s.get("id") == "semantic-project-python" for s in job["steps"])
+        project_step = next(
+            s for s in job["steps"] if s.get("id") == "semantic-project-python"
+        )
+        assert project_step["with"]["python-version"] == "3.14"
+        legacy_step = next(
+            s for s in job["steps"] if s.get("id") == "semantic-legacy-python"
+        )
+        assert legacy_step["with"]["python-version"] == "3.11"
+        assert step["env"]["ARCGRAPH_TEST_LEGACY_PYTHON"] == (
+            "${{ steps.semantic-legacy-python.outputs.python-path }}"
+        )
 
 
 def test_unproved_reexport_keeps_analyzer_fallback_without_semantic_claim(

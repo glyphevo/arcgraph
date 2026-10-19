@@ -20,7 +20,7 @@ def pool(tmp_path, monkeypatch):
         runtime, "validate_content", lambda copied, **kw: copied / "package"
     )
     node = tmp_path / "node"
-    node.write_text("#!/bin/sh\necho v20.0.0\n", encoding="utf-8")
+    node.write_text("#!/bin/sh\necho v20.0.0\n", encoding="utf-8", newline="\n")
     node.chmod(0o755)
     monkeypatch.setattr(runtime.shutil, "which", lambda name: str(node))
     instance = runtime.SessionPool()
@@ -50,7 +50,9 @@ def test_reused_prepare_rejects_changed_node_identity(pool, monkeypatch, replace
     else:
         other = node.with_name("replacement")
         version = "v8.0.0" if replacement == "old_version" else "v20.0.0"
-        other.write_text("#!/bin/sh\necho " + version + "\n", encoding="utf-8")
+        other.write_text(
+            "#!/bin/sh\necho " + version + "\n", encoding="utf-8", newline="\n"
+        )
         other.chmod(0o755)
         os.replace(other, node)
     assert rejection(instance.prepare), "A reused pool accepted replaced Node"
@@ -83,7 +85,7 @@ def test_node_replaced_during_view_preparation_fails_before_client(pool, monkeyp
     @contextmanager
     def view():
         with original() as package:
-            node.write_text("#!/bin/sh\necho v8.0.0\n", encoding="utf-8")
+            node.write_text("#!/bin/sh\necho v8.0.0\n", encoding="utf-8", newline="\n")
             yield package
 
     monkeypatch.setattr(instance, "package_view", view)

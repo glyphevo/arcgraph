@@ -6,7 +6,6 @@ import ast
 from pathlib import Path
 import subprocess
 import shutil
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +17,7 @@ from arcgraph.semantic.external_targets import Registry
 from arcgraph.semantic.snapshot import sha
 from arcgraph.tests.test_batch30_build import configure, generation_directory
 from arcgraph.tests.test_semantic_isolation import prepared as prepared
+from arcgraph.tests.project_environment_support import legacy_python, modern_python
 
 
 def lookup(text, line, version="3.11", platform="linux", name="ping", module="example"):
@@ -114,22 +114,21 @@ def test_real_build_selects_the_correct_str_replace_overloads(
     prepared, tmp_path, monkeypatch, version
 ):
     project, environment, _, _ = prepared
-    if version == "3.11":
-        assert sys.version_info[:2] == (3, 11)
-        shutil.rmtree(environment)
-        subprocess.run(
-            [
-                sys.executable,
-                "-I",
-                "-B",
-                "-m",
-                "venv",
-                "--without-pip",
-                str(environment),
-            ],
-            check=True,
-            timeout=30,
-        )  # nosec B603
+    python = legacy_python() if version == "3.11" else modern_python()
+    shutil.rmtree(environment)
+    subprocess.run(
+        [
+            python,
+            "-I",
+            "-B",
+            "-m",
+            "venv",
+            "--without-pip",
+            str(environment),
+        ],
+        check=True,
+        timeout=30,
+    )  # nosec B603
     (project / "pyproject.toml").write_text(
         '[project]\nname="replace-probe"\nversion="0.0.0"\n'
         f'requires-python=">={version},<3.{int(version.split(".")[1]) + 1}"\n'

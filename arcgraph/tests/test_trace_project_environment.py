@@ -4,13 +4,15 @@ import json
 import os
 import subprocess
 import sys
-import sysconfig
 from pathlib import Path
 
 import pytest
 
 from arcgraph.core.scanner import SourceRoot
 from arcgraph.interfaces.trace import run_runtime_trace
+from arcgraph.tests.project_environment_support import (
+    test_dependencies as add_test_deps,
+)
 
 
 def project_env(root):
@@ -22,14 +24,7 @@ def project_env(root):
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stderr
-    site = Path(
-        sysconfig.get_path("purelib", vars={"base": str(env), "platbase": str(env)})
-    )
-    site.mkdir(parents=True, exist_ok=True)
-    (site / "fixture_deps.pth").write_text(
-        "import site; site.addsitedir(" + repr(sysconfig.get_path("purelib")) + ")\n",
-        encoding="utf-8",
-    )
+    add_test_deps(env)
     (root / "pyproject.toml").write_text(
         '[tool.arcgraph]\npython_environment="env"\n', encoding="utf-8"
     )

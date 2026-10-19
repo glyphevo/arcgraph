@@ -13,6 +13,7 @@ import pytest
 from arcgraph.interfaces.cli import handle_doctor
 from arcgraph.semantic.install import cache_root
 from arcgraph.tests.test_semantic_isolation import prepared as prepared
+from arcgraph.tests.project_environment_support import isolated_test_python
 
 
 @pytest.mark.private_pyright
@@ -66,7 +67,7 @@ def test_linked_trusted_anchor_supports_doctor_and_shadow(
     script = Path(__file__).resolve().parents[2] / "scripts/semantic_shadow.py"
     process = subprocess.run(
         [
-            sys.executable,
+            isolated_test_python(tmp_path),
             "-I",
             "-B",
             str(script),

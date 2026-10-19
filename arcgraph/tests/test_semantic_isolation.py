@@ -14,6 +14,7 @@ import pytest
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.structure import StructureView
 from arcgraph.interfaces.cli import handle_doctor, main
+from arcgraph.tests.project_environment_support import isolated_test_python
 from arcgraph.semantic.runtime import (
     configuration,
     initialize_params,
@@ -31,7 +32,9 @@ def test_node_environment_whitelist_and_path_exclude_every_python(
         pytest.skip("Node is required for the isolated executable directory")
     inherited = tmp_path / "inherited"
     inherited.mkdir()
-    (inherited / "python").write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
+    (inherited / "python").write_text(
+        "#!/bin/sh\nexit 3\n", encoding="utf-8", newline="\n"
+    )
     monkeypatch.setenv("PATH", str(inherited))
     monkeypatch.setenv("PYTHONPATH", "untrusted")
     monkeypatch.setenv("PYTHONHOME", "untrusted")
@@ -114,7 +117,7 @@ def prepared(tmp_path, monkeypatch, request):
         "def target():\n    return 7\n", encoding="utf-8"
     )
     source = f"from pathlib import Path\nfrom dep_example import target\nPath({str(markers['project'])!r}).write_text('executed')\ndef g():\n    return target()\n"
-    (project / "demo.py").write_text(source, encoding="utf-8")
+    (project / "demo.py").write_text(source, encoding="utf-8", newline="\n")
     version = next(
         line.split("=", 1)[1].strip().split(".")[:2]
         for line in (environment / "pyvenv.cfg")
@@ -138,6 +141,7 @@ def prepared(tmp_path, monkeypatch, request):
         script.write_text(
             f"#!/bin/sh\n/usr/bin/touch '{markers['path-python']}'\nexit 3\n",
             encoding="utf-8",
+            newline="\n",
         )
         script.chmod(0o700)
     extra = tmp_path / "evil-node.js"
@@ -165,6 +169,7 @@ def test_post_d2_peer_and_semantic_doctor_execute_no_python_and_resolve_venv_fun
     executable.write_text(
         f"#!/bin/sh\n/usr/bin/touch '{markers['venv-python']}'\nexit 3\n",
         encoding="utf-8",
+        newline="\n",
     )
     executable.chmod(0o700)
     root = tmp_path / "workspace"
@@ -219,10 +224,10 @@ def test_whole_shadow_and_doctor_never_execute_site_project_or_inherited_python(
     project, environment, markers, source = prepared
     output = tmp_path / "shadow"
     script = Path(__file__).resolve().parents[2] / "scripts/semantic_shadow.py"
-    # -I uses the tool's installed deps; D2 alone selects the real project Python.
+    # -I uses explicit test deps; D2 alone selects the real project Python.
     process = subprocess.run(
         [
-            sys.executable,
+            isolated_test_python(tmp_path),
             "-I",
             "-B",
             str(script),

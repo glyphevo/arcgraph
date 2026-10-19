@@ -3,10 +3,23 @@
 from contextlib import contextmanager
 import hashlib
 import json
+from pathlib import Path
 
 from arcgraph.semantic import transport
 from arcgraph.semantic.journal import JournalReplay
 from arcgraph.semantic.runtime import initialize_params
+
+
+def test_windows_newlines_preserve_the_physical_journal_checksum(tmp_path, monkeypatch):
+    original = Path.open
+
+    def windows_open(path, mode="r", *args, **kwargs):
+        if path.name == "responses.part" and "w" in mode and "b" not in mode:
+            kwargs.setdefault("newline", "\r\n")
+        return original(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", windows_open)
+    test_every_restart_handshake_is_counted_and_journaled(tmp_path, monkeypatch)
 
 
 def test_every_restart_handshake_is_counted_and_journaled(tmp_path, monkeypatch):

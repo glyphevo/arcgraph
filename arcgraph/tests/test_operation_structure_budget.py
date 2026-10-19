@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from arcgraph.tests.project_environment_support import runtime_environment
+
 from arcgraph.core import structure
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import SourceRoot
@@ -21,10 +23,7 @@ from arcgraph.pipeline.reindexer import ArcGraphReindexer
 @pytest.fixture
 def workload(tmp_path, monkeypatch):
     root = tmp_path / "project"
-    binary = root / ".venv/bin"
-    binary.mkdir(parents=True)
-    (binary / "python").symlink_to(sys.executable)
-    (root / ".venv/pyvenv.cfg").write_text("home = test\n", encoding="utf-8")
+    runtime_environment(root)
     for number in range(1281):
         (root / f"m{number:04d}.py").write_text("x = 1\n", encoding="utf-8")
     monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", 0.2)

@@ -32,6 +32,7 @@ jobs:
           python-version: '3.14'
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        id: semantic-legacy-python
         with:
           python-version: '3.11'
           cache: pip
@@ -56,6 +57,7 @@ jobs:
           ARCGRAPH_REQUIRE_TS: '1'
           ARCGRAPH_REQUIRE_SEMANTIC: '1'
           ARCGRAPH_TEST_PROJECT_PYTHON: ${{ steps.semantic-project-python.outputs.python-path }}
+          ARCGRAPH_TEST_LEGACY_PYTHON: ${{ steps.semantic-legacy-python.outputs.python-path }}
         run: |
           mkdir -p output/arcgraph
           python -m pytest arcgraph/tests scripts/tests -q -n auto --cov=arcgraph --cov-report=xml:output/arcgraph/coverage.xml --cov-report=term --cov-fail-under=92
@@ -104,6 +106,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         id: semantic-project-python
         with:
+          python-version: '3.14'
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        id: semantic-legacy-python
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
           python-version: ${{ matrix.python }}
           cache: pip
 
@@ -127,6 +138,7 @@ jobs:
           ARCGRAPH_REQUIRE_TS: '1'
           ARCGRAPH_REQUIRE_SEMANTIC: '1'
           ARCGRAPH_TEST_PROJECT_PYTHON: ${{ steps.semantic-project-python.outputs.python-path }}
+          ARCGRAPH_TEST_LEGACY_PYTHON: ${{ steps.semantic-legacy-python.outputs.python-path }}
         run: python -m pytest arcgraph/tests scripts/tests -q -n auto
 
   package-matrix:

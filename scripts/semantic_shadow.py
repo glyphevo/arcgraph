@@ -5,10 +5,14 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import resource
 import subprocess
 import sys
 import time
+
+try:
+    import resource
+except ImportError:
+    resource = None
 
 WRITE_INPUTS = (
     "python-edges.json",
@@ -61,6 +65,8 @@ def verify_write_inputs(evidence):
 
 
 def usage():
+    if resource is None:
+        return {"self": None, "children": None}
     return {
         kind: list(resource.getrusage(who))
         for kind, who in [
