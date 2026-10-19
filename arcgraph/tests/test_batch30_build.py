@@ -93,7 +93,9 @@ def test_old_semantic_storage_is_refused_as_fresh_but_remains_auditable(
 
     project, _, _, _ = prepared
     configure(project)
-    (project / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")
+    (project / "demo.py").write_text(
+        "def f(): return 1\n", encoding="utf-8", newline="\n"
+    )
     output = tmp_path / "out"
     _, directory = ArcGraphIndexer(project, output).build()
     generation = generation_directory(directory)
@@ -116,7 +118,9 @@ def test_semantic_timing_accounts_for_mapping_bridge_and_writing(
     project, _, _, _ = prepared
     configure(project)
     (project / "demo.py").write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
 
     def delayed(original):
@@ -143,7 +147,9 @@ def test_semantic_timing_accounts_for_mapping_bridge_and_writing(
 
 @pytest.mark.parametrize("value", [None, "false"])
 def test_default_build_reports_disabled_without_semantic_work(tmp_path, value):
-    (tmp_path / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")
+    (tmp_path / "demo.py").write_text(
+        "def f(): return 1\n", encoding="utf-8", newline="\n"
+    )
     if value is not None:
         configure(tmp_path, value)
     metadata, _ = ArcGraphIndexer(tmp_path, tmp_path / "out").build()
@@ -166,7 +172,7 @@ def test_invalid_semantic_core_configuration_is_a_clear_error(tmp_path, value):
 def test_host_only_structure_falls_back_without_claiming_empty_success(tmp_path):
     configure(tmp_path)
     (tmp_path / "demo.py").write_text(
-        "def target(): pass\ndef f(): return target()\n", encoding="utf-8"
+        "def target(): pass\ndef f(): return target()\n", encoding="utf-8", newline="\n"
     )
     metadata, directory = ArcGraphIndexer(tmp_path, tmp_path / "out").build()
     state = metadata.toolchain_status.get("semantic_core", {})
@@ -186,14 +192,16 @@ def test_semantic_and_fallback_structure_use_the_bytes_captured_by_scanning(
     configure(tmp_path)
     source = "def target(): pass\ndef f(): return target()\n"
     path = tmp_path / "demo.py"
-    path.write_text(source, encoding="utf-8")
+    path.write_text(source, encoding="utf-8", newline="\n")
     indexer = ArcGraphIndexer(tmp_path, tmp_path / "out")
     frontend = indexer.frontend_registry.frontends[0]
     original = frontend.analyze_to_graph
 
     def changed(files, **kwargs):
         path.write_text(
-            "def different(): pass\ndef f(): return different()\n", encoding="utf-8"
+            "def different(): pass\ndef f(): return different()\n",
+            encoding="utf-8",
+            newline="\n",
         )
         return original(files, **kwargs)
 
@@ -222,7 +230,9 @@ def test_active_build_uses_pinned_pyright_and_publishes_matching_generation(
     project, _, markers, _ = prepared
     configure(project)
     (project / "demo.py").write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     output = tmp_path / "out"
     metadata, directory = ArcGraphIndexer(project, output).build()
@@ -297,7 +307,9 @@ def test_semantic_failures_are_visible_and_retain_the_same_fallback_graph(
     project, _, _, _ = prepared
     configure(project)
     (project / "demo.py").write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     with monkeypatch.context() as control:
         control.setattr(runtime, "semantic_core_enabled", lambda root: False)
@@ -333,12 +345,16 @@ def test_enabled_sync_replaces_generation_and_equals_full_build(prepared, tmp_pa
     configure(project)
     source = project / "demo.py"
     source.write_text(
-        "def first(): return 7\ndef g(): return first()\n", encoding="utf-8"
+        "def first(): return 7\ndef g(): return first()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     output = tmp_path / "sync"
     _, initial = ArcGraphIndexer(project, output).build()
     source.write_text(
-        "def second(): return 8\ndef g(): return second()\n", encoding="utf-8"
+        "def second(): return 8\ndef g(): return second()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     synced = ArcGraphReindexer(project, output).reindex_changed()
     assert synced["status"] == "reindexed"
@@ -349,7 +365,9 @@ def test_enabled_sync_replaces_generation_and_equals_full_build(prepared, tmp_pa
         for e in GraphStoreReader.from_current(output).read_edges()
     )
     assert (generation_directory(initial) / "pyright.json").is_file()
-    source.write_text("def second(): return 8\ndef g(): return 0\n", encoding="utf-8")
+    source.write_text(
+        "def second(): return 8\ndef g(): return 0\n", encoding="utf-8", newline="\n"
+    )
     ArcGraphReindexer(project, output).reindex_changed()
     generations = list((output / "semantic/generations").glob("*/manifest.json"))
     assert len(generations) == 2
@@ -365,7 +383,9 @@ def test_enabled_sync_preserves_explicit_coverage_and_runtime_inputs(
     configure(project)
     source = project / "demo.py"
     source.write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     coverage = tmp_path / "explicit-coverage.json"
     coverage.write_text(
@@ -376,6 +396,7 @@ def test_enabled_sync_preserves_explicit_coverage_and_runtime_inputs(
             }
         ),
         encoding="utf-8",
+        newline="\n",
     )
     trace = tmp_path / "explicit-runtime.json"
     trace.write_text(
@@ -399,12 +420,15 @@ def test_enabled_sync_preserves_explicit_coverage_and_runtime_inputs(
             }
         ),
         encoding="utf-8",
+        newline="\n",
     )
     inputs = {"coverage_path": coverage, "runtime_trace_path": trace}
     output = tmp_path / "sync"
     ArcGraphIndexer(project, output, **inputs).build()
     source.write_text(
-        "def target(): return 7\ndef g(): return target() + 1\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target() + 1\n",
+        encoding="utf-8",
+        newline="\n",
     )
     ArcGraphReindexer(project, output).reindex_changed()
     ArcGraphIndexer(project, tmp_path / "full", **inputs).build()
@@ -440,6 +464,7 @@ def test_semantic_definition_time_calls_keep_initializes_without_duplicate_calls
         "def g(value=target()): return target()\n"
         "class C:\n    value = target()\n",
         encoding="utf-8",
+        newline="\n",
     )
     output = tmp_path / "out"
     ArcGraphIndexer(project, output).build()
@@ -472,10 +497,12 @@ def test_partly_host_parsed_files_are_explicitly_uncovered(
     (project / "demo.py").unlink()
     for index in range(256):
         (project / f"a{index:03}.py").write_text(
-            "def f(): return 1\n", encoding="utf-8"
+            "def f(): return 1\n", encoding="utf-8", newline="\n"
         )
     (project / "zzz.py").write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     original = StructureView._read_project
 
@@ -505,7 +532,9 @@ def test_semantic_config_and_dependency_changes_cannot_be_fresh(prepared, tmp_pa
     project, environment, _, _ = prepared
     configure(project)
     (project / "demo.py").write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     output = tmp_path / "out"
     ArcGraphIndexer(project, output).build()
@@ -516,12 +545,15 @@ def test_semantic_config_and_dependency_changes_cannot_be_fresh(prepared, tmp_pa
     project_config.write_text(
         source.replace("semantic_core = true", "semantic_core = false"),
         encoding="utf-8",
+        newline="\n",
     )
     assert compute_freshness(reader).status == "stale"
-    project_config.write_text(source, encoding="utf-8")
+    project_config.write_text(source, encoding="utf-8", newline="\n")
     sites = list(environment.glob("lib/python*/site-packages"))
     site = sites[0] if sites else environment / "Lib/site-packages"
-    (site / "new-input.pyi").write_text("def target() -> str: ...\n", encoding="utf-8")
+    (site / "new-input.pyi").write_text(
+        "def target() -> str: ...\n", encoding="utf-8", newline="\n"
+    )
     assert compute_freshness(reader).status == "stale"
 
 
@@ -533,7 +565,9 @@ def test_publish_rejects_changed_generation_artifact_and_pointer(
     project, _, _, _ = prepared
     configure(project)
     (project / "demo.py").write_text(
-        "def target(): return 7\ndef g(): return target()\n", encoding="utf-8"
+        "def target(): return 7\ndef g(): return target()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     output = tmp_path / "out"
     ArcGraphIndexer(project, output).build()
@@ -541,7 +575,9 @@ def test_publish_rejects_changed_generation_artifact_and_pointer(
     original = SemanticBuild.publish
 
     def corrupt(self, directory):
-        (self.generation / "pyright.json").write_text("{}", encoding="utf-8")
+        (self.generation / "pyright.json").write_text(
+            "{}", encoding="utf-8", newline="\n"
+        )
         return original(self, directory)
 
     with monkeypatch.context() as mutation:
@@ -569,7 +605,9 @@ def test_semantic_read_rejects_linked_manifest_or_failed_request(
 
     project, _, _, _ = prepared
     configure(project)
-    (project / "demo.py").write_text("def f(): return 1\n", encoding="utf-8")
+    (project / "demo.py").write_text(
+        "def f(): return 1\n", encoding="utf-8", newline="\n"
+    )
     if state == "unavailable":
         monkeypatch.setattr(build, "admit_structure", lambda *args: (False, "rejected"))
     output = tmp_path / "out"

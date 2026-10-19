@@ -9,6 +9,10 @@ from arcgraph.pipeline.indexer import ArcGraphIndexer
 from arcgraph.pipeline.reindexer import ArcGraphReindexer
 from arcgraph.semantic import transport
 from arcgraph.semantic.journal import load, open_artifact
+from arcgraph.semantic.external_targets import file_path
+from arcgraph.semantic.reuse import rebase
+from arcgraph.semantic.uri_paths import workspace_path
+from arcgraph.tests.project_environment_support import project_site_packages
 from arcgraph.tests.test_batch30_build import (
     configure,
     generation_directory,
@@ -24,7 +28,7 @@ def write_files(project, files):
         if text is None:
             path.unlink()
         else:
-            path.write_text(text, encoding="utf-8")
+            path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def active_build(project, output):
@@ -63,10 +67,10 @@ def native_calls(directory, path):
         rows = [json.loads(line) for line in handle]
     root = rows[1]["params"]["rootUri"]
     return [
-        json.dumps(row["result"], sort_keys=True).replace(root, "workspace")
+        json.dumps(rebase(row["result"], [(root, "file:///workspace")]), sort_keys=True)
         for row in rows
         if row.get("method") == "callHierarchy/outgoingCalls"
-        and row["params"]["item"]["uri"] == root + "/" + path
+        and workspace_path(file_path(root), row["params"]["item"]["uri"]) == path
     ]
 
 
@@ -230,17 +234,19 @@ def test_unscanned_changes_refresh_semantics(prepared, tmp_path, change):
     output = tmp_path / "sync"
     directory = active_build(project, output)
     if change == "environment":
-        path = next(
-            environment.glob("lib/python*/site-packages/dep_example/__init__.py")
+        path = project_site_packages(environment) / "dep_example/__init__.py"
+        path.write_text(
+            "def target(): return 'changed'\n", encoding="utf-8", newline="\n"
         )
-        path.write_text("def target(): return 'changed'\n", encoding="utf-8")
     elif change == "artifact":
         path = generation_directory(directory) / "responses.jsonl"
         path.write_bytes(path.read_bytes() + b"tampered")
     else:
         path = project / "pyproject.toml"
         path.write_text(
-            path.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8"
+            path.read_text(encoding="utf-8") + "# changed\n",
+            encoding="utf-8",
+            newline="\n",
         )
     result = ArcGraphReindexer(project, output).reindex_changed()
     assert result["status"] == "reindexed"
@@ -259,6 +265,7 @@ def test_switching_semantic_core_replaces_supports(prepared, tmp_path):
                 "semantic_core = " + old, "semantic_core = " + new
             ),
             encoding="utf-8",
+            newline="\n",
         )
         ArcGraphReindexer(project, output).reindex_changed()
         reference = tmp_path / ("full-" + str(index))
@@ -276,11 +283,11 @@ def test_environment_can_reexport_an_unresolved_workspace_member(prepared, tmp_p
             "demo.py": "from dep_example import target\ndef use(): return target().run()\n",
         },
     )
-    dependency = next(
-        environment.glob("lib/python*/site-packages/dep_example/__init__.py")
-    )
+    dependency = project_site_packages(environment) / "dep_example/__init__.py"
     dependency.write_text(
-        "from provider import A\ndef target(): return A()\n", encoding="utf-8"
+        "from provider import A\ndef target(): return A()\n",
+        encoding="utf-8",
+        newline="\n",
     )
     output = tmp_path / "sync"
     initial = active_build(project, output)
@@ -331,6 +338,7 @@ def test_pyproject_scope_change_retracts_old_semantic_supports(prepared, tmp_pat
             'source_roots=["."]', 'source_roots=["narrow"]'
         ),
         encoding="utf-8",
+        newline="\n",
     )
     ArcGraphReindexer(project, output).reindex_changed()
     assert_full(project, output, tmp_path / "full")
@@ -398,8 +406,10 @@ def test_verified_empty_search_path_can_hit_unchanged(prepared, tmp_path):
     configure(project)
     outside = tmp_path / "unverified-search-root"
     outside.mkdir()
-    site = next(environment.glob("lib/python*/site-packages"))
-    (site / "unverified.pth").write_text(str(outside) + "\n", encoding="utf-8")
+    site = project_site_packages(environment)
+    (site / "unverified.pth").write_text(
+        str(outside) + "\n", encoding="utf-8", newline="\n"
+    )
     output = tmp_path / "sync"
     active_build(project, output)
     result = ArcGraphReindexer(project, output).reindex_changed()

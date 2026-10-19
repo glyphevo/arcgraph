@@ -568,9 +568,12 @@ def affected_paths(old, new, changed, native):
 
 def rebase(value, replacements):
     if isinstance(value, str):
+        from .uri_paths import rebase_uri
+
         for old, new in replacements:
-            if value == old or value.startswith(old + "/"):
-                return new + value[len(old) :]
+            rebound = rebase_uri(value, old, new)
+            if rebound != value:
+                return rebound
         return value
     if isinstance(value, list):
         return [rebase(v, replacements) for v in value]

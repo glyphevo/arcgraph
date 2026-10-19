@@ -13,6 +13,15 @@ LEGACY_ON_PATH = shutil.which("python3.11")
 TEST_IMPORT_PATH = tuple(sys.path)
 
 
+def project_site_packages(environment):
+    windows = environment / "Lib/site-packages"
+    return (
+        windows
+        if windows.is_dir()
+        else next((environment / "lib").glob("python*/site-packages"))
+    )
+
+
 def runtime_environment(root):
     environment = root / ".venv"
     if not (environment / "pyvenv.cfg").is_file():

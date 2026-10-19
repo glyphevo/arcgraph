@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 import json
-import ntpath
-from pathlib import Path, PurePosixPath, PureWindowsPath
-import posixpath
+from pathlib import Path
 import time
-from urllib.parse import unquote, urlsplit
 
 from .contract import (
     Callsite,
@@ -22,6 +19,7 @@ from .contract import (
     digest,
 )
 from .lsp import LspError, Peer
+from .uri_paths import workspace_path
 from .snapshot import native_position, native_span, verify
 
 
@@ -59,46 +57,7 @@ class Records:
         return Span(start=tuple(value[:2]), end=tuple(value[2:]))
 
     def path(self, uri: str) -> str | None:
-        """Decode using the snapshot's path flavour, then check containment.
-
-        Pure paths allow Windows drive/UNC cases to be checked on any host;
-        native paths additionally resolve symlinks before mapping a symbol.
-        """
-        parsed = urlsplit(uri)
-        if parsed.scheme != "file" or parsed.query or parsed.fragment:
-            return None
-        value = unquote(parsed.path)
-        if "\x00" in value:
-            return None
-        if isinstance(self.root, PureWindowsPath):
-            if parsed.netloc and parsed.netloc.lower() != "localhost":
-                value = "//" + unquote(parsed.netloc) + value
-            elif (
-                len(value) >= 4
-                and value[0] == "/"
-                and value[1].isalpha()
-                and value[2:4] == ":/"
-            ):
-                value = value[1:]
-            value = ntpath.normpath(value)
-        else:
-            if parsed.netloc.lower() not in ("", "localhost"):
-                return None
-            value = posixpath.normpath(value)
-        path = (
-            PureWindowsPath(value)
-            if isinstance(self.root, PureWindowsPath)
-            else Path(value) if isinstance(self.root, Path) else PurePosixPath(value)
-        )
-        if not path.is_absolute():
-            return None
-        if isinstance(path, Path):
-            path = path.resolve()
-        return (
-            path.relative_to(self.root).as_posix()
-            if path.is_relative_to(self.root)
-            else None
-        )
+        return workspace_path(self.root, uri)
 
     def lookup(self, item: dict, unit: str) -> Definition | None:
         path = self.path(item["uri"])

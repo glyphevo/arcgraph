@@ -275,6 +275,18 @@ class Capture:
         self.root = root.resolve()
         self.config = config
         self.files = {}
+        self.paths = {}
+
+    def _store(self, uri, row):
+        # Keep one native URI in the artifact, and identify aliases by decoded
+        # local paths (including Windows drive/case rules), not URI spelling.
+        if not self.paths and self.files:
+            self.paths = {file_path(key): key for key in self.files}
+        key = self.paths.setdefault(file_path(uri), uri)
+        previous = self.files.get(key)
+        if previous is not None and previous != row:
+            raise ValueError("input_changed_during_run: external definition changed")
+        self.files[key] = row
 
     def item(self, item, detail):
         path = file_path(item.get("uri"))
@@ -319,12 +331,7 @@ class Capture:
             }
             row["text_digest"] = sha(row["text"].encode())
 
-            old = self.files.get(item["uri"])
-            if old is not None and old != row:
-                raise ValueError(
-                    "input_changed_during_run: external definition changed"
-                )
-            self.files[item["uri"]] = row
+            self._store(item["uri"], row)
             if origin == "typeshed" and module == "typing":
                 for relative in (
                     "stdlib/collections/abc.pyi",
@@ -345,13 +352,7 @@ class Capture:
                             "raw_digest": sha(proof_bytes),
                             "text_digest": sha(text.encode()),
                         }
-                        uri = proof.as_uri()
-                        previous = self.files.get(uri)
-                        if previous is not None and previous != proof_row:
-                            raise ValueError(
-                                "input_changed_during_run: external definition changed"
-                            )
-                        self.files[uri] = proof_row
+                        self._store(proof.as_uri(), proof_row)
             return
 
 
@@ -804,6 +805,13 @@ class Registry:
         if digest(files) != checksum:
             raise ValueError("external capture checksum mismatch")
         self.files = files
+        self.paths = {}
+        for uri, row in files.items():
+            path = file_path(uri)
+            if path is not None:
+                previous = self.paths.setdefault(path, uri)
+                if files[previous] != row:
+                    raise ValueError("conflicting external file URI aliases")
         self.checksum = checksum
         self.definitions = {}
         self.proofs = {}
@@ -812,6 +820,10 @@ class Registry:
         self.identities = {}
         self.snapshot = snapshot
         self.indices = OrderedDict()
+
+    def row(self, uri):
+        key = self.paths.get(file_path(uri))
+        return self.files.get(key)
 
     def canonical(self, value, row):
         if (
@@ -876,12 +888,12 @@ class Registry:
         return definition(row, item, unit, self.snapshot, index=self.indices[key])
 
     def lookup(self, item, unit, records):
-        row = self.files.get(item.get("uri"))
+        row = self.row(item.get("uri"))
         if row is None:
             return None
         try:
             key = (
-                item["uri"],
+                file_path(item["uri"]),
                 item["name"],
                 digest(item["selectionRange"]),
                 unit,
@@ -936,7 +948,7 @@ class Registry:
         snapshot_id, producer_id = run.snapshot.id, run.producer.id
         for identity, target in self.definitions.items():
             item, unit = self.proofs[identity]
-            row = self.files[item["uri"]]
+            row = self.row(item["uri"])
             value = self.canonical(self.definition(row, item, unit, snapshot_id), row)
             if (
                 value is None

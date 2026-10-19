@@ -187,12 +187,10 @@ class JournalReplay:
                 key in ("uri", "rootUri")
                 and isinstance(item, str)
                 and self.original_root is not None
-                and (
-                    item == self.original_root
-                    or item.startswith(self.original_root + "/")
-                )
             ):
-                result[key] = self.replay_root + item[len(self.original_root) :]
+                from .uri_paths import rebase_uri
+
+                result[key] = rebase_uri(item, self.original_root, self.replay_root)
             else:
                 result[key] = self._rebase(item)
         return result
