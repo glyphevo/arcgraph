@@ -4,7 +4,7 @@ import ast
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import shutil
 import subprocess
 import sys
@@ -566,19 +566,19 @@ def affected_paths(old, new, changed, native):
     return seen
 
 
-def rebase(value, replacements):
+def rebase(value, replacements, *, windows=None):
     if isinstance(value, str):
         from .uri_paths import rebase_uri
 
         for old, new in replacements:
-            rebound = rebase_uri(value, old, new)
+            rebound = rebase_uri(value, old, new, windows=windows)
             if rebound != value:
                 return rebound
         return value
     if isinstance(value, list):
-        return [rebase(v, replacements) for v in value]
+        return [rebase(v, replacements, windows=windows) for v in value]
     if isinstance(value, dict):
-        return {k: rebase(v, replacements) for k, v in value.items()}
+        return {k: rebase(v, replacements, windows=windows) for k, v in value.items()}
     return value
 
 
@@ -709,6 +709,7 @@ class Reuse:
                     (self.environment.as_uri(), (root.parent / "environment").as_uri()),
                     (self.typeshed.as_uri(), Path(detail["typeshed"]).as_uri()),
                 ],
+                windows=isinstance(self.root, PureWindowsPath),
             )
         )
 

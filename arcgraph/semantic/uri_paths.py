@@ -1,6 +1,7 @@
 """Decode file URIs before comparing workspace boundaries or rebinding roots."""
 
 import ntpath
+import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import posixpath
 from urllib.parse import quote, unquote, urlsplit
@@ -45,33 +46,39 @@ def workspace_path(root, uri: str) -> str | None:
     return path.relative_to(root).as_posix() if path.is_relative_to(root) else None
 
 
-def uri_root(uri):
-    """Use pure paths when rebinding journals whose original tree may be gone."""
+def uri_root(uri, *, windows=None):
+    """Decode with the original tree's flavour; default to the native platform."""
+    if windows is None:
+        windows = os.name == "nt"
     parsed = urlsplit(uri)
     if parsed.scheme != "file" or parsed.query or parsed.fragment:
         return None
     value = unquote(parsed.path)
     if "\x00" in value:
         return None
-    if parsed.netloc.lower() not in ("", "localhost"):
-        path = PureWindowsPath("//" + unquote(parsed.netloc) + value)
-    elif (
-        len(value) >= 4
-        and value[0] == "/"
-        and value[1].isalpha()
-        and value[2:4] == ":/"
-    ):
-        path = PureWindowsPath(value[1:])
+    if windows:
+        if parsed.netloc.lower() not in ("", "localhost"):
+            value = "//" + unquote(parsed.netloc) + value
+        elif (
+            len(value) >= 4
+            and value[0] == "/"
+            and value[1].isalpha()
+            and value[2:4] == ":/"
+        ):
+            value = value[1:]
+        path = PureWindowsPath(value)
     else:
+        if parsed.netloc.lower() not in ("", "localhost"):
+            return None
         path = PurePosixPath(value)
     return path if path.is_absolute() else None
 
 
-def rebase_uri(uri, original, replacement):
+def rebase_uri(uri, original, replacement, *, windows=None):
     if not uri.startswith("file:"):
         return uri
     try:
-        root = uri_root(original)
+        root = uri_root(original, windows=windows)
         relative = workspace_path(root, uri) if root is not None else None
     except ValueError:
         return uri

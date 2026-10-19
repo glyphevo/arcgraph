@@ -4,6 +4,8 @@ import ast
 import gzip
 import hashlib
 import json
+import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +17,7 @@ from arcgraph.pipeline.reindexer import ArcGraphReindexer
 from arcgraph.semantic.journal import dump, load
 from arcgraph.semantic.reuse import dependency_index, guard_external_dependencies
 from arcgraph.semantic.snapshot import sha
+from arcgraph.tests.project_environment_support import project_site_packages
 from arcgraph.tests.test_semantic_incremental import (
     active_build,
     assert_full,
@@ -161,7 +164,7 @@ def test_path_pth_allows_unchanged_and_incremental_sync(
     outside = tmp_path / "editable"
     outside.mkdir()
     (outside / "hidden.py").write_text("def target(): return 1\n", encoding="utf-8")
-    site = next(environment.glob("lib/python*/site-packages"))
+    site = project_site_packages(environment)
     (site / "editable.pth").write_text(str(outside) + "\n", encoding="utf-8")
     write_files(
         project,
@@ -192,7 +195,7 @@ def test_path_pth_target_content_invalidates_reuse(
     outside.mkdir()
     path = outside / "pth_hidden.py"
     path.write_text("from leaf import A\ndef make(): return A()\n", encoding="utf-8")
-    site = next(environment.glob("lib/python*/site-packages"))
+    site = project_site_packages(environment)
     (site / "editable.pth").write_text(prefix + str(outside) + "\n", encoding="utf-8")
     write_files(
         project,
@@ -223,7 +226,7 @@ def test_pth_change_during_collection_is_not_adopted(prepared, tmp_path, monkeyp
     outside.mkdir()
     path = outside / "helper.py"
     path.write_text("def target(): return 1\n", encoding="utf-8")
-    site = next(environment.glob("lib/python*/site-packages"))
+    site = project_site_packages(environment)
     (site / "editable.pth").write_text(str(outside) + "\n", encoding="utf-8")
 
     def changed(*args, **kwargs):
@@ -406,8 +409,11 @@ def test_relative_pth_source_alias_invalidates_importers(
 ):
     project, environment, _, _ = prepared
     configure(project)
-    site = next(environment.glob("lib/python*/site-packages"))
-    (site / "source.pth").write_text("../../../../source/nested\n", encoding="utf-8")
+    site = project_site_packages(environment)
+    # Resolve this alias in the frozen layout (source and environment are siblings).
+    frozen_site = Path("environment") / site.relative_to(environment)
+    relative_source = os.path.relpath("source/nested", frozen_site)
+    (site / "source.pth").write_text(relative_source + "\n", encoding="utf-8")
     write_files(
         project,
         {

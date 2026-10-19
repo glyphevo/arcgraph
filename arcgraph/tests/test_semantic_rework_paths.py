@@ -49,6 +49,7 @@ def test_linked_trusted_anchor_supports_doctor_and_shadow(
         link = tmp_path / "home-link"
         link.symlink_to(Path.home(), target_is_directory=True)
         monkeypatch.setenv("HOME", str(link))
+        monkeypatch.setenv("USERPROFILE", str(link))
     else:
         original = cache_root()
         moved = tmp_path / "real-cache"

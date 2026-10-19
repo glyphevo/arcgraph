@@ -17,6 +17,7 @@ from arcgraph.semantic import install as setup
 @pytest.fixture
 def cache(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     return tmp_path

@@ -161,7 +161,7 @@ def write_structure(bundle, path):
 
 
 class JournalReplay:
-    def __init__(self, path, snapshot_id, *, root=None):
+    def __init__(self, path, snapshot_id, *, root=None, windows=None):
         self.handle = open_artifact(path)
         if json.loads(next(self.handle)) != {"snapshot": snapshot_id}:
             self.handle.close()
@@ -173,6 +173,7 @@ class JournalReplay:
         self.encoding = None
         self.replay_root = root.resolve().as_uri() if root is not None else None
         self.original_root = None
+        self.windows = windows
 
     def _rebase(self, value):
         if self.replay_root is None:
@@ -190,7 +191,9 @@ class JournalReplay:
             ):
                 from .uri_paths import rebase_uri
 
-                result[key] = rebase_uri(item, self.original_root, self.replay_root)
+                result[key] = rebase_uri(
+                    item, self.original_root, self.replay_root, windows=self.windows
+                )
             else:
                 result[key] = self._rebase(item)
         return result

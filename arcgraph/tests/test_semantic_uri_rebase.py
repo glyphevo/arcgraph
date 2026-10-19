@@ -3,14 +3,15 @@
 import hashlib
 import json
 from pathlib import PureWindowsPath
+from types import SimpleNamespace
 
 import pytest
 
+from arcgraph.semantic import external_targets, uri_paths
 from arcgraph.semantic.contract import digest
 from arcgraph.semantic.journal import JournalReplay, wire_line
 from arcgraph.semantic.reuse import Reuse, rebase
 from arcgraph.semantic.runtime import initialize_params
-from arcgraph.semantic.uri_paths import uri_root
 from arcgraph.tests.project_environment_support import project_site_packages
 
 
@@ -31,7 +32,9 @@ from arcgraph.tests.project_environment_support import project_site_packages
 def test_rebase_uses_windows_path_containment(uri, relative):
     replacement = "file:///D:/New%20root"
     expected = replacement + "/" + relative if relative else uri
-    assert rebase(uri, [("file:///C:/Old%20root", replacement)]) == expected
+    assert (
+        rebase(uri, [("file:///C:/Old%20root", replacement)], windows=True) == expected
+    )
 
 
 def test_reused_windows_paths_are_rebound_for_every_capture(tmp_path):
@@ -93,7 +96,7 @@ def test_replay_rebinds_encoded_windows_uris_and_keeps_original_checksum(tmp_pat
             handle,
             {"complete": True, "count": len(rows), "checksum": checksum.hexdigest()},
         )
-    replay = JournalReplay(path, "frozen", root=root)
+    replay = JournalReplay(path, "frozen", root=root, windows=True)
     replay.request("initialize", initialize_params(root))
     assert replay.request(
         "textDocument/prepareCallHierarchy",
@@ -111,19 +114,25 @@ def test_replay_rebinds_encoded_windows_uris_and_keeps_original_checksum(tmp_pat
 
 
 @pytest.mark.parametrize(
-    "original,uri,expected",
+    "original,uri,expected,windows",
     [
         (
             "file://server/share/old",
             "file://SERVER/share/OLD/a%20b.py",
             "file:///new/a%20b.py",
+            True,
         ),
-        ("file:///old", "file://localhost/old/%61%23%25.py", "file:///new/a%23%25.py"),
-        ("file:///old", "file:///OLD/a.py", "file:///OLD/a.py"),
+        (
+            "file:///old",
+            "file://localhost/old/%61%23%25.py",
+            "file:///new/a%23%25.py",
+            False,
+        ),
+        ("file:///old", "file:///OLD/a.py", "file:///OLD/a.py", False),
     ],
 )
-def test_rebinding_retains_unc_and_posix_path_rules(original, uri, expected):
-    assert rebase(uri, [(original, "file:///new")]) == expected
+def test_rebinding_retains_unc_and_posix_path_rules(original, uri, expected, windows):
+    assert rebase(uri, [(original, "file:///new")], windows=windows) == expected
 
 
 @pytest.mark.parametrize(
@@ -153,8 +162,10 @@ def test_native_call_comparison_decodes_the_workspace_uri(tmp_path, monkeypatch)
         "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8", newline="\n"
     )
     monkeypatch.setattr(incremental, "generation_directory", lambda path: path)
-    # Match the pure Windows flavour used by product mapping tests on macOS.
-    monkeypatch.setattr(incremental, "file_path", uri_root)
+    # Exercise the actual Windows parser, including stripping the URI drive slash.
+    monkeypatch.setattr(external_targets, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(external_targets, "Path", PureWindowsPath)
+    monkeypatch.setattr(uri_paths, "os", SimpleNamespace(name="nt"))
     assert incremental.native_calls(tmp_path, "demo.py") == [
         json.dumps([{"to": {"uri": "file:///workspace/demo.py"}}], sort_keys=True)
     ]

@@ -75,6 +75,12 @@ def file_path(uri):
     return path if path.is_absolute() and ".." not in path.parts else None
 
 
+def uri_key(uri):
+    """Use native path aliases when available, otherwise retain an exact frozen URI."""
+    path = file_path(uri)
+    return path if path is not None else uri
+
+
 def safe_file(path, root):
     if not path.is_relative_to(root):
         return False
@@ -281,8 +287,8 @@ class Capture:
         # Keep one native URI in the artifact, and identify aliases by decoded
         # local paths (including Windows drive/case rules), not URI spelling.
         if not self.paths and self.files:
-            self.paths = {file_path(key): key for key in self.files}
-        key = self.paths.setdefault(file_path(uri), uri)
+            self.paths = {uri_key(key): key for key in self.files}
+        key = self.paths.setdefault(uri_key(uri), uri)
         previous = self.files.get(key)
         if previous is not None and previous != row:
             raise ValueError("input_changed_during_run: external definition changed")
@@ -807,11 +813,9 @@ class Registry:
         self.files = files
         self.paths = {}
         for uri, row in files.items():
-            path = file_path(uri)
-            if path is not None:
-                previous = self.paths.setdefault(path, uri)
-                if files[previous] != row:
-                    raise ValueError("conflicting external file URI aliases")
+            previous = self.paths.setdefault(uri_key(uri), uri)
+            if files[previous] != row:
+                raise ValueError("conflicting external file URI aliases")
         self.checksum = checksum
         self.definitions = {}
         self.proofs = {}
@@ -822,7 +826,7 @@ class Registry:
         self.indices = OrderedDict()
 
     def row(self, uri):
-        key = self.paths.get(file_path(uri))
+        key = self.paths.get(uri_key(uri))
         return self.files.get(key)
 
     def canonical(self, value, row):
@@ -893,7 +897,7 @@ class Registry:
             return None
         try:
             key = (
-                file_path(item["uri"]),
+                uri_key(item["uri"]),
                 item["name"],
                 digest(item["selectionRange"]),
                 unit,
