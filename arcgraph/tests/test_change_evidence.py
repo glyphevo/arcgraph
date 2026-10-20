@@ -352,5 +352,7 @@ def test_long_dotted_text_redaction_has_bounded_runtime(tmp_path):
     subprocess.run(
         [isolated_test_python(tmp_path), "-I", "-c", code, str(root)],
         check=True,
-        timeout=10,
+        # Bounded runtime: under a second on a development machine, hours with
+        # catastrophic backtracking; the margin covers slow CI runners.
+        timeout=120,
     )

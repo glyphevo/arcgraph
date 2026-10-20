@@ -24,7 +24,7 @@ def test_aborted_entry_updates_phase_and_total(monkeypatch, entry):
     semantic.parser = None
 
     def fail(*args, **kwargs):
-        time.sleep(0.02)
+        time.sleep(0.2)
         raise RuntimeError("aborted entry")
 
     monkeypatch.setattr(build, "verify_interpreter", fail)
@@ -35,9 +35,11 @@ def test_aborted_entry_updates_phase_and_total(monkeypatch, entry):
         else:
             semantic.structure_from_trees({}, [], [])
     phase = "interpreter_guard" if entry == "before_parse" else "structure_records"
-    assert semantic.timings.get(phase, 0) >= 0.02
+    assert semantic.timings.get(phase, 0) >= 0.2
+    # Unaccounted time is microseconds, but one preemption on a loaded CI runner
+    # can add milliseconds; a phase missing from the total would differ by 100%.
     assert abs(semantic.timings["total"] - semantic.timings[phase]) <= (
-        0.02 * semantic.timings["total"]
+        0.1 * semantic.timings["total"]
     )
 
 

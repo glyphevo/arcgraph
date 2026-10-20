@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph.core.operation_lock import (
     ArcGraphOperationInProgress,
     _lock_is_active,
@@ -62,7 +63,7 @@ def test_process_alive_does_not_signal_child_process() -> None:
     finally:
         if process.poll() is None:
             process.terminate()
-            process.wait(timeout=5)
+            process.wait(timeout=WAIT_HANG_SECONDS)
 
 
 def test_pid_file_lock_recovers_dead_pid_for_explicit_lock_path(tmp_path: Path) -> None:

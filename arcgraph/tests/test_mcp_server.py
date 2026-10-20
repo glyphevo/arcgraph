@@ -9,12 +9,21 @@ from typing import Any
 import anyio
 import pytest
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph import __version__
 from arcgraph.interfaces import mcp_server
 from arcgraph.interfaces.agent_capabilities import mcp_capability_names
 from arcgraph.interfaces.cli import main
 from arcgraph.interfaces.metrics import MCP_METRICS_WRITE_WARNING
 from arcgraph.interfaces.mcp_tools import ArcGraphPermissionError
+
+# Releases a blocked recording only if a test never does: long enough never to
+# fire in a healthy run, while a blocked event loop would wait for it and show
+# up as a delay of this size.
+WATCHDOG_SECONDS = 10.0
+# A call that must not queue behind an abandoned metrics writer returns within
+# this bound; the held writer waits far longer, so queueing still fails.
+STALL_BOUND_SECONDS = 15.0
 
 
 def test_cli_mcp_help_and_serve_help_do_not_require_runtime(
@@ -340,7 +349,7 @@ def test_mcp_metrics_io_does_not_block_the_event_loop(
         assert status == "success"
         assert duration_ms >= 0
         entered.set()
-        release.wait(timeout=2)
+        release.wait(timeout=WAIT_HANG_SECONDS)
 
     monkeypatch.setattr(
         mcp_server.MCPMetricsRecorder,
@@ -363,14 +372,14 @@ def test_mcp_metrics_io_does_not_block_the_event_loop(
 
         async with anyio.create_task_group() as tasks:
             tasks.start_soon(call_status)
-            with anyio.fail_after(2):
+            with anyio.fail_after(WAIT_HANG_SECONDS):
                 while not entered.is_set():
                     await anyio.sleep(0.001)
             loop_delay = time.perf_counter() - started
             release.set()
         return loop_delay, result
 
-    watchdog = threading.Timer(0.75, release.set)
+    watchdog = threading.Timer(WATCHDOG_SECONDS, release.set)
     watchdog.start()
     try:
         loop_delay, result = anyio.run(exercise)
@@ -378,7 +387,8 @@ def test_mcp_metrics_io_does_not_block_the_event_loop(
         watchdog.cancel()
         release.set()
 
-    assert loop_delay < 0.25
+    # A blocked event loop could only see the entry after the watchdog fires.
+    assert loop_delay < WATCHDOG_SECONDS / 5, loop_delay
     assert result.is_error is False
 
 
@@ -400,7 +410,7 @@ def test_mcp_metrics_backpressure_uses_one_worker_thread(
             call_count += 1
             max_active = max(max_active, active)
         entered.set()
-        release.wait(timeout=2)
+        release.wait(timeout=WAIT_HANG_SECONDS)
         with state_lock:
             active -= 1
 
@@ -424,7 +434,7 @@ def test_mcp_metrics_backpressure_uses_one_worker_thread(
         async with anyio.create_task_group() as tasks:
             for _ in range(8):
                 tasks.start_soon(call_status)
-            with anyio.fail_after(2):
+            with anyio.fail_after(WAIT_HANG_SECONDS):
                 while not entered.is_set():
                     await anyio.sleep(0.001)
             await anyio.sleep(0.05)
@@ -434,7 +444,7 @@ def test_mcp_metrics_backpressure_uses_one_worker_thread(
             release.set()
         return results
 
-    watchdog = threading.Timer(0.75, release.set)
+    watchdog = threading.Timer(WATCHDOG_SECONDS, release.set)
     watchdog.start()
     try:
         results = anyio.run(exercise)
@@ -482,7 +492,7 @@ def test_mcp_metrics_error_timeout_is_not_reported_as_a_write_failure(
         try:
             if index == 0:
                 first_writer_entered.set()
-                assert release_first_writer.wait(timeout=30)
+                assert release_first_writer.wait(timeout=WAIT_HANG_SECONDS)
             real_append(self, serialized_event)
         finally:
             with state_lock:
@@ -503,23 +513,23 @@ def test_mcp_metrics_error_timeout_is_not_reported_as_a_write_failure(
     async def exercise() -> None:
         with pytest.raises(ToolError, match="Unknown tool"):
             await app.call_tool("arcgraph_not_registered", {})
-        with anyio.fail_after(10):
+        with anyio.fail_after(WAIT_HANG_SECONDS):
             while not first_writer_entered.is_set():
                 await anyio.sleep(0.001)
         # The abandoned writer is provably still inside its append here, so
         # this is the window where a success path outside the gate would start
         # a second writer and stall behind it.  A bounded wait fails loudly
         # instead of silently passing if the call ever queues.
-        with anyio.fail_after(5):
+        with anyio.fail_after(STALL_BOUND_SECONDS):
             await app.call_tool("arcgraph_index_status", {})
         with state_lock:
             assert active == 1
 
         release_first_writer.set()
-        with anyio.fail_after(10):
+        with anyio.fail_after(WAIT_HANG_SECONDS):
             while active:
                 await anyio.sleep(0.001)
-        with anyio.fail_after(10):
+        with anyio.fail_after(WAIT_HANG_SECONDS):
             await app.call_tool("arcgraph_index_status", {})
 
     try:
@@ -568,7 +578,7 @@ def test_mcp_metrics_success_timeout_does_not_stall_tool_results(
         try:
             if current_append == 1:
                 first_writer_entered.set()
-                assert release_first_writer.wait(timeout=30)
+                assert release_first_writer.wait(timeout=WAIT_HANG_SECONDS)
         finally:
             with state_lock:
                 active -= 1
@@ -586,14 +596,14 @@ def test_mcp_metrics_success_timeout_does_not_stall_tool_results(
     )
 
     async def exercise() -> tuple[Any, Any, Any]:
-        with anyio.fail_after(5):
+        with anyio.fail_after(STALL_BOUND_SECONDS):
             first = await app.call_tool("arcgraph_index_status", {})
         assert first_writer_entered.is_set()
 
         # The first worker still owns the gate.  The second tool result must
         # return after dropping its metrics event rather than waiting on the
         # abandoned worker or the shared thread limiter.
-        with anyio.fail_after(5):
+        with anyio.fail_after(STALL_BOUND_SECONDS):
             second = await app.call_tool("arcgraph_help", {"topic": "overview"})
         with state_lock:
             assert active == 1
@@ -601,10 +611,10 @@ def test_mcp_metrics_success_timeout_does_not_stall_tool_results(
             assert append_count == 1
 
         release_first_writer.set()
-        with anyio.fail_after(10):
+        with anyio.fail_after(WAIT_HANG_SECONDS):
             while active:
                 await anyio.sleep(0.001)
-        with anyio.fail_after(5):
+        with anyio.fail_after(WAIT_HANG_SECONDS):
             third = await app.call_tool("arcgraph_index_status", {})
         return first, second, third
 
@@ -629,7 +639,7 @@ def test_mcp_metrics_cancellation_does_not_replace_the_tool_error(
 
     def block_record(self: object, **_kwargs: object) -> None:
         entered.set()
-        release.wait(timeout=2)
+        release.wait(timeout=WAIT_HANG_SECONDS)
 
     monkeypatch.setattr(
         mcp_server.MCPMetricsRecorder,
@@ -656,7 +666,7 @@ def test_mcp_metrics_cancellation_does_not_replace_the_tool_error(
 
         async with anyio.create_task_group() as tasks:
             tasks.start_soon(call_unknown_tool)
-            with anyio.fail_after(2):
+            with anyio.fail_after(WAIT_HANG_SECONDS):
                 while not entered.is_set() or not scopes:
                     await anyio.sleep(0.001)
             scopes[0].cancel()
@@ -664,7 +674,7 @@ def test_mcp_metrics_cancellation_does_not_replace_the_tool_error(
             release.set()
         return outcomes
 
-    watchdog = threading.Timer(0.75, release.set)
+    watchdog = threading.Timer(WATCHDOG_SECONDS, release.set)
     watchdog.start()
     try:
         outcomes = anyio.run(exercise)

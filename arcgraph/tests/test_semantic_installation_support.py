@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.tests import semantic_installation_support as support
 
 
@@ -196,7 +197,7 @@ def test_real_pytest_session_installs_once_and_checks_teardown(tmp_path, changed
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=60,
+        timeout=SUBPROCESS_HANG_SECONDS,
         check=False,
     )
     assert (tmp_path / "installs").read_text(encoding="utf-8").splitlines() == [

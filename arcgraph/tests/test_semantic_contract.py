@@ -7,6 +7,7 @@ import sys
 import pytest
 from pydantic import ValidationError
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph.semantic.anchors import AnchoredRecords, View, admit
 from arcgraph.semantic.backends import producer, pyright_records
 from arcgraph.semantic.contract import Answer, Candidate, Source, Span
@@ -272,13 +273,17 @@ def test_stdio_transport_bounds_and_errors(tmp_path, mode):
         {"python": {"analysis": {"x": 1}}},
     ) as peer:
         if mode == "config":
-            assert peer.request("probe", {}, timeout=2) == "ok"
+            assert peer.request("probe", {}, timeout=WAIT_HANG_SECONDS) == "ok"
         else:
             with pytest.raises(
                 TimeoutError if mode in ("timeout", "stubborn") else LspError
             ):
                 peer.request(
-                    "probe", {}, timeout=0.1 if mode in ("timeout", "stubborn") else 2
+                    "probe",
+                    {},
+                    timeout=(
+                        0.1 if mode in ("timeout", "stubborn") else WAIT_HANG_SECONDS
+                    ),
                 )
     assert peer.process.poll() is not None
 

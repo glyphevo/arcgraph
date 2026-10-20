@@ -13,6 +13,7 @@ import uuid
 
 import pytest
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph import __version__
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.scanner import SourceRoot
@@ -1255,7 +1256,7 @@ async def _assert_server_responsive(client: Client) -> None:
             "arcgraph_index_status",
             TOOL_CALLS["arcgraph_index_status"],
         ),
-        timeout=2,
+        timeout=WAIT_HANG_SECONDS,
     )
     assert status.is_error is False
     assert status.structured_content["status"] == "available"

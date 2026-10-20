@@ -9,6 +9,7 @@ import sys
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.semantic.contract import Snapshot
 from arcgraph.semantic.external_targets import definition
 from arcgraph.tests.test_batch30_review_sixth_bindings import lookup
@@ -142,7 +143,7 @@ def type_alias_results():
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=30,
+        timeout=SUBPROCESS_HANG_SECONDS,
     )
     if probe.stdout.strip() != "True":
         pytest.skip("The provisioned Python does not support type statements")
@@ -153,7 +154,7 @@ def type_alias_results():
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=30,
+        timeout=SUBPROCESS_HANG_SECONDS,
     )
     return json.loads(result.stdout)["rows"]
 

@@ -7,6 +7,7 @@ import textwrap
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.tests.test_semantic_implementation_conflicts import mark
 
 CASES = [
@@ -110,7 +111,7 @@ print(json.dumps(resolve(sys.argv[2]) is resolve(sys.argv[3])))
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=20,
+        timeout=SUBPROCESS_HANG_SECONDS,
         check=True,
     )
     assert json.loads(result.stdout) is False, name

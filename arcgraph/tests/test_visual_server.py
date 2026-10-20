@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph.core.force_graph_export import build_focus_view, build_force_graph_export
 from arcgraph.core.query_engine import QueryEngine
 from arcgraph.core.scanner import SourceRoot
@@ -206,7 +207,9 @@ def _start_server(
 
 
 def _get_json(base_url: str, path: str) -> dict:
-    with urllib.request.urlopen(f"{base_url}{path}", timeout=10) as response:
+    with urllib.request.urlopen(
+        f"{base_url}{path}", timeout=WAIT_HANG_SECONDS
+    ) as response:
         assert response.status == 200
         return json.loads(response.read().decode("utf-8"))
 

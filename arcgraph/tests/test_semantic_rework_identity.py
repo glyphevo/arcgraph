@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.semantic.frozen import environment_identity, verify_environment
 from arcgraph.tests.test_semantic_isolation import prepared as prepared
 from arcgraph.tests.project_environment_support import isolated_test_python
@@ -36,7 +37,7 @@ def completed(prepared, tmp_path):
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=120,
+        timeout=SUBPROCESS_HANG_SECONDS,
         check=False,
     )  # nosec B603
     assert process.returncode == 0, process.stderr

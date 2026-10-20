@@ -60,7 +60,7 @@ jobs:
           ARCGRAPH_TEST_LEGACY_PYTHON: ${{ steps.semantic-legacy-python.outputs.python-path }}
         run: |
           mkdir -p output/arcgraph
-          python -m pytest arcgraph/tests scripts/tests -q -n auto --cov=arcgraph --cov-report=xml:output/arcgraph/coverage.xml --cov-report=term --cov-fail-under=92
+          python -m pytest arcgraph/tests scripts/tests -q -n auto --cov=arcgraph --cov-report=xml:output/arcgraph/coverage.xml --cov-report=term --cov-fail-under=92 --durations=30
 
       - name: Check formatting and lint
         run: |
@@ -139,7 +139,7 @@ jobs:
           ARCGRAPH_REQUIRE_SEMANTIC: '1'
           ARCGRAPH_TEST_PROJECT_PYTHON: ${{ steps.semantic-project-python.outputs.python-path }}
           ARCGRAPH_TEST_LEGACY_PYTHON: ${{ steps.semantic-legacy-python.outputs.python-path }}
-        run: python -m pytest arcgraph/tests scripts/tests -q -n auto
+        run: python -m pytest arcgraph/tests scripts/tests -q -n auto --durations=30
 
   package-matrix:
     name: Package / ${{ matrix.os }} / Python ${{ matrix.python }} / MCP ${{ matrix.mcp_line }}

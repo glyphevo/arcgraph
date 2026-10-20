@@ -10,6 +10,7 @@ import tempfile
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.interfaces.cli import handle_doctor
 from arcgraph.semantic.install import cache_root
 from arcgraph.tests.test_semantic_isolation import prepared as prepared
@@ -80,7 +81,7 @@ def test_linked_trusted_anchor_supports_doctor_and_shadow(
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=120,
+        timeout=SUBPROCESS_HANG_SECONDS,
         check=False,
     )  # nosec B603
     assert process.returncode == 0, process.stderr + "".join(

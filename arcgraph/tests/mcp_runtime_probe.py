@@ -11,6 +11,7 @@ from typing import Any
 
 from mcp.server.mcpserver import Context
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph.interfaces import mcp_server
 from arcgraph.interfaces.mcp_tools import (
     ArcGraphMCPConfig,
@@ -24,7 +25,7 @@ CANCEL_STARTED = "__arcgraph_probe_cancel_started__"
 TIMEOUT_STARTED = "__arcgraph_probe_timeout_started__"
 _CONCURRENCY_PROBES = frozenset({CONCURRENT_SAME, CONCURRENT_MIXED})
 _CANCELLATION_PROBES = frozenset({CANCEL_STARTED, TIMEOUT_STARTED})
-_PROBE_WAIT_SECONDS = 5.0
+_PROBE_WAIT_SECONDS = WAIT_HANG_SECONDS
 
 
 def probe_release_path(state_path: Path, marker: str) -> Path:

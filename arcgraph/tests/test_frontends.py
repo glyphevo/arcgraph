@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.pipeline.frontends import (
     FrontendRegistry,
     LanguageFrontend,
@@ -866,7 +867,7 @@ def test_typescript_extractor_emits_profile_rows_only_for_deferred_scoring(
             text=True,
             capture_output=True,
             cwd=str(tmp_path),
-            timeout=60,
+            timeout=SUBPROCESS_HANG_SECONDS,
             check=False,
             encoding="utf-8",
         )

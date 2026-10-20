@@ -4,6 +4,7 @@ from threading import Event
 
 import pytest
 
+from arcgraph.tests.time_limits import WAIT_HANG_SECONDS
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.pipeline.indexer import ArcGraphIndexer
 from arcgraph.pipeline.reindexer import ArcGraphReindexer
@@ -49,7 +50,14 @@ def test_external_guard_completion_and_collection_order(
     def guard(*args, **kwargs):
         try:
             if mode != "sync":
-                overlaps.append(collect_started.wait(2))
+                # Without a worker, collection runs only after this guard, so the
+                # wait can only time out; elsewhere it returns as soon as
+                # collection starts.
+                overlaps.append(
+                    collect_started.wait(
+                        2 if mode == "worker_unavailable" else WAIT_HANG_SECONDS
+                    )
+                )
             if mode == "guard_failure":
                 raise ValueError("probe-guard-failed")
             if mode == "guard_exception":

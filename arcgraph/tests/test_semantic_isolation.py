@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.core.graph_store import GraphStoreReader
 from arcgraph.core.structure import StructureView
 from arcgraph.interfaces.cli import handle_doctor, main
@@ -78,8 +79,7 @@ def prepared(tmp_path, monkeypatch, request):
     subprocess.run(
         [python, "-I", "-B", "-m", "venv", "--without-pip", str(environment)],
         check=True,
-        # A hang guard only: creating a venv on a slow CI runner took over 30 s.
-        timeout=120,
+        timeout=SUBPROCESS_HANG_SECONDS,
     )  # nosec B603
     if request.node.get_closest_marker("private_pyright"):
         home = tmp_path / "home"
@@ -240,7 +240,7 @@ def test_whole_shadow_and_doctor_never_execute_site_project_or_inherited_python(
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=120,
+        timeout=SUBPROCESS_HANG_SECONDS,
         check=False,
     )  # nosec B603
     assert process.returncode == 0, process.stderr + "".join(

@@ -1,5 +1,6 @@
 """Target-conditioned external definitions must match the frozen snapshot."""
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
 from arcgraph.semantic.journal import load
 
 import ast
@@ -127,8 +128,7 @@ def test_real_build_selects_the_correct_str_replace_overloads(
             str(environment),
         ],
         check=True,
-        # A hang guard only: creating a venv on a slow CI runner took over 30 s.
-        timeout=120,
+        timeout=SUBPROCESS_HANG_SECONDS,
     )  # nosec B603
     (project / "pyproject.toml").write_text(
         '[project]\nname="replace-probe"\nversion="0.0.0"\n'

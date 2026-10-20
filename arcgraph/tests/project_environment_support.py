@@ -8,6 +8,8 @@ import sys
 
 import pytest
 
+from arcgraph.tests.time_limits import SUBPROCESS_HANG_SECONDS
+
 MODERN_ON_PATH = shutil.which("python3.14")
 LEGACY_ON_PATH = shutil.which("python3.11")
 TEST_IMPORT_PATH = tuple(sys.path)
@@ -29,8 +31,7 @@ def runtime_environment(root):
             [sys.executable, "-I", "-m", "venv", "--without-pip", str(environment)],
             check=True,
             capture_output=True,
-            # A hang guard only: creating a venv on a slow CI runner took over 30 s.
-            timeout=120,
+            timeout=SUBPROCESS_HANG_SECONDS,
         )
     return environment
 
@@ -47,7 +48,7 @@ def modern_python():
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=30,
+            timeout=SUBPROCESS_HANG_SECONDS,
             check=True,
         )
         if result.stdout.strip() == "True":
