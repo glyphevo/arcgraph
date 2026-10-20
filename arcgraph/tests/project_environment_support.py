@@ -29,7 +29,8 @@ def runtime_environment(root):
             [sys.executable, "-I", "-m", "venv", "--without-pip", str(environment)],
             check=True,
             capture_output=True,
-            timeout=30,
+            # A hang guard only: creating a venv on a slow CI runner took over 30 s.
+            timeout=120,
         )
     return environment
 

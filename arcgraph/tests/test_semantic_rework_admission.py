@@ -66,9 +66,13 @@ def test_hanging_project_reads_have_one_budget_across_five_blocks(
     bundle = analyze(snapshot, tmp_path / "frozen", structure_view=parser)
     elapsed = time.monotonic() - started
     assert elapsed < 5, elapsed
-    # Every recorded fake read sleeps ten seconds, consuming the entire grant.
-    # Only these fully consumed timeouts must sum to at most one budget.
-    assert sum(granted_timeouts) <= structure.PROJECT_FAILURE_BUDGET, granted_timeouts
+    # Every recorded fake read sleeps ten seconds, so each grant times out. The
+    # product charges measured time (15.625 ms ticks on Windows Python 3.11/3.12),
+    # which can leave a remainder granted once more; a second budget would add
+    # about one more full budget.
+    assert (
+        sum(granted_timeouts) < 1.5 * structure.PROJECT_FAILURE_BUDGET
+    ), granted_timeouts
     assert len(attempted) <= 2, (attempted, elapsed)
     assert len(bundle.files) == 321
     assert {file.status for file in bundle.files} == {"host_fallback"}
@@ -139,9 +143,13 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
     indexer = ArcGraphIndexer(project, tmp_path / "out")
     indexer.build()
     assert sum(failed_seconds) < 5, failed_seconds
-    # Recorded fake reads (including the marked empty probe) consume the full
-    # granted timeout, so only here must the grants sum to at most one budget.
-    assert sum(granted_timeouts) <= structure.PROJECT_FAILURE_BUDGET, granted_timeouts
+    # Recorded fake reads (including the marked empty probe) run until their grant
+    # times out. Measured-time charging can leave a remainder granted once more
+    # (15.625 ms ticks on Windows Python 3.11/3.12); a second budget would add
+    # about one more full budget.
+    assert (
+        sum(granted_timeouts) < 1.5 * structure.PROJECT_FAILURE_BUDGET
+    ), granted_timeouts
     assert len(attempted) <= 2, attempted
     # The cache-fingerprint view must not restart even its empty capability
     # probe once a workload failure has spent this build's shared budget.

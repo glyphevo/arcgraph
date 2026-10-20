@@ -127,7 +127,8 @@ def test_real_build_selects_the_correct_str_replace_overloads(
             str(environment),
         ],
         check=True,
-        timeout=30,
+        # A hang guard only: creating a venv on a slow CI runner took over 30 s.
+        timeout=120,
     )  # nosec B603
     (project / "pyproject.toml").write_text(
         '[project]\nname="replace-probe"\nversion="0.0.0"\n'

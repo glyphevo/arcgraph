@@ -78,7 +78,8 @@ def prepared(tmp_path, monkeypatch, request):
     subprocess.run(
         [python, "-I", "-B", "-m", "venv", "--without-pip", str(environment)],
         check=True,
-        timeout=30,
+        # A hang guard only: creating a venv on a slow CI runner took over 30 s.
+        timeout=120,
     )  # nosec B603
     if request.node.get_closest_marker("private_pyright"):
         home = tmp_path / "home"
