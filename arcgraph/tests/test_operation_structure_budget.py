@@ -44,9 +44,12 @@ def workload(tmp_path, monkeypatch):
                 )
                 for name, path in paths.items()
             }
+        granted = view._project_timeout
         started = time.monotonic()
-        time.sleep(view._project_timeout)
-        attempts.append((time.monotonic() - started, view._project_failure_seconds))
+        time.sleep(granted)
+        attempts.append(
+            (granted, time.monotonic() - started, view._project_failure_seconds)
+        )
         raise subprocess.TimeoutExpired([str(view.interpreter)], view._project_timeout)
 
     monkeypatch.setattr(structure.StructureView, "_read_project", read)
@@ -60,10 +63,17 @@ def build(workload, mode):
 
 
 def assert_one_budget(attempts):
-    assert sum(seconds for seconds, _ in attempts) <= 1.10 * (
-        structure.PROJECT_FAILURE_BUDGET
-    ), "One operation spent multiple failed-read budgets"
-    assert attempts and all(budget is attempts[0][1] for _, budget in attempts)
+    # These fake failed reads always consume their entire granted timeout.
+    # Only under that assumption must the grants sum to at most one budget;
+    # scheduler oversleep is elapsed time, not another grant.
+    granted = sum(timeout for timeout, _, _ in attempts)
+    elapsed = sum(seconds for _, seconds, _ in attempts)
+    assert granted <= structure.PROJECT_FAILURE_BUDGET, (
+        "One operation granted multiple failed-read budgets",
+        granted,
+        elapsed,
+    )
+    assert attempts and all(budget is attempts[0][2] for _, _, budget in attempts)
 
 
 def test_partial_exhaustion_reason_preserves_only_completed_project_blocks(workload):

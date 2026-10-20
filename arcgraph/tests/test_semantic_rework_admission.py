@@ -34,10 +34,11 @@ def test_hanging_project_reads_have_one_budget_across_five_blocks(
     assert parser.interpreter == executable
     monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", 0.2, raising=False)
     original = parser._read_project
-    attempted = []
+    attempted, granted_timeouts = [], []
 
     def counted(paths):
         attempted.append(len(paths))
+        granted_timeouts.append(getattr(parser, "_project_timeout", 0.2))
         # The delivered parent has a per-read 30-second timeout. Scale that
         # timeout too, so its regression is a failed assertion, not a long wait.
         if not hasattr(parser, "_project_timeout"):
@@ -64,8 +65,11 @@ def test_hanging_project_reads_have_one_budget_across_five_blocks(
     started = time.monotonic()
     bundle = analyze(snapshot, tmp_path / "frozen", structure_view=parser)
     elapsed = time.monotonic() - started
+    assert elapsed < 5, elapsed
+    # Every recorded fake read sleeps ten seconds, consuming the entire grant.
+    # Only these fully consumed timeouts must sum to at most one budget.
+    assert sum(granted_timeouts) <= structure.PROJECT_FAILURE_BUDGET, granted_timeouts
     assert len(attempted) <= 2, (attempted, elapsed)
-    assert elapsed < 0.8, elapsed
     assert len(bundle.files) == 321
     assert {file.status for file in bundle.files} == {"host_fallback"}
     assert parser.status()["status"] == "host_fallback"
@@ -103,7 +107,7 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
     normal_budget = structure.PROJECT_FAILURE_BUDGET
     monkeypatch.setattr(structure, "PROJECT_FAILURE_BUDGET", 0.2, raising=False)
     original = StructureView._read_project
-    attempted, failed_seconds, failed_budgets = [], [], []
+    attempted, failed_seconds, failed_budgets, granted_timeouts = [], [], [], []
 
     def counted(self, paths):
         if mode.read_text(encoding="utf-8") != "timeout":
@@ -116,6 +120,7 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
             return original(self, paths)
         attempted.append(len(paths))
         failed_budgets.append(self._project_failure_seconds)
+        granted_timeouts.append(getattr(self, "_project_timeout", 0.2))
         started = time.monotonic()
         try:
             if not hasattr(self, "_project_timeout"):
@@ -133,11 +138,14 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
     monkeypatch.setattr(StructureView, "_read_project", counted)
     indexer = ArcGraphIndexer(project, tmp_path / "out")
     indexer.build()
+    assert sum(failed_seconds) < 5, failed_seconds
+    # Recorded fake reads (including the marked empty probe) consume the full
+    # granted timeout, so only here must the grants sum to at most one budget.
+    assert sum(granted_timeouts) <= structure.PROJECT_FAILURE_BUDGET, granted_timeouts
     assert len(attempted) <= 2, attempted
     # The cache-fingerprint view must not restart even its empty capability
     # probe once a workload failure has spent this build's shared budget.
     assert 0 not in attempted, attempted
-    assert sum(failed_seconds) < 0.8, failed_seconds
     store = GraphStoreReader.from_current(tmp_path / "out")
     assert len([node for node in store.read_nodes() if node.kind == "function"]) == 1281
     # The shortened budget measures hanging work, not successful process startup.
