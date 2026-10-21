@@ -146,17 +146,21 @@ What to expect, from those runs:
 ## Installation availability
 
 ArcGraph is published on PyPI, and [RELEASE_NOTES.md](../RELEASE_NOTES.md)
-lists the published versions; 0.1.0 is a beta release. Install it into a
+lists the published versions; 0.2.0 is a beta release. Install it into a
 persistent tool environment, for example
 `uv tool install --python 3.11 "arcgraph[mcp]"`, or with
 `python -m pip install "arcgraph[mcp]"` into a dedicated virtual environment.
 Tested on macOS: with 0.1.0rc7, the exact-version forms on Python 3.11 and the
 pip-style form on Python 3.12; with 0.1.0rc8, 0.1.0rc9, 0.1.0rc10 and 0.1.0,
 pip installs of the exact version and of the unpinned requirement on Python 3.11
-and 3.12, and `uv tool install --python 3.11` of the exact version.
+and 3.12, and `uv tool install --python 3.11` of the exact version; with 0.2.0,
+pip installs of the exact version and of the unpinned requirement on Python
+3.11, 3.12, 3.13 and 3.14, and `uv tool install --python 3.11` of the exact
+version and of the unpinned requirement.
 Installs of 0.1.0rc10 and 0.1.0 from PyPI were also tested on Windows and Linux
-(Ubuntu 24.04 under WSL) with Python 3.11 and 3.12. Pin the exact version you
-tested, for example `arcgraph[mcp]==0.1.0`.
+(Ubuntu 24.04 under WSL) with Python 3.11 and 3.12, and installs of 0.2.0 with
+Python 3.11 to 3.14. Pin the exact version you tested, for example
+`arcgraph[mcp]==0.2.0`.
 To install the development version from the repository instead, use
 `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. Then run `arcgraph setup --client CLIENT` in
 each project. The five adapters share the runtime, index logic and protocol;
@@ -172,7 +176,7 @@ installation, client-specific model calls and cloud/remote MCP remain separate.
 | Automatic agent configuration via explicit setup | Verified on one machine (see Verified hosts) | `setup --client` supports five client adapters; each was observed once in a real host on macOS with a throwaway project. |
 | HTTP/network MCP transport | Deferred | Use local stdio transport only. |
 | Local wheel candidate | External-trial path | The external-trial scope is Python analysis plus local stdio MCP; its sole optional write is the disclosed local feedback append. |
-| PyPI install | Published | `RELEASE_NOTES.md` lists the versions on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport or tool definition, but fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
+| PyPI install | Published | `RELEASE_NOTES.md` lists the versions on PyPI. The hosts above were observed with a 0.1.0rc7-era build from the GitHub repository (commit `cec768ab`). Later versions changed no MCP transport; 0.2.0 added a `profile` argument to `arcgraph_entrypoint_flow`, and earlier versions fixed some tool internals (reading `current.json`, change previews); the hosts were not re-validated on them. |
 | GitHub Release | Published | Git tags and GitHub releases (pre-releases for 0.1.0rcN) carry the same two files as the matching version on PyPI. |
 | npm, Docker/GHCR | Deferred | Not published. |
 

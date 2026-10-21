@@ -51,7 +51,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Prepare One Project",
                     "items": [
-                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is beta software; the repository\'s RELEASE_NOTES.md lists the published versions. ArcGraph is published on PyPI: install it with `uv tool install --python 3.11 "arcgraph[mcp]"` or `python -m pip install "arcgraph[mcp]"` (pip installs of 0.1.0 from PyPI were tested on macOS, Windows and Linux with Python 3.11 and 3.12; pin the exact version you tested, for example `arcgraph[mcp]==0.1.0`), or from the GitHub repository with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. A disposable uvx environment is not managed by setup. Git tags and GitHub releases carry the same files as the matching PyPI version; npm and Docker/GHCR are not published.',
+                        'Install ArcGraph in a persistent tool environment or venv; MCP clients require the mcp extra. ArcGraph is beta software; the repository\'s RELEASE_NOTES.md lists the published versions. ArcGraph is published on PyPI: install it with `uv tool install --python 3.11 "arcgraph[mcp]"` or `python -m pip install "arcgraph[mcp]"` (pip installs of 0.2.0 from PyPI were tested on macOS, Windows and Linux with Python 3.11 to 3.14; pin the exact version you tested, for example `arcgraph[mcp]==0.2.0`), or from the GitHub repository with `"arcgraph[mcp] @ git+https://github.com/glyphevo/arcgraph.git"`. A disposable uvx environment is not managed by setup. Git tags and GitHub releases carry the same files as the matching PyPI version; npm and Docker/GHCR are not published.',
                         "From the target project, run `arcgraph setup --client claude|codex|cursor|hermes|pi`, selecting one client. It explicitly builds or refreshes the index, probes the runtime, then writes one client entry.",
                         "Use `--dry-run` for a plan without writes, indexing or subprocesses; `--client-config PATH` overrides the destination, not client discovery; `--timeout SECONDS` sets a positive per-step timeout.",
                         "Global options precede setup: `arcgraph --repo-root /path/to/project --output-dir /path/to/index setup --client codex`. Default output is project/output/arcgraph. Indexing, MCP and CLI guidance share the same absolute paths. Source scope follows ordinary project configuration and detection; inspect it with doctor.",
@@ -209,7 +209,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Local Install And Upgrade",
                     "items": [
                         "ArcGraph is on PyPI and can also be installed from a source checkout; ArcGraph is beta software. Git tags (`v` followed by the version) and GitHub releases carry the same two files as the matching version on PyPI. npm and Docker/GHCR package paths are not published.",
-                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`); 0.1.0 on PyPI requires 3.11 or 3.12. Create and activate a virtual environment before installing when you want an isolated local tool.",
+                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`); 0.1.0 required 3.11 or 3.12. Create and activate a virtual environment before installing when you want an isolated local tool.",
                         "From a source checkout, run `python -m pip install --upgrade -e .` in the ArcGraph project directory to install or refresh the `arcgraph` CLI.",
                         'For development and local validation, run `python -m pip install -e ".[dev]"`; use the analyzed project\'s locked npm install when TypeScript/JavaScript analysis is required.',
                         "Node.js and a resolvable TypeScript compiler API are runtime dependencies for TypeScript/JavaScript analysis, not merely test dependencies. The Python wheel includes the `.mjs` extractor but not `node_modules/typescript`.",
@@ -851,7 +851,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                 {
                     "title": "Install From A Checkout",
                     "items": [
-                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`; 0.1.0 on PyPI requires 3.11 or 3.12) and is currently installed from a source checkout.",
+                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`; 0.1.0 required 3.11 or 3.12) and is currently installed from a source checkout.",
                         "Create and activate a virtual environment, then run `python -m pip install --upgrade pip`.",
                         "Run `python -m pip install -e .` for the normal CLI install.",
                         'Run `python -m pip install -e ".[dev]"` when you need development dependencies or local validation.',
