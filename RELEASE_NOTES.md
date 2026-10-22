@@ -5,6 +5,7 @@ notes themselves are the only place their content is written down.
 
 | Version | Status | Notes |
 | --- | --- | --- |
+| 0.2.1 | Declared source version on `main`; not yet published | [v0.2.1](docs/release_notes/v0.2.1.md) |
 | 0.2.0 | Published on PyPI on 2026-10-21 as a beta release | [v0.2.0](docs/release_notes/v0.2.0.md) |
 | 0.1.0 | Published on PyPI on 2026-10-05 as a beta release | [v0.1.0](docs/release_notes/v0.1.0.md) |
 | 0.1.0rc10 | Published on PyPI on 2026-10-04 as an alpha developer-preview pre-release | [v0.1.0-rc10](docs/release_notes/v0.1.0-rc10.md) |
