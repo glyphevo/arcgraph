@@ -64,6 +64,41 @@ def test_doctor_no_index(tmp_path: Path, capsys) -> None:
     assert "No index found" in index_check["message"]
 
 
+def test_doctor_precision_tools_fix_names_the_windows_installer_on_windows(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """Windows gets the repository script, not the macOS/Linux instructions."""
+
+    _sample_project(tmp_path)
+    monkeypatch.setattr("platform.system", lambda: "Windows")
+    monkeypatch.setattr("shutil.which", lambda name, *args, **kwargs: None)
+
+    assert main(["--repo-root", str(tmp_path), "doctor"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    check = next(c for c in payload["checks"] if c["name"] == "precision_tools")
+    assert check["status"] == "warn"
+    assert "scripts/install-arcgraph-precision-tools.ps1" in check["fix"]
+    assert "npm install -g" not in check["fix"]
+
+
+def test_doctor_precision_tools_fix_names_the_release_install_off_windows(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """macOS and Linux get the README's npm and release instructions."""
+
+    _sample_project(tmp_path)
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("shutil.which", lambda name, *args, **kwargs: None)
+
+    assert main(["--repo-root", str(tmp_path), "doctor"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    check = next(c for c in payload["checks"] if c["name"] == "precision_tools")
+    assert check["status"] == "warn"
+    assert "npm install -g" in check["fix"]
+    assert "scip-code/scip/releases/tag/v0.7.1" in check["fix"]
+    assert "install-arcgraph-precision-tools.ps1" not in check["fix"]
+
+
 def test_doctor_with_config_and_index(tmp_path: Path, capsys) -> None:
     """Doctor should pass project_config and index checks after init + build."""
     _sample_project(tmp_path)

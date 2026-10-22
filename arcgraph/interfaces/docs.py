@@ -849,11 +849,12 @@ def _docs_payload(topic: str) -> dict[str, Any]:
             "title": "ArcGraph Quickstart",
             "sections": [
                 {
-                    "title": "Install From A Checkout",
+                    "title": "Install",
                     "items": [
-                        "ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`; 0.1.0 required 3.11 or 3.12) and is currently installed from a source checkout.",
-                        "Create and activate a virtual environment, then run `python -m pip install --upgrade pip`.",
-                        "Run `python -m pip install -e .` for the normal CLI install.",
+                        'ArcGraph requires Python 3.11 to 3.14 (`requires-python >=3.11,<3.15`; 0.1.0 required 3.11 or 3.12) and is published on PyPI: `python -m pip install "arcgraph[mcp]"` or `uv tool install --python 3.11 "arcgraph[mcp]"` installs the CLI, and the `mcp` extra is only needed to run the MCP server.',
+                        "Pin the exact version you tested, for example `arcgraph[mcp]==0.2.0`; `arcgraph version --json` reports the commit the installed copy was built from.",
+                        "From a source checkout, create and activate a virtual environment, then run `python -m pip install --upgrade pip`.",
+                        "Run `python -m pip install -e .` to install the CLI from that checkout.",
                         'Run `python -m pip install -e ".[dev]"` when you need development dependencies or local validation.',
                         "For TypeScript/JavaScript analysis, Node.js and a TypeScript compiler API must be resolvable at runtime. Use the analyzed project's locked npm install; the Python wheel includes the `.mjs` extractor but not `node_modules/typescript`.",
                         "For ArcGraph's own TypeScript golden tests from a source checkout, run `npm ci` in the ArcGraph checkout; that is development setup, not the analyzed project's product runtime.",

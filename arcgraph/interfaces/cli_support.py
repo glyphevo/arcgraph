@@ -174,6 +174,29 @@ def python_checks(repo_root: Path, *, semantic_state=None) -> list[dict[str, Any
     return checks
 
 
+def precision_tools_fix() -> str:
+    """doctor's repair hint for missing precision tools, per platform.
+
+    Windows has a repository script that installs the whole tool set. macOS and
+    Linux install the npm tools and take scip from its official release, which
+    is what the README documents for those platforms.
+    """
+
+    if platform.system() == "Windows":
+        return (
+            "Run scripts/install-arcgraph-precision-tools.ps1 to install "
+            "scip-python, scip and pyright. Precision tools are optional; "
+            "builds work without them."
+        )
+    return (
+        "Install scip-python and pyright with `npm install -g "
+        "@sourcegraph/scip-python@0.6.6 pyright@1.1.409`, and scip v0.7.1 from "
+        "the official release "
+        "(https://github.com/scip-code/scip/releases/tag/v0.7.1). "
+        "Precision tools are optional; builds work without them."
+    )
+
+
 def query_engine(args: argparse.Namespace) -> QueryEngine:
     repo_root = Path(args.repo_root).resolve()
     return QueryEngine((repo_root / args.output_dir).resolve())

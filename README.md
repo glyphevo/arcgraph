@@ -210,14 +210,28 @@ tools directly:
 
 ```bash
 npm install -g @sourcegraph/scip-python@0.6.6 pyright@1.1.409
-go install github.com/scip-code/scip/cmd/scip@v0.7.1
 ```
 
-The first command provides `scip-python`, `pyright`, and `pyright-langserver`;
-the second requires a local Go toolchain and provides `scip`. Then pass the
-generated JSON artifacts to `arcgraph build`. The GitHub Actions `CI`
-workflow does not install these tools, so it is not a fallback for generating
-this evidence.
+The first command provides `scip-python`, `pyright`, and `pyright-langserver`.
+`scip` is not installable with `go install package@version`: scip v0.7.1
+declares a `replace` directive in its `go.mod`, and the Go toolchain refuses
+that for a versioned install. Download the prebuilt binary for your platform
+from the [scip v0.7.1 release](https://github.com/scip-code/scip/releases/tag/v0.7.1)
+and verify the published checksum:
+
+```bash
+curl -fsSLO https://github.com/scip-code/scip/releases/download/v0.7.1/scip-darwin-arm64.tar.gz
+curl -fsSLO https://github.com/scip-code/scip/releases/download/v0.7.1/scip-darwin-arm64.tar.gz.sha256
+shasum -a 256 -c scip-darwin-arm64.tar.gz.sha256
+tar -xzf scip-darwin-arm64.tar.gz
+```
+
+The same release publishes `scip-darwin-amd64.tar.gz`,
+`scip-linux-amd64.tar.gz` and `scip-linux-arm64.tar.gz`, each with its own
+`.sha256` file; use `sha256sum -c` instead of `shasum -a 256 -c` on Linux.
+The extracted `scip` binary provides `scip`. Then pass the generated JSON
+artifacts to `arcgraph build`. The GitHub Actions `CI` workflow does not
+install these tools, so it is not a fallback for generating this evidence.
 
 ## Quickstart
 

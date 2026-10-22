@@ -132,6 +132,7 @@ from arcgraph.interfaces.cli_visual import (  # noqa: F401
 from arcgraph.interfaces.cli_support import (  # noqa: F401
     output_location,
     handle_export,
+    precision_tools_fix,
     print_json,
     python_checks,
     query_engine,
@@ -1860,11 +1861,7 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
                 "name": "precision_tools",
                 "status": "warn",
                 "message": f"Missing: {', '.join(missing_tools)}.",
-                "fix": (
-                    "Run scripts/install-arcgraph-precision-tools.ps1 (Windows) or "
-                    "install scip-python, scip, pyright manually. "
-                    "Precision tools are optional; builds work without them."
-                ),
+                "fix": precision_tools_fix(),
             }
         )
 
