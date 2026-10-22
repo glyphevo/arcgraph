@@ -79,6 +79,7 @@ def test_doctor_precision_tools_fix_names_the_windows_installer_on_windows(
     assert check["status"] == "warn"
     assert "scripts/install-arcgraph-precision-tools.ps1" in check["fix"]
     assert "npm install -g" not in check["fix"]
+    assert "`arcgraph precision scip-python` in WSL" in check["fix"]
 
 
 def test_doctor_precision_tools_fix_names_the_release_install_off_windows(

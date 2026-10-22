@@ -1660,13 +1660,26 @@ def _missing_precision_tool_message(command: str) -> str:
     base = f"Required command is not available on PATH: {command}"
     if "scip" not in name:
         return base
+    if sys.platform == "win32" and name == "scip-python":
+        return (
+            f"{base}. scip-python 0.6.6 does not run on native Windows; run "
+            "this command in WSL after "
+            "npm install -g @sourcegraph/scip-python@0.6.6."
+        )
+    if sys.platform == "win32":
+        return (
+            f"{base}. Install ArcGraph precision tools with "
+            "powershell -ExecutionPolicy Bypass -File "
+            "scripts\\install-arcgraph-precision-tools.ps1; it builds "
+            "scip.exe v0.7.1 from a clone of the v0.7.1 tag and needs Go and "
+            "Git (winget install --id GoLang.Go -e; winget install --id Git.Git -e)."
+        )
     return (
-        f"{base}. Install ArcGraph precision tools with "
-        "powershell -ExecutionPolicy Bypass -File "
-        "scripts\\install-arcgraph-precision-tools.ps1. "
-        "On Windows, scip.exe v0.7.1 is built with "
-        "go install github.com/scip-code/scip/cmd/scip@v0.7.1; "
-        "install Go first with winget install --id GoLang.Go -e if needed."
+        f"{base}. Install scip-python with "
+        "npm install -g @sourcegraph/scip-python@0.6.6, and scip v0.7.1 from "
+        "the prebuilt binary on its official release "
+        "(https://github.com/scip-code/scip/releases/tag/v0.7.1) after checking "
+        "the published checksum."
     )
 
 

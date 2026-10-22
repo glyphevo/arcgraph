@@ -10,9 +10,13 @@ $ErrorActionPreference = "Stop"
 
 $ScipVersion = "v0.7.1"
 $ScipPythonVersion = "0.6.6"
+# scip-python 0.6.6 fails while loading on native Windows (it builds a regular expression
+# from the "\" path separator), so it is not installed here; it runs in WSL.
+$ScipPythonNote = "scip-python $ScipPythonVersion does not run on native Windows; run 'arcgraph precision scip-python' in WSL after 'npm install -g @sourcegraph/scip-python@$ScipPythonVersion'."
 $PyrightVersion = "1.1.409"
-# SCIP v0.7.1's canonical Go module is scip-code/scip; sourcegraph/scip redirects to it.
-$ScipGoPackage = "github.com/scip-code/scip/cmd/scip@$ScipVersion"
+# scip v0.7.1 publishes no Windows binary, and its go.mod has a replace directive, which
+# "go install package@version" refuses; build it from a clone of the tag instead.
+$ScipRepository = "https://github.com/scip-code/scip.git"
 
 function Write-Step {
     param([string]$Message)
@@ -104,16 +108,17 @@ if ($CheckOnly) {
     Write-Step "Checking ArcGraph precision tools"
     $ok = $true
     $ok = (Test-VersionCommand -Name "scip" -Commands @("scip.exe", "scip")) -and $ok
-    $ok = (Test-VersionCommand -Name "scip-python" -Commands @("scip-python.cmd", "scip-python")) -and $ok
     $ok = (Test-VersionCommand -Name "pyright" -Commands @("pyright.cmd", "pyright")) -and $ok
     $ok = (Test-CommandExists -Name "pyright-langserver" -Commands @("pyright-langserver.cmd", "pyright-langserver")) -and $ok
+    Write-Host $ScipPythonNote
     if (-not $ok) {
         Write-Host ""
         Write-Host "Install with:"
         Write-Host "  powershell -ExecutionPolicy Bypass -File scripts\install-arcgraph-precision-tools.ps1"
         Write-Host ""
-        Write-Host "If Go is missing, first run:"
+        Write-Host "If Go or Git is missing, first run:"
         Write-Host "  winget install --id GoLang.Go -e"
+        Write-Host "  winget install --id Git.Git -e"
         exit 1
     }
     exit 0
@@ -124,11 +129,11 @@ Add-CurrentProcessPath -PathToAdd $InstallDir
 
 $npm = Get-ToolCommand -Names @("npm.cmd", "npm")
 if (-not $npm) {
-    throw "npm is required to install scip-python and pyright. Install Node.js first."
+    throw "npm is required to install pyright. Install Node.js first."
 }
 
-Write-Step "Installing npm precision tools"
-Invoke-Checked -Command $npm -Arguments @("install", "-g", "--prefix", $InstallDir, "@sourcegraph/scip-python@$ScipPythonVersion", "pyright@$PyrightVersion")
+Write-Step "Installing pyright"
+Invoke-Checked -Command $npm -Arguments @("install", "-g", "--prefix", $InstallDir, "pyright@$PyrightVersion")
 
 $go = Get-ToolCommand -Names @("go.exe", "go")
 if (-not $go -and $InstallGoWithWinget) {
@@ -145,14 +150,28 @@ if (-not $go) {
     throw "Go is required to build scip.exe on Windows. Install it with: winget install --id GoLang.Go -e"
 }
 
+$git = Get-ToolCommand -Names @("git.exe", "git")
+if (-not $git) {
+    throw "Git is required to fetch the scip $ScipVersion source on Windows. Install it with: winget install --id Git.Git -e"
+}
+
 Write-Step "Building scip.exe $ScipVersion into $InstallDir"
-$previousGoBin = $env:GOBIN
+$scipSource = Join-Path ([System.IO.Path]::GetTempPath()) ("arcgraph-scip-" + [guid]::NewGuid().ToString("N"))
+$scipOutput = Join-Path (Resolve-Path $InstallDir).Path "scip.exe"
 try {
-    $env:GOBIN = (Resolve-Path $InstallDir).Path
-    Invoke-Checked -Command $go -Arguments @("install", $ScipGoPackage)
+    Invoke-Checked -Command $git -Arguments @("-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1", "--branch", $ScipVersion, $ScipRepository, $scipSource)
+    Push-Location $scipSource
+    try {
+        Invoke-Checked -Command $go -Arguments @("build", "-o", $scipOutput, "./cmd/scip")
+    }
+    finally {
+        Pop-Location
+    }
 }
 finally {
-    $env:GOBIN = $previousGoBin
+    if (Test-Path $scipSource) {
+        Remove-Item -Recurse -Force $scipSource
+    }
 }
 
 if ($PersistUserPath) {
@@ -162,7 +181,6 @@ if ($PersistUserPath) {
 Write-Step "Verifying installed tools"
 $ok = $true
 $ok = (Test-VersionCommand -Name "scip" -Commands @("scip.exe", "scip")) -and $ok
-$ok = (Test-VersionCommand -Name "scip-python" -Commands @("scip-python.cmd", "scip-python")) -and $ok
 $ok = (Test-VersionCommand -Name "pyright" -Commands @("pyright.cmd", "pyright")) -and $ok
 $ok = (Test-CommandExists -Name "pyright-langserver" -Commands @("pyright-langserver.cmd", "pyright-langserver")) -and $ok
 if (-not $ok) {
@@ -172,8 +190,9 @@ if (-not $ok) {
 Write-Host ""
 Write-Host "Current PowerShell session can now run:"
 Write-Host "  scip --version"
-Write-Host "  scip-python --version"
 Write-Host "  pyright-langserver --version"
+Write-Host ""
+Write-Host $ScipPythonNote
 if (-not $PersistUserPath) {
     Write-Host ""
     Write-Host "To persist PATH for future shells, rerun with -PersistUserPath."

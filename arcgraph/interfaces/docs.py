@@ -233,7 +233,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "Pyright export metrics include total probes, requestable probes, skipped unmappable probes, request count, resolved type info, and unresolved probes.",
                         "The Windows precision-tools install script pins `pyright@1.1.409`; local full evidence profiles should use the same version unless intentionally testing compatibility. GitHub Actions does not currently install or run Pyright.",
                         "Pass the resulting JSON to `arcgraph build --scip-index output/arcgraph/scip-index.json --pyright-export output/arcgraph/pyright-export.json`; missing or invalid precision input remains explicit as `precision=ast_fallback_only` or `precision_partial`.",
-                        "On Windows, run `scripts/install-arcgraph-precision-tools.ps1` to install `@sourcegraph/scip-python@0.6.6`, `pyright@1.1.409`, and build `scip.exe v0.7.1` with Go. WSL remains a fallback (use the Linux install steps there); GitHub Actions is not currently a working fallback for this, since it neither installs these tools nor runs at all while disabled.",
+                        "On Windows, run `scripts/install-arcgraph-precision-tools.ps1` to install `pyright@1.1.409` and build `scip.exe v0.7.1` with Go from a clone of the v0.7.1 tag (Go and Git are required; scip publishes no Windows binary). `@sourcegraph/scip-python@0.6.6` does not run on native Windows (it fails while loading), so run `arcgraph precision scip-python` in WSL with the Linux install steps. On macOS and Linux, take `scip` v0.7.1 from the prebuilt binary on its official release and check the published checksum. GitHub Actions is not currently a working fallback for this, since it neither installs these tools nor runs at all while disabled.",
                     ],
                 },
                 {
@@ -749,7 +749,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                         "`arcgraph precision scip-python`, `arcgraph precision scip-json`, and `arcgraph precision pyright` generate JSON artifacts accepted by `arcgraph build --scip-index ... --pyright-export ...`.",
                         "`runtime_trace=available|partial|unavailable` describes explicit runtime trace import status.",
                         "A small CI smoke trace proves the runtime evidence chain and stale detection only; broad dynamic behavior coverage requires an intentionally broader trace profile.",
-                        "`coverage=available|partial|unavailable` describes test coverage input status; `partial` means the file was stale, invalid, or produced only partial evidence.",
+                        "`coverage=available|partial|unavailable` describes test coverage input status; `partial` means the file was stale, invalid, or produced only partial evidence, including a coverage.py report whose test contexts all failed to match an indexed test.",
                     ],
                 },
                 {
@@ -1111,7 +1111,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "title": "Partial Semantic Results",
                     "items": [
                         "When precision inputs are missing, `precision=ast_fallback_only` is expected and should be reported.",
-                        "If `arcgraph precision scip-python` fails on Windows because tools are missing, run `scripts/install-arcgraph-precision-tools.ps1`; if Go is missing, install it with `winget install --id GoLang.Go -e` or pass `-InstallGoWithWinget`.",
+                        "On native Windows, run `arcgraph precision scip-python` in WSL: `@sourcegraph/scip-python@0.6.6` fails while loading on Windows. If `scip` or `pyright` is missing on Windows, run `scripts/install-arcgraph-precision-tools.ps1`; if Go is missing, install it with `winget install --id GoLang.Go -e` or pass `-InstallGoWithWinget`, and if Git is missing, install it with `winget install --id Git.Git -e`.",
                         "If local `scip-python`, `scip`, or `pyright-langserver` is unavailable and cannot be installed, use WSL/Linux/CI for evidence generation or run fast `arcgraph ci` while reporting `precision=ast_fallback_only`, `precision_partial`, or `type_precision_complete=false` explicitly.",
                         "Unresolved callsites are diagnostics, not silent drops; inspect `arcgraph unresolved TARGET`, filter with `--category`, or use `--release-blocking-only` before a python_full release.",
                         "Do not infer unresolved risk from a callback-like name or a test path. `true_dynamic_call` requires analyzer-recorded dynamic dispatch (including a visible runtime local binding), while ordinary unresolved test calls remain `static_candidate`.",

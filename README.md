@@ -198,7 +198,10 @@ python scripts/arcgraph.py <command>
 ```
 
 On a clean Windows machine, install Python 3.11 to 3.14 and Node.js/npm first. Optional
-precision tools can be installed with:
+precision tools can be installed with the script below. It installs `pyright` and, since
+scip v0.7.1 publishes no Windows binary, builds `scip.exe` from a clone of the v0.7.1 tag,
+so it also needs Go and Git. `scip-python` 0.6.6 fails while loading on native Windows;
+run `arcgraph precision scip-python` in WSL with the macOS/Linux steps below.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-arcgraph-precision-tools.ps1

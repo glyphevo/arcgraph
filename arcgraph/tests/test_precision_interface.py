@@ -5,7 +5,10 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 from arcgraph.core.scanner import SourceRoot
+from arcgraph.interfaces import precision as precision_module
 from arcgraph.interfaces.precision import (
     convert_scip_index_to_json,
     generate_pyright_json,
@@ -289,7 +292,7 @@ def test_generate_pyright_json_uses_definition_fallback_from_lsp_probe(
     assert "textDocument/hover" not in methods
 
 
-def test_missing_scip_command_error_mentions_windows_installer(tmp_path: Path) -> None:
+def test_missing_scip_command_error_names_an_install_route(tmp_path: Path) -> None:
     (tmp_path / "index.scip").write_text("binary placeholder", encoding="utf-8")
 
     try:
@@ -304,8 +307,59 @@ def test_missing_scip_command_error_mentions_windows_installer(tmp_path: Path) -
     else:  # pragma: no cover - protects against a colliding command name.
         raise AssertionError("Expected missing SCIP command to fail.")
 
-    assert "scripts\\install-arcgraph-precision-tools.ps1" in message
-    assert "go install github.com/scip-code/scip/cmd/scip@v0.7.1" in message
+    assert message.startswith(
+        "Required command is not available on PATH: missing-scip-command-ArcGraph-test."
+    )
+    assert "go install" not in message
+
+
+@pytest.mark.parametrize(
+    ("system_platform", "expected", "absent"),
+    [
+        (
+            "win32",
+            "scripts\\install-arcgraph-precision-tools.ps1",
+            "releases/tag/v0.7.1",
+        ),
+        (
+            "darwin",
+            "https://github.com/scip-code/scip/releases/tag/v0.7.1",
+            "install-arcgraph-precision-tools.ps1",
+        ),
+        (
+            "linux",
+            "https://github.com/scip-code/scip/releases/tag/v0.7.1",
+            "install-arcgraph-precision-tools.ps1",
+        ),
+    ],
+)
+def test_missing_scip_command_error_matches_the_platform(
+    monkeypatch: pytest.MonkeyPatch,
+    system_platform: str,
+    expected: str,
+    absent: str,
+) -> None:
+    """scip v0.7.1 cannot be installed with ``go install pkg@version``."""
+    monkeypatch.setattr(precision_module.sys, "platform", system_platform)
+
+    message = precision_module._missing_precision_tool_message("scip")
+
+    assert expected in message
+    assert absent not in message
+    assert "go install" not in message
+
+
+@pytest.mark.parametrize("command", ["scip-python", "scip-python.cmd"])
+def test_missing_scip_python_on_windows_points_to_wsl(
+    monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """scip-python 0.6.6 fails while loading on native Windows."""
+    monkeypatch.setattr(precision_module.sys, "platform", "win32")
+
+    message = precision_module._missing_precision_tool_message(command)
+
+    assert "run this command in WSL" in message
+    assert "install-arcgraph-precision-tools.ps1" not in message
 
 
 def _write_fake_scip_print(repo_root: Path) -> None:
