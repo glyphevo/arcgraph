@@ -143,7 +143,13 @@ if (-not $go -and $InstallGoWithWinget) {
     }
     Write-Step "Installing Go with winget"
     Invoke-Checked -Command $winget -Arguments @("install", "--id", "GoLang.Go", "-e")
+    # winget records Go in the registry PATH, which this process does not reread. Append
+    # it after the current PATH so $InstallDir keeps precedence over older global tools.
+    $env:PATH = (@($env:PATH, [Environment]::GetEnvironmentVariable("Path", "Machine"), [Environment]::GetEnvironmentVariable("Path", "User")) | Where-Object { $_ }) -join ";"
     $go = Get-ToolCommand -Names @("go.exe", "go")
+    if (-not $go) {
+        throw "winget finished but go.exe is not on PATH in this shell. Open a new PowerShell window and rerun this script."
+    }
 }
 
 if (-not $go) {
