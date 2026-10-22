@@ -220,7 +220,7 @@ class CoverageCollector:
         unmatched = malformed = 0
         unknown_contexts = set()
         unmatched_test_contexts = set()
-        test_contexts_unmatched = False
+        matched_test_contexts = set()
         for raw_path, item in payload["files"].items():
             if not isinstance(item, dict) or not isinstance(
                 item.get("executed_lines"), list
@@ -253,8 +253,6 @@ class CoverageCollector:
                 for name in names:
                     if isinstance(name, str) and name:
                         contexts.setdefault(name, set()).add(int(number))
-            file_test_contexts: set[str] = set()
-            file_unmatched_test_contexts: set[str] = set()
             for name, covered in contexts.items():
                 if not name:
                     source = aggregate
@@ -266,12 +264,10 @@ class CoverageCollector:
                     if source is None:
                         unknown_contexts.add(name)
                         if is_test_context:
-                            file_test_contexts.add(name)
-                            file_unmatched_test_contexts.add(name)
                             unmatched_test_contexts.add(name)
                         continue
                     if is_test_context:
-                        file_test_contexts.add(name)
+                        matched_test_contexts.add(name)
                 targets = [
                     module_by_path[file_path],
                     *[
@@ -315,11 +311,6 @@ class CoverageCollector:
                         properties["contexts"] = sorted(
                             set(properties["contexts"]) | {name}
                         )
-            if (
-                file_test_contexts
-                and file_test_contexts == file_unmatched_test_contexts
-            ):
-                test_contexts_unmatched = True
         warnings = []
         if unmatched_test_contexts:
             examples = sorted(unmatched_test_contexts)[:5]
@@ -337,7 +328,8 @@ class CoverageCollector:
             nodes=[aggregate] if edges else [],
             edges=sorted(edges.values(), key=lambda e: (e.source, e.target, e.kind)),
             warnings=warnings,
-            test_contexts_unmatched=test_contexts_unmatched,
+            test_contexts_unmatched=bool(unmatched_test_contexts)
+            and not matched_test_contexts,
             metrics={
                 "format": "coverage.py",
                 "entries_total": len(payload["files"]),
@@ -755,8 +747,8 @@ class CoverageCollector:
                 )
             )
         if analysis.test_contexts_unmatched:
-            # Every test context of a file failed to match, so the per-test
-            # evidence for that file is missing even if aggregate edges exist.
+            # The report has test contexts and none of them matched, so the
+            # per-test evidence is missing even if aggregate edges exist.
             status = "partial"
 
         covered_files = sorted(

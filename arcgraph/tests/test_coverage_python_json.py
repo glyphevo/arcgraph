@@ -185,7 +185,7 @@ def test_coverage_python_warns_about_unmatched_test_contexts(tmp_path):
 def test_coverage_python_status_is_partial_when_every_test_context_is_unmatched(
     tmp_path,
 ):
-    """A file whose test contexts all fail to match has partial coverage."""
+    """A report whose test contexts all fail to match has partial coverage."""
     nodes = graph(tmp_path)
     path = report(
         tmp_path,
@@ -207,6 +207,41 @@ def test_coverage_python_status_is_partial_when_every_test_context_is_unmatched(
     # The static context is not a test context: it is counted as unmatched but
     # it does not warn and it does not decide the status.
     assert result.metrics["contexts_unmatched"] == 2
+    assert [warning.kind for warning in result.warnings] == [
+        "coverage_python_unmatched_contexts"
+    ]
+
+
+def test_coverage_python_status_counts_test_contexts_across_the_report(tmp_path):
+    """One file's unmatched contexts do not make the whole report partial."""
+    graph(tmp_path)
+    (tmp_path / "pkg/other.py").write_text(
+        "def helper():\n    return 1\n", encoding="utf-8"
+    )
+    nodes = (
+        PythonGraphAnalyzer()
+        .analyze(FileScanner(tmp_path, [SourceRoot(".")]).scan())
+        .nodes
+    )
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3, "show_contexts": True},
+            "files": {
+                "pkg/service.py": {
+                    "executed_lines": [1, 2],
+                    "contexts": {"2": ["tests/test_service.py::test_run|run"]},
+                },
+                "pkg/other.py": {
+                    "executed_lines": [1, 2],
+                    "contexts": {"2": ["missing.py::test_other|run"]},
+                },
+            },
+        },
+    )
+    result = CoverageCollector(tmp_path, path).analyze(nodes)
+    assert result.status == "available"
+    assert result.metrics["contexts_unmatched"] == 1
     assert [warning.kind for warning in result.warnings] == [
         "coverage_python_unmatched_contexts"
     ]
