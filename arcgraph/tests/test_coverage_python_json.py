@@ -4,6 +4,10 @@ import json
 
 import pytest
 
+from arcgraph.core.graph_store import GraphStoreReader
+from arcgraph.core.schemas import Node
+from arcgraph.interfaces.cli import main
+
 from arcgraph.analyzers.coverage import CoverageCollector
 from arcgraph.pipeline.python_frontend import PythonGraphAnalyzer
 from arcgraph.core.scanner import FileScanner, SourceRoot
@@ -95,6 +99,192 @@ def test_coverage_python_test_contexts_merge_parameter_runs_without_guessing(tmp
     assert context.properties["covered_lines"] == [2]
     assert not any(e.source.endswith("production") for e in result.edges)
     assert result.metrics["contexts_unmatched"] == 2
+
+
+def test_coverage_python_context_prefers_the_pytest_test_case_node(tmp_path):
+    """The pytest adapter's test case wins over the same-named test function.
+
+    Both nodes carry the same path and qualname, so a context that matches
+    both must resolve to the ``test_case`` node: that is the node the pytest
+    adapter owns and the one the per-test evidence belongs to.
+    """
+    nodes = graph(tmp_path)
+    function = next(
+        node for node in nodes if node.id == "fn:tests.test_service.test_run"
+    )
+    test_case = Node(
+        id="test:tests.test_service.test_run",
+        kind="test_case",
+        name="test_run",
+        qualname=function.qualname,
+        path=function.path,
+        start_line=function.start_line,
+        end_line=function.end_line,
+    )
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3, "show_contexts": True},
+            "files": {
+                "pkg/service.py": {
+                    "executed_lines": [1, 2],
+                    "contexts": {"2": ["tests/test_service.py::test_run|run"]},
+                }
+            },
+        },
+    )
+    result = CoverageCollector(tmp_path, path).analyze([*nodes, test_case])
+    per_test = {
+        (edge.source, edge.target)
+        for edge in result.edges
+        if edge.source != "coverage:aggregate"
+    }
+    assert per_test == {
+        (test_case.id, "mod:pkg.service"),
+        (test_case.id, "fn:pkg.service.run"),
+    }
+    assert not any(edge.source == function.id for edge in result.edges)
+    assert result.metrics["contexts_unmatched"] == 0
+    assert result.status == "available"
+
+
+def test_coverage_python_warns_about_unmatched_test_contexts(tmp_path):
+    """An unmatched test context is reported with its count and examples."""
+    nodes = graph(tmp_path)
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3, "show_contexts": True},
+            "files": {
+                "pkg/service.py": {
+                    "executed_lines": [1, 2],
+                    "contexts": {
+                        "2": [
+                            "tests/test_service.py::test_run|run",
+                            "missing.py::test_other|run",
+                        ]
+                    },
+                }
+            },
+        },
+    )
+    result = CoverageCollector(tmp_path, path).analyze(nodes)
+    warnings = [
+        warning
+        for warning in result.warnings
+        if warning.kind == "coverage_python_unmatched_contexts"
+    ]
+    assert len(warnings) == 1
+    assert "1" in warnings[0].message
+    assert "missing.py::test_other|run" in warnings[0].message
+    assert result.metrics["contexts_unmatched"] == 1
+    # One context still matched, so the file keeps its per-test evidence.
+    assert result.status == "available"
+
+
+def test_coverage_python_status_is_partial_when_every_test_context_is_unmatched(
+    tmp_path,
+):
+    """A file whose test contexts all fail to match has partial coverage."""
+    nodes = graph(tmp_path)
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3, "show_contexts": True},
+            "files": {
+                "pkg/service.py": {
+                    "executed_lines": [1, 2],
+                    "contexts": {
+                        "2": ["missing.py::test_other|run", "production"],
+                    },
+                }
+            },
+        },
+    )
+    result = CoverageCollector(tmp_path, path).analyze(nodes)
+    assert result.status == "partial"
+    assert result.metrics["status"] == "partial"
+    # The static context is not a test context: it is counted as unmatched but
+    # it does not warn and it does not decide the status.
+    assert result.metrics["contexts_unmatched"] == 2
+    assert [warning.kind for warning in result.warnings] == [
+        "coverage_python_unmatched_contexts"
+    ]
+
+
+def test_coverage_python_contexts_cover_per_test_in_a_real_build(tmp_path, capsys):
+    """A real build must link each pytest test to the code its context covered.
+
+    The pytest adapter adds a ``test_case`` node with the same path and
+    qualname as the test function, so a context that matches both must resolve
+    to the ``test_case`` node and produce a per-test ``covers`` edge.
+    """
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "service.py").write_text(
+        "def run():\n    return 7\n", encoding="utf-8"
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_service.py").write_text(
+        "from pkg.service import run\n\n\ndef test_run():\n    assert run() == 7\n",
+        encoding="utf-8",
+    )
+    coverage = tmp_path / "coverage.json"
+    coverage.write_text(
+        json.dumps(
+            {
+                "meta": {"format": 3, "show_contexts": True},
+                "files": {
+                    "pkg/service.py": {
+                        "executed_lines": [1, 2],
+                        "contexts": {
+                            "2": ["tests/test_service.py::test_run|run"],
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    exit_code = main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "--output-dir",
+            str(output),
+            "build",
+            "--coverage",
+            str(coverage),
+        ]
+    )
+    capsys.readouterr()
+    assert exit_code == 0
+    reader = GraphStoreReader.from_current(output)
+    nodes = {node.id: node for node in reader.iter_nodes()}
+    metrics = reader.metadata["coverage_metrics"]
+    test_node = next(
+        node
+        for node in nodes.values()
+        if node.kind == "test_case" and node.name == "test_run"
+    )
+    service = next(
+        node
+        for node in nodes.values()
+        if node.kind == "function" and node.name == "run"
+    )
+    covers = {
+        (edge.source, edge.target)
+        for edge in reader.read_edges()
+        if edge.kind == "covers"
+    }
+    assert (test_node.id, service.id) in covers, (
+        "the pytest context did not produce a per-test covers edge; "
+        f"contexts_unmatched={metrics.get('contexts_unmatched')}, "
+        f"covers={sorted(covers)}"
+    )
+    assert metrics["contexts_unmatched"] == 0
+    assert metrics["status"] == "available"
 
 
 @pytest.mark.parametrize("raw_path", ["pkg/service.py", "pkg\\service.py", "absolute"])

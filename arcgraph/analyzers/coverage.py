@@ -26,6 +26,10 @@ class CoverageAnalysis:
     warnings: list[BuildWarning] = field(default_factory=list)
     status: str = "unavailable"
     metrics: dict[str, Any] = field(default_factory=dict)
+    # True when a file's test contexts all failed to match an indexed test
+    # node: the per-test evidence for that file is missing, so the coverage
+    # status is partial even when aggregate edges exist.
+    test_contexts_unmatched: bool = False
 
 
 class CoverageCollector:
@@ -209,10 +213,14 @@ class CoverageCollector:
                 metrics={"format": "coverage.py"},
             )
         symbols = self._symbol_nodes(nodes)
+        context_index = self._coverage_context_index(nodes)
+        resolved_contexts: dict[str, Node | None] = {}
         aggregate = self._coverage_node(path, "coverage.py")
         edges = {}
         unmatched = malformed = 0
         unknown_contexts = set()
+        unmatched_test_contexts = set()
+        test_contexts_unmatched = False
         for raw_path, item in payload["files"].items():
             if not isinstance(item, dict) or not isinstance(
                 item.get("executed_lines"), list
@@ -245,15 +253,25 @@ class CoverageCollector:
                 for name in names:
                     if isinstance(name, str) and name:
                         contexts.setdefault(name, set()).add(int(number))
+            file_test_contexts: set[str] = set()
+            file_unmatched_test_contexts: set[str] = set()
             for name, covered in contexts.items():
-                source = (
-                    aggregate
-                    if not name
-                    else self._coverage_test_context(name, nodes, module_by_path)
-                )
-                if source is None:
-                    unknown_contexts.add(name)
-                    continue
+                if not name:
+                    source = aggregate
+                else:
+                    is_test_context = self._coverage_context_parts(name) is not None
+                    source = self._coverage_test_context(
+                        name, context_index, module_by_path, resolved_contexts
+                    )
+                    if source is None:
+                        unknown_contexts.add(name)
+                        if is_test_context:
+                            file_test_contexts.add(name)
+                            file_unmatched_test_contexts.add(name)
+                            unmatched_test_contexts.add(name)
+                        continue
+                    if is_test_context:
+                        file_test_contexts.add(name)
                 targets = [
                     module_by_path[file_path],
                     *[
@@ -297,9 +315,29 @@ class CoverageCollector:
                         properties["contexts"] = sorted(
                             set(properties["contexts"]) | {name}
                         )
+            if (
+                file_test_contexts
+                and file_test_contexts == file_unmatched_test_contexts
+            ):
+                test_contexts_unmatched = True
+        warnings = []
+        if unmatched_test_contexts:
+            examples = sorted(unmatched_test_contexts)[:5]
+            warnings.append(
+                BuildWarning(
+                    kind="coverage_python_unmatched_contexts",
+                    path=self._display_path(path),
+                    message=(
+                        f"{len(unmatched_test_contexts)} coverage.py test context(s) "
+                        "did not match an indexed test node: " + ", ".join(examples)
+                    ),
+                )
+            )
         return CoverageAnalysis(
             nodes=[aggregate] if edges else [],
             edges=sorted(edges.values(), key=lambda e: (e.source, e.target, e.kind)),
+            warnings=warnings,
+            test_contexts_unmatched=test_contexts_unmatched,
             metrics={
                 "format": "coverage.py",
                 "entries_total": len(payload["files"]),
@@ -309,24 +347,83 @@ class CoverageCollector:
             },
         )
 
-    def _coverage_test_context(self, context, nodes, modules):
-        # pytest-cov node ids may have static prefixes and phase suffixes.
+    @staticmethod
+    def _coverage_context_index(nodes: list[Node]) -> dict[tuple[str, str], list[Node]]:
+        """Index the nodes a coverage.py test context can name, once per analysis.
+
+        Keyed by (path, qualname): the pytest adapter adds a ``test_case`` node
+        with the same path and qualname as the test function, so one key can
+        hold both.
+        """
+        index: dict[tuple[str, str], list[Node]] = {}
+        for node in nodes:
+            if (
+                node.kind not in {"function", "method", "test_case"}
+                or not node.path
+                or not node.qualname
+            ):
+                continue
+            index.setdefault((node.path, node.qualname), []).append(node)
+        return index
+
+    @staticmethod
+    def _coverage_context_parts(context: str) -> tuple[str, list[str]] | None:
+        """Split a pytest-cov context name into (path, qualname parts).
+
+        Returns None for a name that is not a single pytest node id: static
+        contexts (``""``, ``production``) and names with several node ids are
+        not test contexts and are never matched to a test node.
+        """
         identifiers = [part for part in context.split("|") if "::" in part]
         if len(identifiers) != 1:
             return None
         path, *parts = identifiers[0].split("::")
-        file_path = self._match_file_path(self._normalized_path(path), modules)
-        if file_path is None or not parts:
+        if not path or not parts:
             return None
-        qualname = ".".join(part.split("[", 1)[0] for part in parts)
-        matches = [
-            node
-            for node in nodes
-            if node.path == file_path
-            and node.kind in {"function", "method", "test_case"}
-            and node.qualname == modules[file_path].qualname + "." + qualname
-        ]
-        return matches[0] if len(matches) == 1 else None
+        return path, parts
+
+    def _coverage_test_context(
+        self,
+        context: str,
+        index: dict[tuple[str, str], list[Node]],
+        modules: dict[str, Node],
+        resolved: dict[str, Node | None],
+    ) -> Node | None:
+        # pytest-cov node ids may have static prefixes and phase suffixes.
+        if context in resolved:
+            return resolved[context]
+        parts = self._coverage_context_parts(context)
+        node: Node | None = None
+        if parts is not None:
+            path, qualname_parts = parts
+            file_path = self._match_file_path(self._normalized_path(path), modules)
+            if file_path is not None:
+                qualname = ".".join(part.split("[", 1)[0] for part in qualname_parts)
+                node = self._match_context_node(
+                    index, file_path, modules[file_path].qualname + "." + qualname
+                )
+        resolved[context] = node
+        return node
+
+    @staticmethod
+    def _match_context_node(
+        index: dict[tuple[str, str], list[Node]], file_path: str, qualname: str
+    ) -> Node | None:
+        """Pick the node a context names: the test case first, then the function.
+
+        The pytest adapter registers a ``test_case`` node with the same path and
+        qualname as the test function; the test case is the node that carries
+        the per-test evidence, so it wins. Without one, a single function or
+        method is the only unambiguous match.
+        """
+        matches = index.get((file_path, qualname), [])
+        test_cases = [node for node in matches if node.kind == "test_case"]
+        if len(test_cases) == 1:
+            return test_cases[0]
+        if test_cases:
+            return None
+        functions = [node for node in matches if node.kind in {"function", "method"}]
+        return functions[0] if len(functions) == 1 else None
 
     def _analyze_istanbul_json(
         self,
@@ -657,6 +754,10 @@ class CoverageCollector:
                     ),
                 )
             )
+        if analysis.test_contexts_unmatched:
+            # Every test context of a file failed to match, so the per-test
+            # evidence for that file is missing even if aggregate edges exist.
+            status = "partial"
 
         covered_files = sorted(
             {
