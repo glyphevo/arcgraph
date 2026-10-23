@@ -50,6 +50,13 @@ verify a bundle with the steps in the
 
 ## Published Releases
 
+0.2.1 was uploaded to PyPI on 2026-10-23 by a maintainer, from the validated
+candidate built from commit `282eb8a89ecb063c573d40e32b65b794c32d1664`; the two
+files on PyPI are byte-identical to that candidate (wheel sha256
+`628d41ef6c78cb2e0b6d0a34f6d0101cb05d8adb5519105f8b3afe56d1b11668`, sdist
+sha256 `bfe5e95c28adfd34ce3dd3bed5c6f44ef4710bada2926ef977a90e9aafbfe08d`). The
+same files were rehearsed on TestPyPI first.
+
 0.2.0 was uploaded to PyPI on 2026-10-21 by a maintainer, from the validated
 candidate built from commit `6f5cd85c40774990838dbf62b9ae7f80af0feb64`; the two
 files on PyPI are byte-identical to that candidate (wheel sha256
@@ -92,9 +99,9 @@ files on PyPI are byte-identical to that candidate (wheel sha256
 sha256 `7b2ab2bcc61df4dbb099d1aab885cb718fcaaf5841dfd55bb0a707f0adaa95bc`). The
 same files were rehearsed on TestPyPI first.
 
-Each of these versions also has a Git tag (`v0.2.0`, `v0.1.0`, `v0.1.0rc10`,
-`v0.1.0rc9`, `v0.1.0rc8`, `v0.1.0rc7`) pointing at that commit and a GitHub
-release carrying the same two files: a release for 0.2.0 and 0.1.0 and a
+Each of these versions also has a Git tag (`v0.2.1`, `v0.2.0`, `v0.1.0`,
+`v0.1.0rc10`, `v0.1.0rc9`, `v0.1.0rc8`, `v0.1.0rc7`) pointing at that commit and a GitHub
+release carrying the same two files: a release for 0.2.1, 0.2.0 and 0.1.0 and a
 pre-release for each 0.1.0rcN.
 
 Compare any download with the hashes listed for its version, and use

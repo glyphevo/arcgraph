@@ -52,11 +52,11 @@ or, with uv:
 uv tool install --python 3.11 "arcgraph[mcp]"
 ```
 
-0.2.0 requires Python 3.11 to 3.14; pip refuses other versions (0.1.0 required
-3.11 or 3.12). Pin the exact version you tested, for example `arcgraph[mcp]==0.2.0`. An unpinned install
+0.2.1 requires Python 3.11 to 3.14; pip refuses other versions (0.1.0 required
+3.11 or 3.12). Pin the exact version you tested, for example `arcgraph[mcp]==0.2.1`. An unpinned install
 picks the newest version on PyPI that is not a pre-release; pip installs one of the earlier 0.1.0rc7–0.1.0rc10 pre-releases
 only when you name its version or pass `--pre`. The `mcp` extra is only needed
-to run the MCP server. Installs of 0.2.0 from PyPI were tested: pip with the
+to run the MCP server. Installs of 0.2.1 from PyPI were tested: pip with the
 `mcp` extra on macOS, Windows and Linux (Ubuntu 24.04 under WSL), each with
 Python 3.11, 3.12, 3.13 and 3.14, and `uv tool install --python 3.11` on macOS.
 `arcgraph version --json` reports the commit the installed copy was built from.
@@ -79,7 +79,7 @@ commit you are using.
 
 Requirements:
 
-- Python 3.11 to 3.14 for 0.2.0 and the source on `main`; 3.11 or 3.12 for
+- Python 3.11 to 3.14 since 0.2.0 and for the source on `main`; 3.11 or 3.12 for
   0.1.0 from PyPI.
 - Node.js and a resolvable TypeScript compiler API when analyzing
   TypeScript/JavaScript projects. The Python wheel includes ArcGraph's `.mjs`
