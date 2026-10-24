@@ -364,7 +364,9 @@ def test_coverage_python_does_not_claim_a_future_format(tmp_path):
     assert any(w.kind == "coverage_python_unsupported_format" for w in result.warnings)
 
 
-def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(tmp_path):
+def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(
+    tmp_path, monkeypatch
+):
     import os
     import subprocess
 
@@ -395,6 +397,7 @@ def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(tmp_pa
             "-m",
             "pytest",
             str(tmp_path / "tests/test_service.py"),
+            f"--rootdir={tmp_path}",
             "-q",
             "--cov=pkg",
             "--cov-context=test",
@@ -407,6 +410,9 @@ def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(tmp_pa
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    # coverage makes report filenames relative to the reporting directory.
+    # Bind it to the fixture even when pytest's private temp root is below cwd.
+    monkeypatch.chdir(tmp_path)
     cov = coverage.Coverage(data_file=env["COVERAGE_FILE"])
     cov.load()
     json_path, xml_path = tmp_path / "actual.json", tmp_path / "actual.xml"
@@ -425,3 +431,157 @@ def test_real_pytest_coverage_json_matches_xml_and_preserves_test_context(tmp_pa
         and e.target == "fn:pkg.service.run"
         for e in native.edges
     )
+
+
+@pytest.mark.parametrize("test_name", ["test_run", "TestSuite::test_run"])
+@pytest.mark.parametrize(
+    "parameter", ["::1", "2606:4700:4700::1111-False", "a|::1", "[::1]"]
+)
+def test_coverage_python_parameter_contexts_keep_ipv6_and_pipe_ids(
+    tmp_path, test_name, parameter
+):
+    nodes = graph(tmp_path)
+    if test_name.startswith("TestSuite"):
+        (tmp_path / "tests/test_service.py").write_text(
+            "class TestSuite:\n    def test_run(self):\n        pass\n",
+            encoding="utf-8",
+        )
+        nodes = (
+            PythonGraphAnalyzer()
+            .analyze(FileScanner(tmp_path, [SourceRoot(".")]).scan())
+            .nodes
+        )
+    qualname = "tests.test_service." + test_name.replace("::", ".")
+    case = Node(
+        id="test:" + qualname,
+        kind="test_case",
+        name="test_run",
+        qualname=qualname,
+        path="tests/test_service.py",
+    )
+    context = f"tests/test_service.py::{test_name}[{parameter}]|run"
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3},
+            "files": {
+                "pkg/service.py": {"executed_lines": [2], "contexts": {"2": [context]}}
+            },
+        },
+    )
+    result = CoverageCollector(tmp_path, path).analyze([*nodes, case])
+    edges = [edge for edge in result.edges if edge.source == case.id]
+    assert {edge.target for edge in edges} == {"mod:pkg.service", "fn:pkg.service.run"}
+    assert all(edge.properties["contexts"] == [context] for edge in edges)
+    assert result.metrics["contexts_unmatched"] == 0
+
+
+def test_coverage_python_overlapping_symbols_keep_the_entire_context_line_set(tmp_path):
+    nodes = graph(tmp_path)
+    outer = Node(
+        id="fn:pkg.service.outer",
+        kind="function",
+        name="outer",
+        qualname="pkg.service.outer",
+        path="pkg/service.py",
+        start_line=1,
+        end_line=8,
+    )
+    inner = Node(
+        id="fn:pkg.service.outer.inner",
+        kind="function",
+        name="inner",
+        qualname="pkg.service.outer.inner",
+        path="pkg/service.py",
+        start_line=2,
+        end_line=4,
+    )
+    sibling = Node(
+        id="fn:pkg.service.sibling",
+        kind="function",
+        name="sibling",
+        qualname="pkg.service.sibling",
+        path="pkg/service.py",
+        start_line=6,
+        end_line=7,
+    )
+    context = "tests/test_service.py::test_run|run"
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3},
+            "files": {
+                "pkg/service.py": {
+                    "executed_lines": [3, 6, 99],
+                    "contexts": {"3": [context], "99": [context]},
+                }
+            },
+        },
+    )
+    result = CoverageCollector(tmp_path, path).analyze([*nodes, outer, inner, sibling])
+    matched = [
+        edge for edge in result.edges if edge.source == "fn:tests.test_service.test_run"
+    ]
+    assert {edge.target for edge in matched} == {"mod:pkg.service", outer.id, inner.id}
+    assert all(edge.properties["covered_lines"] == [3, 99] for edge in matched)
+    aggregate = [
+        edge
+        for edge in result.edges
+        if edge.source == CoverageCollector.AGGREGATE_NODE_ID
+    ]
+    assert sibling.id in {edge.target for edge in aggregate}
+    assert all(edge.properties["covered_lines"] == [3, 6, 99] for edge in aggregate)
+
+
+def test_coverage_python_reader_uses_frozen_bytes_and_discards_symbol_summaries(
+    tmp_path,
+):
+    from types import SimpleNamespace
+
+    nodes = graph(tmp_path)
+    path = report(
+        tmp_path,
+        {
+            "meta": {"format": 3},
+            "files": {
+                "pkg/service.py": {
+                    "executed_lines": [2],
+                    "functions": {"run": {"contexts": {"2": ["redundant"]}}},
+                    "classes": {"": {"executed_lines": [2]}},
+                }
+            },
+        },
+    )
+    frozen = path.read_bytes()
+    info = path.stat()
+    path.write_text("this live file is no longer JSON", encoding="utf-8")
+
+    class InspectingCollector(CoverageCollector):
+        def _analyze_coverage_python(self, path, payload, nodes, modules):
+            item = payload["files"]["pkg/service.py"]
+            assert "functions" not in item and "classes" not in item
+            return super()._analyze_coverage_python(path, payload, nodes, modules)
+
+    collector = InspectingCollector(tmp_path, path)
+    collector._frozen_inputs = SimpleNamespace(
+        exists=lambda _: True, read_bytes=lambda _: frozen, stat=lambda _: info
+    )
+    result = collector.analyze(nodes)
+    assert result.status == "available"
+    assert {edge.target for edge in result.edges} == {
+        "mod:pkg.service",
+        "fn:pkg.service.run",
+    }
+
+
+@pytest.mark.parametrize(
+    "context", ["one.py::test|two.py::test|run", "one.py::test[a]|two.py::test[b]|run"]
+)
+def test_coverage_python_context_rejects_multiple_node_ids(context):
+    assert CoverageCollector._coverage_context_parts(context) is None
+
+
+def test_coverage_python_context_keeps_static_brackets_and_parameter_pipes():
+    assert CoverageCollector._coverage_context_parts(
+        "production[dev]|tests/a.py::Test::test[[::1]|b]|run"
+    ) == ("tests/a.py", ["Test", "test"])

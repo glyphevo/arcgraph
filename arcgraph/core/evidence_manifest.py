@@ -13,6 +13,7 @@ from typing import Any
 from defusedxml import ElementTree as ET
 
 from arcgraph.core.schemas import SCHEMA_VERSION
+from arcgraph.core.coverage_json import read_coverage_json
 from arcgraph.core.utils import replace_text_file
 
 EVIDENCE_MANIFEST_RELATIVE_PATH = Path("evidence") / "manifest.json"
@@ -833,7 +834,14 @@ def _read_payload(
                 else path
             )
             return None, None
-        if payload_kind in {"json", "coverage"}:
+        if payload_kind == "coverage":
+            return (
+                read_coverage_json(
+                    path, frozen_inputs=frozen_inputs, retain_files=False
+                ),
+                None,
+            )
+        if payload_kind == "json":
             return (
                 json.loads(
                     frozen_inputs.read_bytes(path).decode("utf-8")

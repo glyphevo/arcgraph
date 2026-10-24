@@ -326,3 +326,59 @@ def _artifact(manifest: dict[str, object], kind: str) -> dict[str, object]:
         if isinstance(artifact, dict) and artifact.get("kind") == kind:
             return artifact
     raise AssertionError(f"Missing artifact {kind}")
+
+
+def test_coverage_manifest_does_not_retain_duplicate_symbol_contexts(
+    tmp_path, monkeypatch
+):
+    import json
+
+    import arcgraph.core.evidence_manifest as evidence
+
+    coverage = tmp_path / "coverage.json"
+    coverage.write_text(
+        json.dumps(
+            {
+                "meta": {"format": 3},
+                "files": {
+                    "pkg/a.py": {
+                        "executed_lines": [1],
+                        "functions": {"run": {"contexts": {"1": ["test::run|run"]}}},
+                        "classes": {"": {"executed_lines": [1]}},
+                    }
+                },
+                "arcgraph_metadata": {
+                    "tool_name": "coverage",
+                    "tool_version": "7.14.0",
+                    "generated_at": "2026-10-24T00:00:00Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = evidence._merge_payload_metadata
+    inspected = []
+
+    def inspect_metadata(record, payload):
+        if record["kind"] == "coverage" and isinstance(payload, dict):
+            assert "files" not in payload
+            inspected.append(True)
+        return original(record, payload)
+
+    monkeypatch.setattr(evidence, "_merge_payload_metadata", inspect_metadata)
+    manifest = build_evidence_manifest(
+        repo_root=tmp_path,
+        output_dir=tmp_path / "out",
+        commit_sha=None,
+        source_roots=["."],
+        coverage_path=coverage,
+        coverage_metrics={"status": "available"},
+        write_live=False,
+    )
+    artifact = next(
+        item for item in manifest["artifacts"] if item["kind"] == "coverage"
+    )
+    assert inspected == [True]
+    assert artifact["tool_name"] == "coverage"
+    assert artifact["tool_version"] == "7.14.0"
+    assert artifact["generated_at"] == "2026-10-24T00:00:00Z"

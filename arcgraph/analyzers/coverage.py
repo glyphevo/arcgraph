@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 from arcgraph.core.artifact_inputs import (
     input_exists,
-    input_text,
     input_xml,
     input_stat,
 )
@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlparse
 from defusedxml import ElementTree as ET
 
 from arcgraph.core.schemas import BuildWarning, Edge, Evidence, Node
+from arcgraph.core.coverage_json import read_coverage_json
 
 
 @dataclass
@@ -49,8 +50,10 @@ class CoverageCollector:
     ) -> None:
         self.repo_root = repo_root
         self.coverage_path = Path(coverage_path) if coverage_path else None
+        self._display_paths: dict[Path, str] = {}
 
     def analyze(self, nodes: list[Node]) -> CoverageAnalysis:
+        self._display_paths.clear()
         path = self._resolve_path()
         if path is None:
             return CoverageAnalysis(
@@ -95,7 +98,9 @@ class CoverageCollector:
 
     def _analyze_json(self, path: Path, nodes: list[Node]) -> CoverageAnalysis:
         try:
-            payload = json.loads(input_text(self, path))
+            payload = read_coverage_json(
+                path, frozen_inputs=getattr(self, "_frozen_inputs", None)
+            )
         except (OSError, json.JSONDecodeError) as exc:
             return CoverageAnalysis(
                 status="partial",
@@ -213,6 +218,9 @@ class CoverageCollector:
                 metrics={"format": "coverage.py"},
             )
         symbols = self._symbol_nodes(nodes)
+        symbols_by_path = {}
+        for order, symbol in enumerate(symbols):
+            symbols_by_path.setdefault(symbol.path, []).append((order, symbol))
         context_index = self._coverage_context_index(nodes)
         resolved_contexts: dict[str, Node | None] = {}
         aggregate = self._coverage_node(path, "coverage.py")
@@ -238,8 +246,17 @@ class CoverageCollector:
             }
             if not lines:
                 continue
+            # Index only executed lines, once per file. Overlapping ranges
+            # retain every enclosing/nested symbol in the original order.
+            ordered_lines = sorted(lines)
+            line_symbols = {}
+            for order, symbol in symbols_by_path.get(file_path, []):
+                first = bisect_left(ordered_lines, symbol.start_line)
+                last = bisect_right(ordered_lines, symbol.end_line or symbol.start_line)
+                for line in ordered_lines[first:last]:
+                    line_symbols.setdefault(line, []).append((order, symbol))
             contexts = {"": lines}
-            raw_contexts = item.get("contexts")
+            raw_contexts = item.pop("contexts", None)
             for number, names in (
                 raw_contexts.items() if isinstance(raw_contexts, dict) else []
             ):
@@ -253,6 +270,9 @@ class CoverageCollector:
                 for name in names:
                     if isinstance(name, str) and name:
                         contexts.setdefault(name, set()).add(int(number))
+            # Raw per-line lists duplicate the per-context sets just built.
+            # Release them before accumulating the file's graph edges.
+            del raw_contexts
             for name, covered in contexts.items():
                 if not name:
                     source = aggregate
@@ -268,19 +288,14 @@ class CoverageCollector:
                         continue
                     if is_test_context:
                         matched_test_contexts.add(name)
+                matching = {
+                    order: symbol
+                    for line in covered
+                    for order, symbol in line_symbols.get(line, [])
+                }
                 targets = [
                     module_by_path[file_path],
-                    *[
-                        symbol
-                        for symbol in symbols
-                        if symbol.path == file_path
-                        and any(
-                            symbol.start_line
-                            <= line
-                            <= (symbol.end_line or symbol.start_line)
-                            for line in covered
-                        )
-                    ],
+                    *[matching[i] for i in sorted(matching)],
                 ]
                 for target in targets:
                     if target.id == source.id:
@@ -366,7 +381,29 @@ class CoverageCollector:
         contexts (``""``, ``production``) and names with several node ids are
         not test contexts and are never matched to a test node.
         """
-        identifiers = [part for part in context.split("|") if "::" in part]
+        # pytest-cov emits item.nodeid + "|" + phase. A parameter id can
+        # itself contain both separators, so remove it before either split.
+        identifiers = []
+        start = depth = 0
+        for index, character in enumerate(context + "|"):
+            if character == "[" and (depth or "::" in context[start:index]):
+                depth += 1
+            elif character == "]" and depth:
+                depth -= 1
+            elif character == "|" and not depth:
+                part = context[start:index]
+                separator = part.find("::")
+                if separator >= 0:
+                    parameter = part.find("[", separator)
+                    identifiers.append(part[:parameter] if parameter >= 0 else part)
+                start = index + 1
+        # Pytest ids can contain unmatched literal brackets. The node-id
+        # prefix still identifies the test, with the phase inside the tail.
+        if depth:
+            part = context[start:]
+            separator = part.find("::")
+            if separator >= 0:
+                identifiers.append(part[: part.find("[", separator)])
         if len(identifiers) != 1:
             return None
         path, *parts = identifiers[0].split("::")
@@ -1073,7 +1110,10 @@ class CoverageCollector:
         return path if path.is_absolute() else self.repo_root / path
 
     def _display_path(self, path: Path) -> str:
-        try:
-            return path.resolve().relative_to(self.repo_root).as_posix()
-        except ValueError:
-            return str(path)
+        if path not in self._display_paths:
+            try:
+                display = path.resolve().relative_to(self.repo_root).as_posix()
+            except ValueError:
+                display = str(path)
+            self._display_paths[path] = display
+        return self._display_paths[path]
