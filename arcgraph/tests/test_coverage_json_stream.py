@@ -111,3 +111,21 @@ def test_metadata_reader_keeps_scope_metadata_without_retaining_file_data():
     assert load_coverage_json(
         StringIO(json.dumps(payload)), chunk_size=3, retain_files=False
     ) == {key: value for key, value in payload.items() if key != "files"}
+
+
+@pytest.mark.parametrize("chunk_size", [3, 64])
+def test_stream_reader_reports_original_json_error_positions(chunk_size):
+    prefix = json.dumps(
+        {"meta": {"format": 3, "padding": "汉字" * 100}}, ensure_ascii=False, indent=2
+    )
+    text = prefix[:-1] + ',\n"files": {"a.py": {"functions": {"f": {"broken": truX}}}}}'
+    with pytest.raises(json.JSONDecodeError) as expected:
+        json.loads(text)
+    with pytest.raises(json.JSONDecodeError) as actual:
+        load_coverage_json(StringIO(text), chunk_size=chunk_size)
+    assert str(actual.value) == str(expected.value)
+    assert (actual.value.pos, actual.value.lineno, actual.value.colno) == (
+        expected.value.pos,
+        expected.value.lineno,
+        expected.value.colno,
+    )

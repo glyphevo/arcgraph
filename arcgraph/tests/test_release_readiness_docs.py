@@ -2331,6 +2331,8 @@ def release_version_errors(
     Unclassified versions fail closed. Like unpublished_version_claims, this is
     a text heuristic: attribution split across paragraphs can require review.
     """
+    from arcgraph.core.schemas import SCHEMA_ROADMAP
+
     number = r"(?<![\d.])(\d+\.\d+\.\d+(?:-?rc\d+)?)(?![\w.])"
     indexed = {
         match.replace("-rc", "rc")
@@ -2338,7 +2340,7 @@ def release_version_errors(
     }
     allowed = indexed | {version.replace("-rc", "rc")}
     other_subject = re.compile(
-        r"schema|read contract|readiness|scip|pyright|playwright|"
+        r"schema|read contract|scip|pyright|playwright|"
         r"Codex|Claude Code|Hermes Agent|Cursor|\bPi\b|\bnpm\b|"
         r"TypeScript|actions/(?:setup-node|upload-artifact)|MCP Python SDK",
         re.IGNORECASE,
@@ -2366,9 +2368,11 @@ def release_version_errors(
                     block,
                     re.IGNORECASE,
                 )
-                if explicit or not other_subject.search(
-                    block + " " + " ".join(headings.values())
-                ):
+                scope = block + " " + " ".join(headings.values())
+                schema_readiness = found in SCHEMA_ROADMAP and re.search(
+                    r"\breadiness\b", scope, re.IGNORECASE
+                )
+                if explicit or not (other_subject.search(scope) or schema_readiness):
                     errors.append(
                         (
                             name,
@@ -2443,3 +2447,10 @@ def test_release_guard_does_not_confuse_tool_or_schema_versions_with_releases() 
     assert release_version_errors(
         {"README.md": text + " ArcGraph 9.9.9 is published."}, "0.2.1", index
     )
+
+
+@pytest.mark.parametrize("heading", ["Release readiness", "Readiness"])
+def test_release_readiness_heading_does_not_exempt_unknown_versions(heading):
+    index = "| 0.2.1 | Published on PyPI | notes |"
+    text = f"# {heading}\n\nVersion 9.9.9 is published on PyPI."
+    assert release_version_errors({"README.md": text}, "0.2.1", index)

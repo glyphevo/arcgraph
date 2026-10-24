@@ -21,11 +21,13 @@ class _CoverageJSONReader:
         self.chunk_size = chunk_size
         self.buffer = ""
         self.position = 0
+        self.offset = 0
         self.eof = False
         self.decoder = json.JSONDecoder()
         self.retain_files = retain_files
 
     def _read(self) -> None:
+        self.offset += self.position
         self.buffer = self.buffer[self.position :]
         self.position = 0
         chunk = self.stream.read(max(self.chunk_size, len(self.buffer)))
@@ -130,10 +132,42 @@ class _CoverageJSONReader:
         return self.value()
 
     def document(self) -> Any:
-        payload = self.object(self.root_field) if self._peek() == "{" else self.value()
-        if self._peek():
-            raise json.JSONDecodeError("Extra data", self.buffer, self.position)
-        return payload
+        try:
+            payload = (
+                self.object(self.root_field) if self._peek() == "{" else self.value()
+            )
+            if self._peek():
+                raise json.JSONDecodeError("Extra data", self.buffer, self.position)
+            return payload
+        except json.JSONDecodeError as exc:
+            if self.offset:
+                self._restore_error_position(exc)
+            raise
+
+    def _restore_error_position(self, exc: json.JSONDecodeError) -> None:
+        """Recount the prefix only on failure, without retaining it in memory."""
+        position = self.offset + exc.pos
+        exc.pos = position
+        exc.args = (f"{exc.msg} at character {position}",)
+        try:
+            self.stream.seek(0)
+            remaining = position
+            line = column = 1
+            while remaining:
+                chunk = self.stream.read(min(self.chunk_size, remaining))
+                if not chunk:
+                    return
+                remaining -= len(chunk)
+                newlines = chunk.count("\n")
+                line += newlines
+                column = (
+                    len(chunk) - chunk.rfind("\n") if newlines else column + len(chunk)
+                )
+        except (OSError, AttributeError):
+            # Nonseekable private streams can still report an absolute offset.
+            return
+        exc.lineno, exc.colno = line, column
+        exc.args = (f"{exc.msg}: line {line} column {column} (char {position})",)
 
 
 def load_coverage_json(
