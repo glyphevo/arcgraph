@@ -183,7 +183,8 @@ MCP_CAPABILITY_SPECS: tuple[AgentCapabilitySpec, ...] = (
         title="ArcGraph Entrypoint Flow",
         description=(
             "Trace a route, MCP tool, worker, or queue entrypoint through indexed "
-            "flow edges."
+            "flow edges. Provide `entrypoint` (symbol or route id), or both `method` "
+            "and `path`."
         ),
         availability="always",
         behavior=_READ_ONLY_LOCAL,
@@ -304,7 +305,7 @@ MCP_CAPABILITY_SPECS: tuple[AgentCapabilitySpec, ...] = (
         avoid_when="Do not treat a preview as an approved or persisted plan.",
         prerequisites=(
             "Use a clean, current index.",
-            "Provide a task and explicit structured targets.",
+            "Provide a task and explicit structured targets: kind (symbol, path, route, resource, contract), value, optional resolution_policy (must_resolve by default, allow_manual_review, informational), reason, requested_by, and matching repo_id; extra fields are forbidden.",
         ),
         cost="high",
         result_signals=("status", "verdict", "error_code", "warnings"),

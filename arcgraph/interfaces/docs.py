@@ -155,6 +155,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "items": [
                         "Change commands emit versioned JSON with `schema_version`, `change_contract_version`, `repo_id`, `status`, and an applicable `verdict` or `error_code`. Exit 0 means a non-blocking result, exit 1 an input/store/security/runtime error, and exit 2 a valid blocked planning or verification verdict.",
                         "`arcgraph mcp serve` exposes only read/preview/compute change tools: `arcgraph_preview_change_plan`, `arcgraph_get_change_plan`, `arcgraph_list_change_plans`, `arcgraph_get_graph_delta`, and `arcgraph_verify_change`.",
+                        "`arcgraph_preview_change_plan` requires a task and explicit `targets`: each element has `kind` (symbol, path, route, resource, contract), `value`, optional `resolution_policy` (must_resolve by default, allow_manual_review, informational), `reason`, `requested_by`, and optional matching `repo_id`. Extra fields are rejected by the MCP SDK; semantic errors return the change error payload.",
                         "MCP verify computes without persisting a report or lifecycle transition. MCP does not expose approval, reject, abandon, archive, evidence persistence/purge, audit export, test execution, code editing, or Git/remote writes.",
                     ],
                 },
@@ -447,6 +448,7 @@ def _docs_payload(topic: str) -> dict[str, Any]:
                     "items": [
                         "`arcgraph_index_status` reports index freshness, counts, and capabilities.",
                         "`arcgraph_get_context`, `arcgraph_explain`, `arcgraph_get_risk`, `arcgraph_entrypoint_flow`, and `arcgraph_find_similar` return bounded read-side graph context.",
+                        "`arcgraph_entrypoint_flow` accepts `entrypoint` (symbol or route id), or both `method` and `path`; missing arguments return a structured error naming both forms and the parameters received.",
                         "`arcgraph_get_why` can include external historical memory only when an external connector is configured by the host.",
                         "`arcgraph_record_learning` is proposal-only and does not persist memory by default; it is documented because the name sounds write-like.",
                         "`arcgraph_help` is always registered and returns bounded workflow, selection, result, recovery, CLI-fallback, and feedback guidance. Protocol `list_tools` remains the authoritative inventory for one process.",

@@ -70,7 +70,8 @@ EXPECTED_TOOL_DESCRIPTIONS = {
         "implementations, entrypoints, assurance, and next reads."
     ),
     "arcgraph_entrypoint_flow": (
-        "Trace a route, MCP tool, worker, or queue entrypoint through indexed flow edges."
+        "Trace a route, MCP tool, worker, or queue entrypoint through indexed flow edges. "
+        "Provide `entrypoint` (symbol or route id), or both `method` and `path`."
     ),
     "arcgraph_get_why": (
         "Explain structural reasons and, when configured, external historical "
@@ -599,6 +600,115 @@ async def _exercise_stdio_contract(
         "tool_contract": tool_contract,
         "result_contract": result_contract,
     }
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+def test_mcp_change_targets_schema_and_input_errors(indexed_sample, mode) -> None:
+    anyio.run(_exercise_change_input_contract, indexed_sample, mode)
+
+
+async def _exercise_change_input_contract(indexed_sample, mode) -> None:
+    from typing import get_args
+
+    from arcgraph.change.contracts import ChangeTarget
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errlog:
+        async with Client(
+            stdio_client(_server_parameters(indexed_sample), errlog=errlog),
+            mode=mode,
+            raise_exceptions=False,
+            read_timeout_seconds=10,
+        ) as client:
+            listing = await client.list_tools()
+            schema = next(
+                tool.input_schema
+                for tool in listing.tools
+                if tool.name == "arcgraph_preview_change_plan"
+            )
+            array = next(
+                item
+                for item in schema["properties"]["targets"]["anyOf"]
+                if item.get("type") == "array"
+            )
+            item = array["items"]
+            if "$ref" in item:
+                item = schema["$defs"][item["$ref"].rsplit("/", 1)[1]]
+            assert item["additionalProperties"] is False
+            fields = item["properties"]
+            assert set(fields) == {
+                "kind",
+                "value",
+                "resolution_policy",
+                "reason",
+                "requested_by",
+                "repo_id",
+            }
+            for name in ("kind", "resolution_policy"):
+                assert fields[name]["enum"] == list(
+                    get_args(ChangeTarget.model_fields[name].annotation)
+                )
+            assert fields["resolution_policy"]["default"] == "must_resolve"
+            rejected = await client.call_tool(
+                "arcgraph_preview_change_plan",
+                {
+                    "repo_id": "sample",
+                    "task": "preview",
+                    "targets": [
+                        {
+                            "kind": "symbol",
+                            "value": "fn:pkg.service.build_message",
+                            "surprise": True,
+                        }
+                    ],
+                },
+            )
+            assert rejected.is_error is True
+            assert rejected.structured_content is None
+            assert "surprise" in rejected.content[0].text
+            assert "Extra inputs are not permitted" in rejected.content[0].text
+            for task, targets, message in (
+                ("", [], "task must not be empty"),
+                (
+                    "preview",
+                    [
+                        {
+                            "kind": "symbol",
+                            "value": "fn:pkg.service.build_message",
+                            "repo_id": "other",
+                        }
+                    ],
+                    "change target repo_id does not match the MCP repo_id",
+                ),
+            ):
+                result = await client.call_tool(
+                    "arcgraph_preview_change_plan",
+                    {"repo_id": "sample", "task": task, "targets": targets},
+                )
+                assert result.is_error is False
+                payload = result.structured_content
+                assert payload["status"] == "error"
+                assert payload["error_code"] == "CHANGE_MCP_INPUT_INVALID"
+                assert payload["error"] == {
+                    "code": "CHANGE_MCP_INPUT_INVALID",
+                    "message": message,
+                }
+            for arguments, received in (
+                ({}, "none"),
+                ({"method": "GET"}, "method only"),
+                ({"path": "/"}, "path only"),
+            ):
+                result = await client.call_tool(
+                    "arcgraph_entrypoint_flow", {"repo_id": "sample", **arguments}
+                )
+                assert result.is_error is False
+                payload = result.structured_content
+                assert payload["status"] == "error"
+                assert payload["error_code"] == "ARCGRAPH_REQUEST_INVALID"
+                assert payload["error"]["message"] == (
+                    "Provide `entrypoint` (symbol or route id), or both `method` and `path`; "
+                    f"received: {received}"
+                )
+        assert _read_errlog(errlog) == ""
 
 
 async def _exercise_baseline_unavailable(

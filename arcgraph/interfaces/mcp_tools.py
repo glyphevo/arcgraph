@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
+
 try:
     # The MCP runtime is an optional extra. When it is installed, anticipated
     # tool failures must derive from the SDK's ToolError so the server reports
@@ -29,6 +31,8 @@ except ImportError:  # pragma: no cover - exercised without the MCP extra
 from arcgraph.change.contracts import (
     CHANGE_CONTRACT_VERSION,
     ChangeIntent,
+    ChangeResolutionPolicy,
+    ChangeTargetKind,
     ChangeTarget,
     canonical_digest,
 )
@@ -88,6 +92,19 @@ class ArcGraphRequestError(_AnticipatedToolError, ValueError):
 
 class ArcGraphPermissionError(_AnticipatedToolError, ValueError):
     """Raised when an MCP request references an unauthorized repo or path."""
+
+
+class MCPChangeTarget(BaseModel):
+    """Protocol shape only; change-contract semantics are validated in the tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ChangeTargetKind
+    value: str
+    resolution_policy: ChangeResolutionPolicy = "must_resolve"
+    reason: str | None = None
+    requested_by: str | None = None
+    repo_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -376,7 +393,26 @@ class ArcGraphMCPToolGroup:
         profile: str = "review_default",
     ) -> dict[str, Any]:
         repo = self._resolve_repo(repo_id)
-        normalized = _entrypoint_query(entrypoint=entrypoint, method=method, path=path)
+        try:
+            normalized = _entrypoint_query(
+                entrypoint=entrypoint, method=method, path=path
+            )
+        except ArcGraphRequestError as exc:
+            # Reuse the existing error envelope fields; no change-contract
+            # version belongs on an ordinary graph query.
+            code = "ARCGRAPH_REQUEST_INVALID"
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "repo_id": repo_id,
+                "status": "error",
+                "read_only": repo.mode == "read_only",
+                "source_snippets": {
+                    "requested": include_source,
+                    "enabled": repo.expose_source_snippets,
+                },
+                "error_code": code,
+                "error": {"code": code, "message": str(exc)},
+            }
         normalized = self._normalize_targets(
             [normalized],
             label="entrypoint",
@@ -538,7 +574,7 @@ class ArcGraphMCPToolGroup:
         self,
         repo_id: str = "default",
         task: str = "",
-        targets: list[dict[str, Any]] | None = None,
+        targets: list[MCPChangeTarget] | None = None,
         acceptance_criteria: list[str] | None = None,
         constraints: list[str] | None = None,
         protected_surfaces: list[str] | None = None,
@@ -896,7 +932,11 @@ def _entrypoint_query(
         return f"{method.upper()} {normalized_path}"
     if entrypoint:
         return entrypoint
-    raise ValueError("Provide either entrypoint or both method and path.")
+    received = "method only" if method else "path only" if path else "none"
+    raise ArcGraphRequestError(
+        "Provide `entrypoint` (symbol or route id), or both `method` and `path`; "
+        f"received: {received}"
+    )
 
 
 def _detail_level(value: str) -> str:
@@ -910,28 +950,18 @@ def _detail_level(value: str) -> str:
 def _mcp_change_targets(
     *,
     repo_id: str,
-    targets: list[dict[str, Any]],
+    targets: list[MCPChangeTarget],
 ) -> list[ChangeTarget]:
-    """Parse explicit MCP targets without allowing hidden free-text discovery."""
+    """Validate target semantics after the SDK has checked the input shape."""
 
     records: list[ChangeTarget] = []
-    allowed_fields = {
-        "kind",
-        "value",
-        "resolution_policy",
-        "reason",
-        "requested_by",
-        "repo_id",
-    }
     for raw in targets:
-        if not isinstance(raw, dict):
-            raise ValueError("each change target must be an object")
-        if set(raw) - allowed_fields:
-            raise ValueError("change target contains unsupported fields")
-        supplied_repo_id = raw.get("repo_id")
-        if supplied_repo_id is not None and supplied_repo_id != repo_id:
+        # Direct Python callers historically supplied dictionaries. The SDK
+        # supplies models; keep both on the same strict validation path.
+        target = MCPChangeTarget.model_validate(raw)
+        if target.repo_id is not None and target.repo_id != repo_id:
             raise ValueError("change target repo_id does not match the MCP repo_id")
-        fields = {key: value for key, value in raw.items() if key != "repo_id"}
+        fields = target.model_dump(exclude={"repo_id"})
         records.append(ChangeTarget(repo_id=repo_id, **fields))
     return records
 

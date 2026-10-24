@@ -138,11 +138,11 @@ The registered tool names are:
 | `arcgraph_get_context` | Return compact structural context for editing or review agents. |
 | `arcgraph_explain` | Explain target resolution, direct edge evidence, fallbacks, and confidence sources. |
 | `arcgraph_get_risk` | Default Change Preflight: resolution, impact, tests, similar siblings, entrypoints, unknowns, assurance, next reads, and optional exact references. |
-| `arcgraph_entrypoint_flow` | Trace a route, MCP tool, worker, or queue entrypoint through indexed flow edges. |
+| `arcgraph_entrypoint_flow` | Trace a route, MCP tool, worker, or queue entrypoint through indexed flow edges; provide `entrypoint` (symbol or route id), or both `method` and `path`. |
 | `arcgraph_get_why` | Explain structural reasons plus optional external historical memory when configured. |
 | `arcgraph_find_similar` | Find implementations with similar normalized AST structure and supporting evidence. |
 | `arcgraph_record_learning` | Create a read-only external memory candidate; it does not persist memory by default. |
-| `arcgraph_preview_change_plan` | Compute a Surgical Change Safety plan preview without activating a plan or creating a pin. |
+| `arcgraph_preview_change_plan` | Compute a Surgical Change Safety plan preview with explicit structured `targets`, without activating a plan or creating a pin. |
 | `arcgraph_get_change_plan` | Read the current view of one activated change plan. |
 | `arcgraph_list_change_plans` | List current change plan views without mutating state. |
 | `arcgraph_get_graph_delta` | Compute the current graph delta for one exact plan revision. |
@@ -253,6 +253,16 @@ When a runtime does not host MCP, agents can call the CLI surfaces:
 command is the `plan` subcommand of `arcgraph change`, and it is not a preview:
 it creates and activates a plan and writes a durable pin. Use the MCP tool when a
 caller needs plan output without changing state.
+
+Each `targets` element requires `kind` (`symbol`, `path`, `route`, `resource`, or
+`contract`) and `value`. Optional fields are `resolution_policy` (`must_resolve`
+by default, `allow_manual_review`, or `informational`), `reason`, `requested_by`,
+and `repo_id` (which must match the tool's repository). Extra fields are rejected
+by the MCP SDK; semantic errors still return the change error payload.
+
+For `arcgraph_entrypoint_flow`, provide `entrypoint` (symbol or route id), or both
+`method` and `path`. Missing arguments return a structured error that names both
+forms and the parameters received.
 
 See the Client Integration Examples section of
 [agent-reading-guide.md](agent-reading-guide.md) for manual client examples

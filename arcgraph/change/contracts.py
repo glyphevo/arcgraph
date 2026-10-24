@@ -258,12 +258,14 @@ class ChangeContractModel(BaseModel):
         return value.strip()
 
 
+ChangeTargetKind = Literal["symbol", "path", "route", "resource", "contract"]
+ChangeResolutionPolicy = Literal["must_resolve", "allow_manual_review", "informational"]
+
+
 class ChangeTarget(ChangeContractModel):
-    kind: Literal["symbol", "path", "route", "resource", "contract"]
+    kind: ChangeTargetKind
     value: str
-    resolution_policy: Literal[
-        "must_resolve", "allow_manual_review", "informational"
-    ] = "must_resolve"
+    resolution_policy: ChangeResolutionPolicy = "must_resolve"
     reason: str | None = None
     requested_by: str | None = None
 
