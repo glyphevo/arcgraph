@@ -237,6 +237,7 @@ def test_report_route_fallback_matches_entrypoint_priority_and_handles_bad_ids(
     reader, engine = _build_express_files(
         tmp_path,
         {
+            "package.json": '{"dependencies": {"next": "15.0.0"}}',
             "src/pages/api/gateway.ts": """
 export default function gateway(_request: unknown, response: any): void {
   response.end("next");

@@ -8,12 +8,105 @@ from pathlib import Path
 import pytest
 
 from arcgraph.core.graph_store import GraphStoreReader
-from arcgraph.core.scanner import FileScanner, SourceRoot
+from arcgraph.core.scanner import FileScanner, SourceRoot, TYPESCRIPT_FILE_EXTENSIONS
 from arcgraph.pipeline.indexer import ArcGraphIndexer
 from arcgraph.pipeline.openapi_frontend import _operation_node_id
 from arcgraph.pipeline.typescript_frameworks import TypeScriptFrameworkAnalyzer
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "typescript_frameworks"
+
+
+@pytest.mark.parametrize(
+    "manifest,config,expected",
+    [
+        ({}, None, False),
+        ({"dependencies": {"next": "15"}}, None, True),
+        ({"devDependencies": {"next": "15"}}, None, True),
+        ({}, "next.config.mjs", True),
+        ({"dependencies": {"next": "15", "nuxt": "4"}}, None, False),
+        ({"devDependencies": {"nuxt": "4"}}, "next.config.ts", False),
+        ({"dependencies": {"next": "15"}}, "nuxt.config.ts", False),
+    ],
+)
+def test_next_project_evidence_in_frontend(tmp_path, manifest, config, expected):
+    from types import SimpleNamespace
+
+    from arcgraph.pipeline.typescript_frameworks import _next_project_files
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+    if config:
+        (frontend / config).write_text("export default {}", encoding="utf-8")
+    records = [SimpleNamespace(path="frontend/app/page.tsx")]
+    assert _next_project_files(records, tmp_path) == (records if expected else [])
+
+
+def test_next_evidence_is_scoped_to_each_monorepo_project(tmp_path):
+    from types import SimpleNamespace
+
+    from arcgraph.pipeline.typescript_frameworks import _next_project_files
+
+    for name, manifest in (
+        ("web", {"dependencies": {"next": "15"}}),
+        ("nuxt", {"dependencies": {"nuxt": "4"}}),
+        ("plain", {}),
+    ):
+        folder = tmp_path / "packages" / name
+        folder.mkdir(parents=True)
+        (folder / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+    records = [
+        SimpleNamespace(path=f"packages/{name}/pages/index.tsx")
+        for name in ("web", "nuxt", "plain")
+    ]
+    assert _next_project_files(records, tmp_path) == records[:1]
+    (tmp_path / "packages/plain/package.json").write_text(
+        "invalid json", encoding="utf-8"
+    )
+    assert _next_project_files(records, tmp_path) == records[:1]
+
+
+def test_nuxt_pages_are_vue_components_without_nextjs_facts(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "nuxt_project"
+    output = tmp_path / "out"
+    ArcGraphIndexer(
+        repo_root=fixture, output_dir=output, source_roots=[SourceRoot(".")]
+    ).build()
+    reader = GraphStoreReader.from_current(output)
+    nodes, edges = reader.read_nodes(), reader.read_edges()
+    assert not any(node.properties.get("framework") == "nextjs" for node in nodes)
+    assert not any(edge.properties.get("framework") == "nextjs" for edge in edges)
+    assert not any(
+        edge.resolution and (edge.resolution.strategy or "").startswith("nextjs")
+        for edge in edges
+    )
+    components = [
+        node
+        for node in nodes
+        if node.kind == "component" and node.properties.get("framework") == "vue"
+    ]
+    assert {node.path for node in components} == {
+        "app/pages/index.vue",
+        "app/pages/[id].vue",
+    }
+    metrics = reader.metadata["adapter_metrics"]["typescript-static"]["frameworks"]
+    assert metrics["nextjs"]["status"] == "not_detected"
+    assert metrics["vue"]["components"] == 2
+
+
+def test_pages_and_app_without_next_evidence_do_not_make_next_facts(tmp_path):
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURE_ROOT, repo)
+    (repo / "package.json").unlink()
+    files = FileScanner(
+        repo, source_roots=[SourceRoot(".")], file_extensions=TYPESCRIPT_FILE_EXTENSIONS
+    ).scan()
+    result = TypeScriptFrameworkAnalyzer(str(repo)).analyze(files, [])
+    assert not any(
+        node.properties.get("framework") == "nextjs" for node in result.nodes
+    )
+    assert result.metrics["frameworks"]["nextjs"]["status"] == "not_detected"
+    assert result.metrics["frameworks"]["vue"]["components"] >= 3
 
 
 def _requires_typescript_baseline() -> bool:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -43,6 +44,51 @@ class TypeScriptFrameworkResult:
     metrics: dict[str, Any] = field(default_factory=dict)
 
 
+def _next_project_files(files: list[Any], repo_root: str | Path | None) -> list[Any]:
+    """Select files whose nearest project has Next evidence and no Nuxt evidence.
+
+    Source roots may point inside a project (frontend/src, for example), so
+    inspect ancestors of scanned paths up to the repository root. Cache each
+    directory's evidence and keep sibling monorepo projects independent.
+    """
+    if repo_root is None:
+        return []
+    root = Path(repo_root)
+    evidence: dict[Path, bool | None] = {}
+    selected = []
+    for record in files:
+        for relative in PurePosixPath(record.path).parents:
+            directory = root / relative
+            if directory not in evidence:
+                package = directory / "package.json"
+                next_config = any(directory.glob("next.config.*"))
+                nuxt_config = any(directory.glob("nuxt.config.*"))
+                if not package.is_file() and not next_config and not nuxt_config:
+                    evidence[directory] = None
+                else:
+                    try:
+                        manifest = json.loads(package.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        manifest = {}
+                    dependencies = set()
+                    if isinstance(manifest, dict):
+                        for key in ("dependencies", "devDependencies"):
+                            values = manifest.get(key)
+                            if isinstance(values, dict):
+                                dependencies.update(values)
+                    evidence[directory] = bool(
+                        not nuxt_config
+                        and "nuxt" not in dependencies
+                        and (next_config or "next" in dependencies)
+                    )
+            detected = evidence[directory]
+            if detected is not None:
+                if detected:
+                    selected.append(record)
+                break
+    return selected
+
+
 class TypeScriptFrameworkAnalyzer:
     """Add deterministic framework facts without changing language tiering."""
 
@@ -57,7 +103,10 @@ class TypeScriptFrameworkAnalyzer:
             if node.path:
                 by_path[node.path].append(node)
 
-        next_nodes, next_edges, next_warnings = self._analyze_next(files, by_path)
+        next_files = _next_project_files(files, self.repo_root)
+        next_nodes, next_edges, next_warnings = (
+            self._analyze_next(next_files, by_path) if next_files else ([], [], [])
+        )
         vue_nodes, vue_edges, vue_warnings = self._analyze_vue(files)
 
         next_route_count = sum(

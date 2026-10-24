@@ -26,7 +26,7 @@ unresolved records.
 | Python | L3 | Default native semantic static frontend. | Receiver-aware Python static graph with framework/resource/test semantics and visible gaps. |
 | TypeScript | L3 | Native frontend when a TypeScript compiler API is resolvable at analysis runtime. | Static TS semantic graph with module/export/resource/framework facts and checker-backed receiver call resolution where deterministic. |
 | JavaScript | L3 | Native frontend through the same resolvable TypeScript compiler API. | Static JS semantic graph through the same frontend, with conservative module and framework semantics. |
-| Next.js | Framework layer over L3 TS/JS | Default TS/JS analysis over route and component files. | Deterministic filesystem route and component semantics where statically visible. |
+| Next.js | Framework layer over L3 TS/JS | Route and component analysis requires `next` in project dependencies/devDependencies or `next.config.*`, with no Nuxt evidence. | Deterministic filesystem route and component semantics where statically visible. |
 | Vue | Framework layer over L3 TS/JS | Default TS/JS analysis over Vue files. | Component/import/render facts where statically visible; dynamic components remain warnings. |
 | Go / C# / Java / Rust / C / C++ / Swift | L3 when explicit external payload is valid; otherwise L2 through SCIP reporting. | Validated external semantic extractor payload or explicit SCIP protocol input. | Payload-backed L3 only, not default live compiler extraction for those languages. |
 | SCIP | L2 | `arcgraph build --scip-graph-index PATH`. | Confirmed protocol definitions and references only. |
@@ -94,6 +94,12 @@ semantic layers over the TypeScript/JavaScript frontend.
 Next.js support covers deterministic route and component facts from app/pages
 file conventions and exported HTTP handlers. Dynamic middleware and rewrites are
 reported as unsupported warnings instead of invented edges.
+
+Next.js analysis requires `next` in the nearest project's `package.json`
+dependencies or devDependencies, or a `next.config.*` file. Project detection
+includes nested monorepo projects such as `frontend/`. A `nuxt` dependency or
+`nuxt.config.*` overrides Next evidence and skips Next.js analysis; Vue component
+analysis still runs. Nuxt route recognition is not supported.
 
 Express support emits static mounted routes as `route` nodes and links handlers
 when imports, routers, mount paths, and registrations are statically

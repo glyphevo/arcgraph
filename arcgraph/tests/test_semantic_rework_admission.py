@@ -70,6 +70,8 @@ def test_hanging_project_reads_have_one_budget_across_five_blocks(
     # product charges measured time (15.625 ms ticks on Windows Python 3.11/3.12),
     # which can leave a remainder granted once more; a second budget would add
     # about one more full budget.
+    assert attempted, "The hanging workload must attempt a project read"
+    assert granted_timeouts, "The hanging workload must receive a timeout grant"
     assert (
         sum(granted_timeouts) < 1.5 * structure.PROJECT_FAILURE_BUDGET
     ), granted_timeouts
@@ -121,6 +123,11 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
             )
             return original(self, paths)
         if not paths and not marker.exists():
+            # Only failing workload grants are scaled to 0.2 seconds. The
+            # first successful handshake starts two interpreters and can take
+            # longer under load; timing it out here skips the workload this
+            # test must observe. Marked probes still use the shared budget.
+            self._project_timeout = 30.0
             return original(self, paths)
         attempted.append(len(paths))
         failed_budgets.append(self._project_failure_seconds)
@@ -147,6 +154,8 @@ def test_build_shares_failure_budget_with_source_cache_and_resets(
     # times out. Measured-time charging can leave a remainder granted once more
     # (15.625 ms ticks on Windows Python 3.11/3.12); a second budget would add
     # about one more full budget.
+    assert attempted, "The build must attempt a failing project read"
+    assert granted_timeouts, "The build must grant time to a failing project read"
     assert (
         sum(granted_timeouts) < 1.5 * structure.PROJECT_FAILURE_BUDGET
     ), granted_timeouts
