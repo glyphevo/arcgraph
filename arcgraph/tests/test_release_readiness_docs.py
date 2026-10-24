@@ -2320,18 +2320,126 @@ def unpublished_version_claims(
     return found
 
 
-def test_docs_do_not_call_the_declared_version_published_before_it_is() -> None:
-    """The prepare commit is pushed before the upload, so its documents must hold
-    then too. RELEASE_NOTES.md records publication; until it does, nothing else
-    may say the declared version is on PyPI, installable or tagged."""
+def release_version_errors(
+    texts: dict[str, str], version: str, index: str
+) -> list[tuple[str, str]]:
+    """Check every release-version mention even after the declared release ships.
 
+    Numeric versions in schema sections and named third-party tool paragraphs
+    belong to those contracts/tools. Explicit ArcGraph versions, package pins,
+    and release-note/repository links take precedence over that classification.
+    Unclassified versions fail closed. Like unpublished_version_claims, this is
+    a text heuristic: attribution split across paragraphs can require review.
+    """
+    number = r"(?<![\d.])(\d+\.\d+\.\d+(?:-?rc\d+)?)(?![\w.])"
+    indexed = {
+        match.replace("-rc", "rc")
+        for match in re.findall(r"^\| (\d[^ |]*) \|", index, re.MULTILINE)
+    }
+    allowed = indexed | {version.replace("-rc", "rc")}
+    other_subject = re.compile(
+        r"schema|read contract|readiness|scip|pyright|playwright|"
+        r"Codex|Claude Code|Hermes Agent|Cursor|\bPi\b|\bnpm\b|"
+        r"TypeScript|actions/(?:setup-node|upload-artifact)|MCP Python SDK",
+        re.IGNORECASE,
+    )
+    errors = []
+    for name, text in texts.items():
+        headings = {}
+        for block in re.split(r"\n\s*\n", text):
+            heading = re.match(r"^(#{1,6})\s+(.+)", block)
+            if heading:
+                level = len(heading[1])
+                headings = {
+                    key: value for key, value in headings.items() if key < level
+                }
+                headings[level] = heading[2]
+            for match in re.finditer(number, block):
+                found = match[1].replace("-rc", "rc")
+                if found in allowed:
+                    continue
+                spelling = re.escape(match[1])
+                explicit = re.search(
+                    rf"\bArcGraph[ `]*(?:version[ `]+)?v?{spelling}(?![\w.])|"
+                    rf"\barcgraph(?:\[[^]\n]+\])?=={spelling}(?![\w.])|"
+                    rf"(?:docs/release_notes/|arcgraph/(?:releases/(?:tag|download)|tree)/)v{spelling}(?![\w.])",
+                    block,
+                    re.IGNORECASE,
+                )
+                if explicit or not other_subject.search(
+                    block + " " + " ".join(headings.values())
+                ):
+                    errors.append(
+                        (
+                            name,
+                            f"Unindexed ArcGraph release {match[1]}: {block.strip()}",
+                        )
+                    )
+    published = next(
+        (row for row in index.splitlines() if row.startswith(f"| {version} |")),
+        "",
+    )
+    if (
+        "published on pypi" not in published.lower()
+        or "not yet published" in published.lower()
+    ):
+        errors.extend(unpublished_version_claims(texts, version))
+    return errors
+
+
+def test_docs_do_not_call_the_declared_version_published_before_it_is() -> None:
+    """Scan public release versions before and after publication of the declared one.
+
+    Indexed releases are allowed; a declared next version may be mentioned but
+    must have no publication/install/tag claims. Publication no longer returns
+    early and leaves other documents unchecked. Attribution and claim wording
+    retain the heuristics documented in the two helpers.
+    """
     version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["version"]
     index = (REPO_ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-    row = next(line for line in index.splitlines() if line.startswith(f"| {version} |"))
-    if "not yet published" not in row:
-        assert "published on pypi" in row.lower(), row
-        return
+    assert release_version_errors(_current_public_texts(), version, index) == []
 
-    assert unpublished_version_claims(_current_public_texts(), version) == []
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "ArcGraph 9.9.9 is published on PyPI.",
+        "Install with `pip install arcgraph==9.9.9`.",
+        "Release notes: [v9.9.9](docs/release_notes/v9.9.9.md).",
+        "Version 9.9.9 is planned.",
+    ],
+)
+def test_published_release_guard_rejects_an_unindexed_release(claim) -> None:
+    index = "| 0.2.1 | Published on PyPI | notes |"
+    assert release_version_errors({"README.md": claim}, "0.2.1", index)
+
+
+def test_release_guard_allows_only_nonpublishing_claims_for_declared_next_version() -> (
+    None
+):
+    index = "| 0.2.1 | Published on PyPI | notes |"
+    assert (
+        release_version_errors(
+            {"README.md": "ArcGraph 0.3.0 is planned."}, "0.3.0", index
+        )
+        == []
+    )
+    assert release_version_errors(
+        {"README.md": "ArcGraph 0.3.0 is published on PyPI."}, "0.3.0", index
+    )
+    assert release_version_errors(
+        {"README.md": "Install `arcgraph==0.3.0`."}, "0.3.0", index
+    )
+    assert release_version_errors({"README.md": "The tag is `v0.3.0`."}, "0.3.0", index)
+
+
+def test_release_guard_does_not_confuse_tool_or_schema_versions_with_releases() -> None:
+    text = "MCP Python SDK `>=2.0.0,<3.0.0`.\n\nRead schema `1.4.0`.\n\nscip v0.7.1 is published."
+    index = "| 0.2.1 | Published on PyPI | notes |"
+    assert release_version_errors({"README.md": text}, "0.2.1", index) == []
+    # A tool/schema reference cannot exempt an explicit ArcGraph release claim.
+    assert release_version_errors(
+        {"README.md": text + " ArcGraph 9.9.9 is published."}, "0.2.1", index
+    )
