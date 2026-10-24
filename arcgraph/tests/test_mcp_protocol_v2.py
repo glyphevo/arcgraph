@@ -696,6 +696,7 @@ async def _exercise_change_input_contract(indexed_sample, mode) -> None:
                 ({}, "none"),
                 ({"method": "GET"}, "method only"),
                 ({"path": "/"}, "path only"),
+                ({"method": "", "path": "", "entrypoint": ""}, "none"),
             ):
                 result = await client.call_tool(
                     "arcgraph_entrypoint_flow", {"repo_id": "sample", **arguments}

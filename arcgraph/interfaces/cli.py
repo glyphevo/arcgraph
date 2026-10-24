@@ -47,18 +47,11 @@ from arcgraph.interfaces.agent_help import (
     HELP_TOPICS,
     HelpTopic,
     build_agent_help,
-    format_agent_help_human,
 )
 from arcgraph.interfaces.docs import DOC_TOPICS, render_docs
 from arcgraph.interfaces.cli_feedback import (
     add_feedback_parser,
     feedback_metrics_path_conflict_payload,
-)
-from arcgraph.interfaces.human_output import (
-    format_build_human,
-    format_doctor_human,
-    format_generic_human,
-    format_init_human,
 )
 from arcgraph.interfaces.metrics import (
     CLI_METRICS_WRITE_WARNING,
@@ -136,6 +129,7 @@ from arcgraph.interfaces.cli_support import (  # noqa: F401
     print_json,
     python_checks,
     query_engine,
+    _emit_cli_payload,
     write_json_output,
     _print_cli_error_payload,
 )
@@ -372,33 +366,6 @@ def _exit_on_broken_pipe() -> int:
     except (OSError, ValueError):
         pass
     return 141
-
-
-def _emit_cli_payload(
-    args: argparse.Namespace,
-    payload: dict[str, Any] | str,
-    streaming_output: bool,
-    started: float,
-) -> None:
-    if isinstance(payload, str):
-        print(payload, end="")
-    elif getattr(args, "human", False):
-        duration_s = time.perf_counter() - started
-        command = getattr(args, "command", None)
-        if command == "build":
-            print(format_build_human(payload, duration_s))
-        elif command == "init":
-            print(format_init_human(payload))
-        elif command == "doctor":
-            print(format_doctor_human(payload))
-        elif command == "help":
-            print(format_agent_help_human(payload), end="")
-        else:
-            print(format_generic_human(payload, command))
-    elif streaming_output:
-        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    else:
-        print_json(payload)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -784,7 +751,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_ci_runtime_trace_args(report_ci)
     report_ci.set_defaults(
-        handler=lambda args: render_ci_markdown(handle_ci_payload(args))
+        handler=lambda args: render_ci_markdown(handle_ci_payload(args)),
+        require_precision=False,
+        require_coverage=False,
+        require_runtime_trace=False,
+        python_full=False,
     )
     report_pr = report_subparsers.add_parser(
         "pr", help="Render a Markdown PR impact summary."

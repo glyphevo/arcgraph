@@ -11,11 +11,21 @@ import argparse
 import json
 import platform
 import re
+import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from arcgraph import SCHEMA_VERSION
+from arcgraph.interfaces.agent_help import format_agent_help_human
+from arcgraph.interfaces.human_output import (
+    format_build_human,
+    format_doctor_human,
+    format_generic_human,
+    format_init_human,
+)
+from arcgraph.core.target_resolver import is_entrypoint_target
 from arcgraph.change.errors import ChangeSafetyError
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
 from arcgraph.core.project_environment import (
@@ -29,6 +39,47 @@ from arcgraph.core.structure import StructureView, STRUCTURE_FIX
 # test_cli_doctor checks the two agree.
 SUPPORTED_PYTHON = ((3, 11), (3, 15))
 _LOWER_BOUND = re.compile(r"^\s*(?:>=|>|~=|==)\s*(\d+)\.(\d+)")
+
+
+def report_cli_result_limit(
+    args: argparse.Namespace, payload: dict[str, Any] | str
+) -> None:
+    """Expose existing query ceilings without changing the payload contract."""
+    requested = getattr(args, "max_results", None)
+    if requested is None:
+        return
+    command = args.command
+    limits = {
+        "callers": 100,
+        "callees": 100,
+        "impact": 100,
+        "context": 100,
+        "explain": 100,
+        "similar": 50,
+        "references": 1000,
+        "ci": 100,
+    }
+    components = [("", limits[command])] if command in limits else []
+    if command == "report":
+        kind = args.report_command
+        command = f"report {kind}"
+        if kind in {"ci", "pr"}:
+            components = [("", 100)]
+        elif kind == "html":
+            components = [("similar", 50), ("ci", 100)]
+            if is_entrypoint_target(args.target):
+                components.append(("entrypoint_flow", 200))
+    for component, limit in components:
+        if requested <= limit:
+            continue
+        suffix = f" ({component})" if component else ""
+        message = (
+            f"{command}: --max-results requested {requested}; "
+            f"actual limit {limit}{suffix}."
+        )
+        print(f"ArcGraph: {message}", file=sys.stderr)
+        if isinstance(payload, dict) and isinstance(payload.get("warnings"), list):
+            payload["warnings"].append(message)
 
 
 def project_minimum_python(repo_root: Path) -> tuple[str, tuple[int, int]] | None:
@@ -303,3 +354,31 @@ def handle_export(args):
     with arcgraph_operation_lock(out):
         build = GraphStoreReader.from_current(out).export_jsonl()
     return {"build_dir": str(build)}
+
+
+def _emit_cli_payload(
+    args: argparse.Namespace,
+    payload: dict[str, Any] | str,
+    streaming_output: bool,
+    started: float,
+) -> None:
+    report_cli_result_limit(args, payload)
+    if isinstance(payload, str):
+        print(payload, end="")
+    elif getattr(args, "human", False):
+        duration_s = time.perf_counter() - started
+        command = getattr(args, "command", None)
+        if command == "build":
+            print(format_build_human(payload, duration_s))
+        elif command == "init":
+            print(format_init_human(payload))
+        elif command == "doctor":
+            print(format_doctor_human(payload))
+        elif command == "help":
+            print(format_agent_help_human(payload), end="")
+        else:
+            print(format_generic_human(payload, command))
+    elif streaming_output:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        print_json(payload)
