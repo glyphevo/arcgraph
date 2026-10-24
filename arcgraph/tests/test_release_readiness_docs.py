@@ -2227,8 +2227,8 @@ def test_scope_contract_accepts_the_generated_count_free_item() -> None:
 def _current_public_texts() -> dict[str, str]:
     """Tracked documents, built-in docs and help that describe the version built.
 
-    Release notes for earlier versions and their rows in RELEASE_NOTES.md keep the
-    status they had when published, so they are left out.
+    RELEASE_NOTES.md and v0.1.0-rc* release notes are excluded. Stable release
+    notes, including v0.1.0, v0.2.0 and v0.2.1, remain in the scan.
     """
 
     tracked = subprocess.run(

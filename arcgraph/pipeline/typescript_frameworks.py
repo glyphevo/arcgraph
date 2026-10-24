@@ -104,9 +104,7 @@ class TypeScriptFrameworkAnalyzer:
                 by_path[node.path].append(node)
 
         next_files = _next_project_files(files, self.repo_root)
-        next_nodes, next_edges, next_warnings = (
-            self._analyze_next(next_files, by_path) if next_files else ([], [], [])
-        )
+        next_nodes, next_edges, next_warnings = self._analyze_next(next_files, by_path)
         vue_nodes, vue_edges, vue_warnings = self._analyze_vue(files)
 
         next_route_count = sum(
