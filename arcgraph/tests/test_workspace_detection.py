@@ -13,11 +13,50 @@ from arcgraph.core.scanner import (
     _detect_from_pyproject,
     _detect_from_setup_cfg,
     detect_source_roots,
+    FileScanner,
 )
 
 # ---------------------------------------------------------------------------
 #  pyproject.toml — [tool.arcgraph] explicit config
 # ---------------------------------------------------------------------------
+
+
+def test_non_package_directories_under_package_tree_keep_package_names(
+    tmp_path: Path,
+) -> None:
+    sources = {
+        "pkg/__init__.py": "",
+        "pkg/alembic/env.py": "VALUE = 1\n",
+        "pkg/alembic/versions/old.py": "VALUE = 1\n",
+        "pkg/scripts/make_admin.py": "VALUE = 1\n",
+        "dev/code-generation/generate.py": "VALUE = 1\n",
+        "tests/multitenant_tests/test_x.py": "VALUE = 1\n",
+    }
+    for name, text in sources.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    result = detect_source_roots(tmp_path)
+    assert {root.path for root in result.roots} == {".", "dev", "tests"}
+    assert set(result.detection.non_package_dirs) == {"dev", "tests"}
+    records = FileScanner(repo_root=tmp_path, source_roots=list(result.roots)).scan()
+    modules = {record.path: record.module for record in records}
+    assert modules["pkg/alembic/env.py"] == "pkg.alembic.env"
+    assert modules["pkg/alembic/versions/old.py"] == "pkg.alembic.versions.old"
+    assert modules["pkg/scripts/make_admin.py"] == "pkg.scripts.make_admin"
+
+
+def test_package_ancestor_check_stays_inside_step_a_import_root(tmp_path: Path) -> None:
+    from arcgraph.core.scanner import _under_package_tree
+
+    package = tmp_path / "src" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    roots = [SourceRoot("src")]
+    assert _under_package_tree(tmp_path, SourceRoot("src/pkg/gap/scripts"), roots)
+    assert not _under_package_tree(tmp_path, SourceRoot("src/other/scripts"), roots)
+    assert not _under_package_tree(tmp_path, SourceRoot("elsewhere/scripts"), roots)
 
 
 def test_arcgraph_explicit_config(tmp_path: Path) -> None:

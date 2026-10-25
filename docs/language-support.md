@@ -86,6 +86,16 @@ surface is read-only; optional local feedback is a separate disclosed append.
 TS/JS may work when its runtime is available, but it is not part of that trial
 guarantee.
 
+## SQLAlchemy Tables
+
+SQLAlchemy declarative models with a literal `__tablename__` produce `table`
+nodes and `maps_to` edges. Table declarations inside migration directories are
+excluded, so historical schema snapshots cannot replace source model tables or
+add migration-model `maps_to` edges. A migration directory contains `versions/`
+and either `alembic.ini` or `env.py`; an `alembic/versions` path segment also
+identifies migration files when marker files are absent. Ancestor checks stop
+at the analyzed repository root. Other symbols in migration files remain indexed.
+
 ## Framework Semantics Over TypeScript/JavaScript
 
 Next.js and Vue are not independent languages in ArcGraph. They are framework

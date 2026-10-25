@@ -820,6 +820,11 @@ def _detect_from_packages_and_scripts(
     """
     step_a_roots = _step_a_package_roots(repo_root)
     step_b_roots, _ = _step_b_non_package_roots(repo_root)
+    step_b_roots = [
+        root
+        for root in step_b_roots
+        if not _under_package_tree(repo_root, root, step_a_roots)
+    ]
 
     # Dedup step B within itself: "scripts" covers "scripts/tests".
     # Step A roots are NOT deduped — different package trees can share
@@ -845,6 +850,23 @@ def _detect_from_packages_and_scripts(
     # Invariant: non_package_dirs must only record final resolved non-package roots
     resolved_non_pkg_dirs = tuple(r.path for r in resolved_b)
     return combined, resolved_non_pkg_dirs
+
+
+def _under_package_tree(
+    repo_root: Path, candidate: SourceRoot, package_roots: list[SourceRoot]
+) -> bool:
+    """A script directory inherits any package ancestor inside its import root."""
+    directory = repo_root / candidate.path
+    for root in package_roots:
+        import_root = repo_root / root.path
+        if not directory.is_relative_to(import_root):
+            continue
+        parent = directory.parent
+        while parent.is_relative_to(import_root) and parent != import_root:
+            if (parent / "__init__.py").is_file():
+                return True
+            parent = parent.parent
+    return False
 
 
 def _step_a_package_roots(repo_root: Path) -> list[SourceRoot]:

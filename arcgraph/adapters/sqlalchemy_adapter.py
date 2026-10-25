@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 from arcgraph.adapters.common import (
     AdapterAnalysis,
@@ -27,6 +28,26 @@ class TableFact:
     table_name: str
     model_id: str | None = None
     model_name: str | None = None
+
+
+def _is_migration_file(file_record: FileRecord) -> bool:
+    """Recognize Alembic history without relying on a source-root spelling.
+
+    Bound ancestor checks to the repository-relative path. An Alembic project
+    has versions/ plus alembic.ini or env.py; alembic/versions is also explicit
+    enough when those marker files are absent from the scanned snapshot.
+    """
+    parts = PurePosixPath(file_record.path).parts
+    if any(pair == ("alembic", "versions") for pair in zip(parts, parts[1:])):
+        return True
+    directory = Path(file_record.abs_path).parent
+    for _ in parts:
+        if (directory / "versions").is_dir() and (
+            (directory / "alembic.ini").is_file() or (directory / "env.py").is_file()
+        ):
+            return True
+        directory = directory.parent
+    return False
 
 
 class SQLAlchemyAdapter(SemanticAdapter):
@@ -54,7 +75,7 @@ class SQLAlchemyAdapter(SemanticAdapter):
 
         for file_record in files:
             tree = parsed_files.get(file_record.path)
-            if tree is None:
+            if tree is None or _is_migration_file(file_record):
                 continue
             imports = import_aliases(file_record, tree, module_names)
             for class_stmt in [
