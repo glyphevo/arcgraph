@@ -279,15 +279,15 @@ def test_qualname_suffix_resolution_requires_a_unique_boundary_match(
     assert resolution["resolved_ids"] == []
 
 
-def test_single_target_resolution_preserves_non_symbol_ids_and_qualnames(
+def test_single_target_resolution_preserves_resource_ids_and_bare_name_ambiguity(
     tmp_path: Path,
 ) -> None:
     output_dir = tmp_path / "arcgraph"
     table = Node(
-        id="table:public.users",
+        id="table:users",
         kind="table",
         name="users",
-        qualname="public.users",
+        qualname="users",
         path="schema.sql",
     )
     GraphStoreWriter(output_dir).write(
@@ -297,19 +297,28 @@ def test_single_target_resolution_preserves_non_symbol_ids_and_qualnames(
             source_roots=["src"],
         ),
         files=[],
-        nodes=[table],
+        nodes=[
+            table,
+            Node(
+                id="fn:pkg.users", kind="function", name="users", qualname="pkg.users"
+            ),
+        ],
         edges=[],
         warnings=[],
     )
     engine = QueryEngine(output_dir)
 
     by_id = engine.symbol(table.id)
-    by_qualname = engine.symbol("public.users")
+    by_name = engine.symbol("users")
 
     assert by_id["matches"][0]["id"] == table.id
     assert by_id["target_resolution"]["strategy"] == "node_id"
-    assert by_qualname["matches"][0]["id"] == table.id
-    assert by_qualname["target_resolution"]["strategy"] == "exact_qualname"
+    assert by_name["matches"] == []
+    assert by_name["target_resolution"]["status"] == "ambiguous"
+    assert by_name["target_resolution"]["strategy"] == "exact_name"
+    assert {
+        candidate["id"] for candidate in by_name["target_resolution"]["candidates"]
+    } == {table.id, "fn:pkg.users"}
 
 
 def test_worker_policy_does_not_return_a_route_with_the_same_query(

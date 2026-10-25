@@ -89,7 +89,13 @@ guarantee.
 ## SQLAlchemy Tables
 
 SQLAlchemy declarative models with a literal `__tablename__` produce `table`
-nodes and `maps_to` edges. Table declarations inside migration directories are
+nodes and `maps_to` edges. Module-level assignments to SQLAlchemy `Table(...)`
+also produce `table` nodes, with `declaration: "table"` and no model. Import
+aliases are recognized. The first argument must be a string literal; dynamic
+names are skipped with a diagnostic. Literal `ForeignKey("table.column")`
+arguments create `references` edges to the named table. A referenced table
+without an indexed declaration has an unresolved node with no source location.
+Table declarations inside migration directories are
 excluded, so historical schema snapshots cannot replace source model tables or
 add migration-model `maps_to` edges. A migration directory contains `versions/`
 and either `alembic.ini` or `env.py`; an `alembic/versions` path segment also

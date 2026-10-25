@@ -33,6 +33,19 @@ _CONCRETE_ROUTE_METHODS = frozenset(
 _WILDCARD_ROUTE_METHODS = ("ANY", "ALL")
 _ROUTE_METHODS = _CONCRETE_ROUTE_METHODS | frozenset(_WILDCARD_ROUTE_METHODS)
 
+# Adapter audit: SQLAlchemy/Django tables, ARQ queues, Celery tasks, MCP tools,
+# logging sinks, Typer/Click commands, and Pydantic environment resources.
+# These display qualnames are resource names, not Python qualified definitions.
+RESOURCE_QUALNAME_KINDS = (
+    "table",
+    "queue",
+    "worker_task",
+    "mcp_tool",
+    "log_sink",
+    "cli_command",
+    "config",
+)
+
 
 class ResolutionPolicy(str, Enum):
     """Resolution cardinality and target-shape contract."""
@@ -173,12 +186,14 @@ class TargetResolver:
                 conn, "path = ?", (self._normalized_path(normalized),), limit=1
             )
         ):
-            return self._unresolved(conn, normalized, suggestions=False)
+            return self._unresolved(conn, normalized, module_path=True)
 
         exact_qualname = self._rows(
             conn,
-            "kind NOT IN ('external_symbol', 'protocol_symbol') AND qualname = ?",
-            (normalized,),
+            "kind NOT IN ('external_symbol', 'protocol_symbol', "
+            + ",".join("?" for _ in RESOURCE_QUALNAME_KINDS)
+            + ") AND qualname = ?",
+            (*RESOURCE_QUALNAME_KINDS, normalized),
             limit=self.candidate_limit + 1,
         )
         if exact_qualname:
@@ -205,14 +220,28 @@ class TargetResolver:
             if path_rows:
                 return self._resolved(normalized, "exact_path", path_rows)
 
+        # A resource's bare display name now joins the ordinary definitions.
+        # Reserve one additional slot for that newly competing resource while
+        # leaving the bound for other ambiguous queries unchanged.
+        resource_name = self._rows(
+            conn,
+            "kind IN ("
+            + ",".join("?" for _ in RESOURCE_QUALNAME_KINDS)
+            + ") AND name = ?",
+            (*RESOURCE_QUALNAME_KINDS, normalized),
+            limit=1,
+        )
+        name_limit = self.candidate_limit + bool(resource_name)
         exact_name = self._rows(
             conn,
             "kind NOT IN ('external_symbol', 'protocol_symbol') AND name = ?",
             (normalized,),
-            limit=self.candidate_limit + 1,
+            limit=name_limit + 1,
         )
         if exact_name:
-            return self._unique_or_ambiguous(normalized, "exact_name", exact_name)
+            return self._unique_or_ambiguous(
+                normalized, "exact_name", exact_name, candidate_limit=name_limit
+            )
 
         suffix_rows = self._rows(
             conn,
@@ -328,17 +357,23 @@ class TargetResolver:
         return self._unresolved(conn, query)
 
     def _unique_or_ambiguous(
-        self, query: str, strategy: str, rows: list[dict[str, Any]]
+        self,
+        query: str,
+        strategy: str,
+        rows: list[dict[str, Any]],
+        *,
+        candidate_limit: int | None = None,
     ) -> TargetResolution:
         if len(rows) == 1:
             return self._resolved(query, strategy, rows)
-        bounded = rows[: self.candidate_limit]
+        limit = self.candidate_limit if candidate_limit is None else candidate_limit
+        bounded = rows[:limit]
         return TargetResolution(
             query=query,
             status="ambiguous",
             strategy=strategy,
             candidates=tuple(self._candidate(row) for row in bounded),
-            candidates_truncated=len(rows) > self.candidate_limit,
+            candidates_truncated=len(rows) > limit,
         )
 
     def _resolved(
@@ -352,9 +387,18 @@ class TargetResolver:
         )
 
     def _unresolved(
-        self, conn: Any, query: str, *, suggestions: bool = True
+        self,
+        conn: Any,
+        query: str,
+        *,
+        suggestions: bool = True,
+        module_path: bool = False,
     ) -> TargetResolution:
-        matches = self._suggestions(conn, query) if suggestions and query else []
+        matches = (
+            self._suggestions(conn, query, module_path=module_path)
+            if suggestions and query
+            else []
+        )
         return TargetResolution(
             query=query,
             status="unresolved",
@@ -362,7 +406,16 @@ class TargetResolver:
             suggestions=tuple(self._candidate(row) for row in matches),
         )
 
-    def _suggestions(self, conn: Any, query: str) -> list[dict[str, Any]]:
+    def _suggestions(
+        self, conn: Any, query: str, *, module_path: bool = False
+    ) -> list[dict[str, Any]]:
+        if module_path:
+            return self._rows(
+                conn,
+                "kind = 'module' AND path = ?",
+                (self._normalized_path(query),),
+                limit=1,
+            )
         parsed_route = parse_route_target(query)
         if parsed_route is None and query.startswith("route:"):
             parts = query.split(":", 2)

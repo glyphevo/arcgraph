@@ -54,6 +54,20 @@ An ordinary symbol or path target (the common case for `context`, `explain`,
 An ambiguous name produces ordered candidates and no resolved symbol. A path
 may intentionally resolve to multiple definitions; a symbol query may not.
 
+Resource display names (tables, queues, tasks, tools, logging sinks, commands,
+and environment configuration) do not take priority as exact qualified names.
+A bare resource name competes with same-name definitions; use its node ID,
+such as `table:users`, to select that resource directly.
+
+`symbol` keeps indexed file paths unresolved and suggests the corresponding
+module node, without selecting it. Use that module's dotted name or node ID
+for a symbol query, or use the file path with `context` or `impact`.
+
+Automatic source-root discovery keeps directories below a Python package in
+that package's import tree even when the child directory has no `__init__.py`.
+For example, `pkg/scripts/run.py` below `pkg/__init__.py` is `pkg.scripts.run`,
+with module ID `mod:pkg.scripts.run`. This applies to test packages as well.
+
 This precedence is not universal. `arcgraph_entrypoint_flow` and `worker`-flow
 selectors use their own dedicated entrypoint/worker matching instead of this
 precedence entirely; they never reach the steps below. For every other query,
