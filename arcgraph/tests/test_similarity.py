@@ -2,8 +2,97 @@ from __future__ import annotations
 
 import ast
 
+import pytest
+
 from arcgraph.analyzers.similarity import PROFILE_ALGORITHM, SimilarityAnalyzer
 from arcgraph.core.schemas import Edge, Node
+
+
+@pytest.mark.parametrize("prefix", ["", "async "])
+def test_profile_does_not_mutate_the_function_ast(prefix):
+    function = ast.parse(
+        '@decorate("keep")\n'
+        + prefix
+        + "def sample(value: int = 3, *, flag=True) -> str:\n"
+        "    def nested(item): return item.attribute\n"
+        "    result = [item.name for item in value if item is not None]\n"
+        '    return nested(result) if flag else "fallback"\n'
+    ).body[0]
+    before = ast.dump(function, include_attributes=True)
+    original_decorator = function.decorator_list[0]
+    node = Node(id="fn:sample.sample", kind="function", name="sample")
+    profile = SimilarityAnalyzer()._profile_for_node(
+        node, function, set(), set(), {node.id}
+    )
+    assert profile is not None
+    assert ast.dump(function, include_attributes=True) == before
+    assert function.decorator_list[0] is original_decorator
+
+
+def test_profile_matches_the_baseline_fields_without_deepcopy(monkeypatch):
+    from arcgraph.analyzers import similarity
+
+    function = ast.parse(
+        "def sample(value):\n    return service.send(value, 7)\n"
+    ).body[0]
+    node = Node(
+        id="fn:sample.sample",
+        kind="function",
+        name="sample",
+        qualname="sample.sample",
+        path="src/sample.py",
+        properties={"params": ["value"], "returns": None, "async": False},
+    )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("profiling deep-copied the input AST")
+
+    monkeypatch.setattr(similarity.copy, "deepcopy", forbidden)
+    profile = SimilarityAnalyzer()._profile_for_node(
+        node, function, {"fn:service.send"}, {"table:sample"}, {node.id}
+    )
+    # Captured from 3661e0c, including the ordered, truncated ngram payload.
+    assert profile.profile == {
+        "algorithm": "python_ast_token_ngrams_v2",
+        "bucket": "src|function|1||sync",
+        "structure_hash": "069fed139a823e5e",
+        "ngrams": [
+            "_arg body return",
+            "_attr ctx load",
+            "_function args arguments",
+            "_name ctx load",
+            "arg _arg body",
+            "arg arg _arg",
+            "args arg arg",
+            "args arguments args",
+            "args name id",
+            "arguments args arg",
+            "attr _attr ctx",
+            "attribute value name",
+            "body return value",
+            "call func attribute",
+            "constant value _int",
+            "ctx load args",
+            "ctx load attr",
+            "ctx load constant",
+            "func attribute value",
+            "functiondef name _function",
+            "id _name ctx",
+            "load args name",
+            "load attr _attr",
+            "load constant value",
+            "name _function args",
+            "name id _name",
+            "return value call",
+            "value call func",
+            "value name id",
+        ],
+        "call_targets": ["fn:service.send"],
+        "resource_targets": ["table:sample"],
+        "param_count": 1,
+        "returns": None,
+        "async": False,
+    }
 
 
 def test_same_structure_with_disjoint_features_remains_similar() -> None:

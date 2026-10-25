@@ -243,7 +243,7 @@ class SimilarityAnalyzer:
         if function_ast is None:
             return None
 
-        normalized = _NormalizedAst().visit(copy.deepcopy(function_ast))
+        normalized = _NormalizedAst().visit(function_ast)
         ast.fix_missing_locations(normalized)
         normalized_dump = _structure_dump(normalized)
         structure_hash = hashlib.sha256(normalized_dump.encode("utf-8")).hexdigest()[
@@ -388,6 +388,15 @@ class SimilarityAnalyzer:
 
 
 class _NormalizedAst(ast.NodeTransformer):
+    def visit(self, node: ast.AST) -> ast.AST:
+        # NodeTransformer mutates both nodes and list fields. Copy just those
+        # containers as they are visited, leaving the input tree untouched.
+        normalized = copy.copy(node)
+        for name, value in ast.iter_fields(node):
+            if isinstance(value, list):
+                setattr(normalized, name, list(value))
+        return super().visit(normalized)
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         node.name = "_function"
         node.decorator_list = []
