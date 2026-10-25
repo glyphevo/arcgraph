@@ -13,6 +13,7 @@ from arcgraph.analyzers.types import (
     TypeRefAnalyzer,
     _TypeContext,
     _ResolvedType,
+    _TypeContextIndex,
 )
 from arcgraph.core.schemas import FileRecord, Node
 
@@ -25,12 +26,15 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
         nodes: list[Node],
         module_names: set[str],
         return_decorator_cache: dict[str, bool] | None = None,
+        shared_context: _TypeContextIndex | None = None,
+        by_id: dict[str, Node] | None = None,
     ) -> None:
         if return_decorator_cache is None:
             return_decorator_cache = {}
         callable_contracts = CallableContracts(nodes, module_names)
         catalog = FixtureCatalog(files, parsed_files, module_names, nodes)
-        by_id = {n.id: n for n in nodes}
+        if by_id is None:
+            by_id = {n.id: n for n in nodes}
         provider_paths = {f.file.path for f in catalog.fixtures}
         contexts = {
             f.path: _TypeContext(
@@ -40,6 +44,7 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
                 module_names,
                 return_decorator_cache,
                 callable_contracts,
+                shared_context=shared_context,
             )
             for f in files
             if f.path in provider_paths
@@ -102,6 +107,7 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
                             module_names,
                             return_decorator_cache,
                             callable_contracts,
+                            shared_context=shared_context,
                         )
                     ref = self._type_ref_record(
                         contexts[file.path],
@@ -138,7 +144,7 @@ class PytestTypeAnalyzer(TypeRefAnalyzer):
                     )
                     analysis.type_refs_by_scope.setdefault(node.id, []).append(ref)
                     analysis.type_refs_by_binding[binding["binding_id"]] = ref
-        analysis.attach_to_nodes(nodes)
+        analysis.attach_to_nodes(nodes, by_id=by_id)
         # Plain aliases of an unknown fixture input must not escape the receiver
         # guard and acquire a guessed type. General alias inference is separate.
         lexical = LexicalScopes(nodes, {})

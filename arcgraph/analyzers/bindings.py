@@ -36,8 +36,11 @@ class BindingAnalysis:
         default_factory=dict
     )
 
-    def attach_to_nodes(self, nodes: list[Node]) -> None:
-        by_id = {node.id: node for node in nodes}
+    def attach_to_nodes(
+        self, nodes: list[Node], *, by_id: dict[str, Node] | None = None
+    ) -> None:
+        if by_id is None:
+            by_id = {node.id: node for node in nodes}
         for scope_id in self.export_mutations_by_scope:
             if scope_id in by_id:
                 by_id[scope_id].properties["mutates_exports"] = True

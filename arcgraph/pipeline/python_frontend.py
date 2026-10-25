@@ -179,12 +179,13 @@ class PythonGraphAnalyzer:
         # --- Phase 3: Scope / Type (bindings + type refs) ---
         t0 = time.monotonic()
         nodes = self._dedupe_nodes(nodes)
+        nodes_by_id = {node.id: node for node in nodes}
         for file_record in files:
             tree = parsed_files.get(file_record.path)
             if tree is None:
                 continue
             binding_analysis = binding_analyzer.analyze(file_record, tree, module_names)
-            binding_analysis.attach_to_nodes(nodes)
+            binding_analysis.attach_to_nodes(nodes, by_id=nodes_by_id)
 
         if call_context_nodes is not None:
             current_ids = {node.id for node in nodes}
@@ -221,13 +222,23 @@ class PythonGraphAnalyzer:
             type_ref_analysis = type_ref_analyzer.analyze(
                 file_record, tree, type_context, module_names
             )
-            type_ref_analysis.attach_to_nodes(nodes)
+            type_ref_analysis.attach_to_nodes(nodes, by_id=nodes_by_id)
         if self.adapter_registry is not None and any(
             isinstance(adapter, PytestAdapter)
             for adapter in self.adapter_registry.adapters
         ):
             PytestTypeAnalyzer().attach(
-                files, parsed_files, type_context, module_names, return_decorator_cache
+                files,
+                parsed_files,
+                type_context,
+                module_names,
+                return_decorator_cache,
+                type_ref_analyzer.shared_context,
+                (
+                    nodes_by_id
+                    if type_context is nodes
+                    else {node.id: node for node in type_context}
+                ),
             )
         phase_timings["scope_type"] = time.monotonic() - t0
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+from collections import ChainMap
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
@@ -726,8 +728,11 @@ class TypeRefAnalysis:
     diagnostics_by_scope: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     type_refs_by_binding: dict[str, dict[str, Any]] = field(default_factory=dict)
 
-    def attach_to_nodes(self, nodes: list[Node]) -> None:
-        by_id = {node.id: node for node in nodes}
+    def attach_to_nodes(
+        self, nodes: list[Node], *, by_id: dict[str, Node] | None = None
+    ) -> None:
+        if by_id is None:
+            by_id = {node.id: node for node in nodes}
         for scope_id, type_refs in self.type_refs_by_scope.items():
             node = by_id.get(scope_id)
             if node is not None and type_refs:
@@ -813,6 +818,7 @@ class TypeRefAnalyzer:
             self._callable_contracts,
         )
         self._return_decorator_cache: dict[str, bool] = {}
+        self.shared_context = _TypeContextIndex(nodes)
         return self._return_decorator_cache
 
     @staticmethod
@@ -889,6 +895,7 @@ class TypeRefAnalyzer:
                 else None
             ),
             self._foreign_return_types if cache is not None else None,
+            self.shared_context if cache is not None else None,
         )
         analysis = TypeRefAnalysis()
         context.attach_type_traits()
@@ -1887,6 +1894,96 @@ def _simple_property_fields(
     return fields
 
 
+class _TypeContextIndex:
+    """Structural lookup order for one prepared nodes object.
+
+    Return slots hold declarations, not annotation resolutions: those still
+    depend on the consumer file and the existing foreign-return cache.
+    """
+
+    def __init__(self, nodes: list[Node]) -> None:
+        self.nodes = nodes
+        self.nodes_by_path: dict[str | None, list[Node]] = {}
+        for node in nodes:
+            self.nodes_by_path.setdefault(node.path, []).append(node)
+        self.classes_by_id = {node.id: node for node in nodes if node.kind == "class"}
+        self.export_nodes = {
+            node.id: node for node in nodes if node.kind in {"module", "class"}
+        }
+        self.classes_by_name: dict[str, list[Node]] = {}
+        for node in self.classes_by_id.values():
+            self.classes_by_name.setdefault(node.name, []).append(node)
+        self.property_methods = {
+            (node.qualname.rsplit(".", 1)[0], node.name): node
+            for node in nodes
+            if node.kind == "method" and node.qualname
+        }
+        self.return_nodes = []
+        self.return_slots: dict[str, dict[Any, list[Node]]] = {
+            name: {}
+            for name in (
+                "return_types_by_function_name",
+                "return_types_by_function_qualname",
+                "return_types_by_method",
+                "property_return_types_by_method",
+            )
+        }
+        for node in nodes:
+            if node.kind not in {"function", "method"} or not node.qualname:
+                continue
+            returns = node.properties.get("returns")
+            if not node.properties.get("generator") and not (
+                isinstance(returns, str) and returns
+            ):
+                continue
+            self.return_nodes.append(node)
+            if node.kind == "function":
+                keys = {"return_types_by_function_qualname": node.qualname}
+                if not node.properties.get("lexical_parent"):
+                    keys["return_types_by_function_name"] = node.name
+            else:
+                key = (node.qualname.rsplit(".", 1)[0], node.name)
+                keys = {"return_types_by_method": key}
+                if _TypeContext._is_property_method(node):
+                    keys["property_return_types_by_method"] = key
+            for name, key in keys.items():
+                self.return_slots[name].setdefault(key, []).append(node)
+
+
+class _ReturnTypeView(Mapping):
+    """Project ordered structural slots through this file's resolved values."""
+
+    def __init__(self, slots, values, *, multiple=False):
+        self.slots = slots
+        self.values = values
+        self.multiple = multiple
+
+    def __getitem__(self, key):
+        results = []
+        for node in self.slots[key]:
+            resolved = self.values[node.id]
+            if resolved is None or (
+                not resolved.type_id
+                and union_alternatives(
+                    {"origin": resolved.origin, "type_args": resolved.type_args}
+                )
+                is None
+            ):
+                continue
+            results.append(resolved)
+        if not results:
+            raise KeyError(key)
+        return results if self.multiple else results[-1]
+
+    def __iter__(self):
+        for key in self.slots:
+            if key in self:
+                yield key
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+
 class _TypeContext:
     def __init__(
         self,
@@ -1899,6 +1996,7 @@ class _TypeContext:
         property_fields: dict[str, str] | None = None,
         nominal_guard_classes: set[str] | None = None,
         foreign_return_types: dict | None = None,
+        shared_context: _TypeContextIndex | None = None,
     ) -> None:
         self._return_decorator_cache = (
             return_decorator_cache if return_decorator_cache is not None else {}
@@ -1925,19 +2023,19 @@ class _TypeContext:
             tree
         )
         self.module_names = module_names
-        self._nodes_by_path: dict[str | None, list[Node]] = {}
-        for scope in nodes:
-            self._nodes_by_path.setdefault(scope.path, []).append(scope)
+        self._shared_context = (
+            shared_context
+            if shared_context is not None and shared_context.nodes is nodes
+            else None
+        )
+        index = self._shared_context or _TypeContextIndex(nodes)
+        self._nodes_by_path = index.nodes_by_path
         self.lexical = LexicalScopes(self._nodes_by_path.get(file_record.path, []), {})
         self._decorator_scopes = {file_record.path: self.lexical}
         self.aliases = self._import_aliases(tree.body)
-        self.classes_by_id = {node.id: node for node in nodes if node.kind == "class"}
-        self.export_nodes = {
-            node.id: node for node in nodes if node.kind in {"module", "class"}
-        }
-        self.classes_by_name: dict[str, list[Node]] = {}
-        for node in self.classes_by_id.values():
-            self.classes_by_name.setdefault(node.name, []).append(node)
+        self.classes_by_id = index.classes_by_id
+        self.export_nodes = index.export_nodes
+        self.classes_by_name = index.classes_by_name
         self.return_types_by_function_name: dict[str, list[_ResolvedType]] = {}
         self.return_types_by_function_qualname: dict[str, _ResolvedType] = {}
         self.return_types_by_method: dict[tuple[str, str], _ResolvedType] = {}
@@ -1952,11 +2050,7 @@ class _TypeContext:
             nodes, module_names
         )
         if not hasattr(self.callable_contracts, "property_methods"):
-            self.callable_contracts.property_methods = {
-                (n.qualname.rsplit(".", 1)[0], n.name): n
-                for n in nodes
-                if n.kind == "method" and n.qualname
-            }
+            self.callable_contracts.property_methods = index.property_methods
         self.methods_by_class = self.callable_contracts.property_methods
         self.callable_contracts.module_names = module_names
         self._build_return_type_maps()
@@ -3093,6 +3187,25 @@ class _TypeContext:
         return True
 
     def _build_return_type_maps(self) -> None:
+        if self._shared_context is not None:
+            local = {}
+            cache = self._foreign_return_types
+            for node in self._shared_context.return_nodes:
+                if cache is not None and node.path != self.file_record.path:
+                    if node.id not in cache:
+                        cache[node.id] = self.callable_return_type(node)
+                else:
+                    local[node.id] = self.callable_return_type(node)
+            values = ChainMap(local, cache if cache is not None else {})
+            for name, slots in self._shared_context.return_slots.items():
+                setattr(
+                    self,
+                    name,
+                    _ReturnTypeView(
+                        slots, values, multiple=name == "return_types_by_function_name"
+                    ),
+                )
+            return
         for node in self.nodes:
             if node.kind not in {"function", "method"} or not node.qualname:
                 continue
