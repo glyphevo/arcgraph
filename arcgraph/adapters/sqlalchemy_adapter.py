@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import posixpath
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -34,20 +35,24 @@ class TableFact:
 def _is_migration_file(file_record: FileRecord) -> bool:
     """Recognize Alembic history without relying on a source-root spelling.
 
-    Bound ancestor checks to the repository-relative path. An Alembic project
-    has versions/ plus alembic.ini or env.py; alembic/versions is also explicit
-    enough when those marker files are absent from the scanned snapshot.
+    Only history files below versions/ are excluded, not adjacent models.
+    Normalize relative components before bounding checks to the repository.
     """
-    parts = PurePosixPath(file_record.path).parts
+    relative = PurePosixPath(posixpath.normpath(file_record.path.replace("\\", "/")))
+    parts = relative.parts
+    if not parts or relative.is_absolute() or ".." in parts:
+        return False
     if any(pair == ("alembic", "versions") for pair in zip(parts, parts[1:])):
         return True
-    directory = Path(file_record.abs_path).parent
-    for _ in parts:
+    repository = Path(file_record.abs_path).resolve().parents[len(parts) - 1]
+    for index, part in enumerate(parts[:-1]):
+        if part != "versions":
+            continue
+        directory = repository.joinpath(*parts[:index])
         if (directory / "versions").is_dir() and (
             (directory / "alembic.ini").is_file() or (directory / "env.py").is_file()
         ):
             return True
-        directory = directory.parent
     return False
 
 
@@ -183,10 +188,39 @@ class SQLAlchemyAdapter(SemanticAdapter):
         analysis: AdapterAnalysis,
     ) -> None:
         for stmt in tree.body:
-            if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, ast.Call):
+            if not isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Expr)):
                 continue
-            call = stmt.value
-            if resolve_alias(call_name(call.func), imports) != "sqlalchemy.Table":
+            value = stmt.value
+            if value is None:
+                continue
+            table_calls = [
+                item
+                for item in ast.walk(value)
+                if isinstance(item, ast.Call)
+                and (resolved := resolve_alias(call_name(item.func), imports))
+                and resolved.startswith("sqlalchemy.")
+                and "Table" in resolved.split(".")
+            ]
+            if not table_calls:
+                continue
+            call = value
+            if (
+                not isinstance(stmt, (ast.Assign, ast.AnnAssign))
+                or not isinstance(call, ast.Call)
+                or resolve_alias(call_name(call.func), imports)
+                not in {"sqlalchemy.Table", "sqlalchemy.sql.schema.Table"}
+            ):
+                analysis.diagnostics.append(
+                    BuildWarning(
+                        kind="adapter_quality_warning",
+                        path=file_record.path,
+                        message=(
+                            f"SQLAlchemy Table at line {stmt.lineno} skipped: "
+                            "unsupported declaration shape; use a direct "
+                            "module-level Table assignment."
+                        ),
+                    )
+                )
                 continue
             name = literal_str(call.args[0]) if call.args else None
             if name is None:
@@ -221,10 +255,10 @@ class SQLAlchemyAdapter(SemanticAdapter):
             for item in ast.walk(call):
                 if not isinstance(item, ast.Call) or not item.args:
                     continue
-                if (
-                    resolve_alias(call_name(item.func), imports)
-                    != "sqlalchemy.ForeignKey"
-                ):
+                if resolve_alias(call_name(item.func), imports) not in {
+                    "sqlalchemy.ForeignKey",
+                    "sqlalchemy.sql.schema.ForeignKey",
+                }:
                     continue
                 target = literal_str(item.args[0])
                 if target is None or "." not in target:

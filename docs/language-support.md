@@ -89,20 +89,24 @@ guarantee.
 ## SQLAlchemy Tables
 
 SQLAlchemy declarative models with a literal `__tablename__` produce `table`
-nodes and `maps_to` edges. Module-level assignments to SQLAlchemy `Table(...)`
-also produce `table` nodes, with `declaration: "table"` and no model. Import
-aliases are recognized. The first argument must be a string literal; dynamic
+nodes and `maps_to` edges. Module-level assignments, including annotated
+assignments, to SQLAlchemy `Table(...)` also produce `table` nodes, with
+`declaration: "table"` and no model. Import aliases from `sqlalchemy` and
+`sqlalchemy.sql.schema` are recognized. Unsupported SQLAlchemy Table call
+shapes are skipped with an `adapter_quality_warning` diagnostic.
+The first argument must be a string literal; dynamic
 names are skipped with a diagnostic. Literal `ForeignKey("table.column")`
 arguments create `references` edges to the named table. A referenced table
 without an indexed declaration has an unresolved node with no source location.
 Foreign-key edges are framework facts; they do not supply a SCIP precise-reference
 backend. Imported precise-reference evidence remains separate from these facts.
-Table declarations inside migration directories are
+Only table declarations below a migration directory's `versions/` are
 excluded, so historical schema snapshots cannot replace source model tables or
-add migration-model `maps_to` edges. A migration directory contains `versions/`
-and either `alembic.ini` or `env.py`; an `alembic/versions` path segment also
-identifies migration files when marker files are absent. Ancestor checks stop
-at the analyzed repository root. Other symbols in migration files remain indexed.
+add migration-model `maps_to` edges. The directory containing `versions/` must
+also contain `alembic.ini` or `env.py`; files beside `versions/` remain eligible.
+An `alembic/versions` path segment also identifies migration files when marker
+files are absent. Relative paths are normalized before checks, which stay
+inside the analyzed repository root. Other symbols in migration files remain indexed.
 
 ## Framework Semantics Over TypeScript/JavaScript
 

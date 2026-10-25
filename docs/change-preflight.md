@@ -55,9 +55,16 @@ An ambiguous name produces ordered candidates and no resolved symbol. A path
 may intentionally resolve to multiple definitions; a symbol query may not.
 
 Resource display names (tables, queues, tasks, tools, logging sinks, commands,
-and environment configuration) do not take priority as exact qualified names.
-A bare resource name competes with same-name definitions; use its node ID,
-such as `table:users`, to select that resource directly.
+and environment configuration) do not take priority as exact qualified names
+when qualname equals name or contains neither `.` nor `:`. A bare resource name
+competes with same-name definitions, including bare module names.
+Qualified resource names such as `pkg.tasks.add` and `celery:default` keep
+exact-qualified-name matching when distinct from the display name.
+In ambiguous results, resources whose name exactly matches the query are
+pinned before truncation, in their existing order; the remaining candidates
+fill the remaining slots in their existing order. The default candidate limit remains 8,
+and `candidates_truncated` reports omitted matches. Use a node ID, such as
+`table:users`, to select a resource directly.
 
 `symbol` keeps indexed file paths unresolved and suggests the corresponding
 module node, without selecting it. Use that module's dotted name or node ID

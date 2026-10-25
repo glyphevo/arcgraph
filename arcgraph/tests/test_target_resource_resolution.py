@@ -54,8 +54,8 @@ def test_resource_bare_qualnames_do_not_override_same_name_definitions(
     assert qualified["strategy"] == "exact_qualname"
 
 
-@pytest.mark.parametrize("definitions,truncated", [(8, False), (9, True)])
-def test_resource_name_reserves_one_extra_candidate_slot(
+@pytest.mark.parametrize("definitions,truncated", [(7, False), (8, True), (12, True)])
+def test_exact_name_resource_is_pinned_before_candidate_truncation(
     tmp_path: Path, definitions: int, truncated: bool
 ) -> None:
     out = tmp_path / "out"
@@ -84,7 +84,149 @@ def test_resource_name_reserves_one_extra_candidate_slot(
     )
     resolution = QueryEngine(out).symbol("shared")["target_resolution"]
     assert resolution["status"] == "ambiguous"
-    assert len(resolution["candidates"]) == 9
+    assert len(resolution["candidates"]) == 8
     assert resolution["candidates_truncated"] is truncated
-    if not truncated:
-        assert "table:shared" in {item["id"] for item in resolution["candidates"]}
+    assert [item["id"] for item in resolution["candidates"]] == [
+        "table:shared",
+        *sorted(node.id for node in nodes if node.kind == "function")[:7],
+    ]
+
+
+@pytest.mark.parametrize(
+    "query,status,ids,strategy",
+    [
+        (
+            "pkg.tasks.only",
+            "resolved",
+            {"worker:celery:pkg.tasks.only"},
+            "exact_qualname",
+        ),
+        (
+            "pkg.tasks.add",
+            "ambiguous",
+            {"fn:pkg.tasks.add", "worker:celery:pkg.tasks.add"},
+            "exact_qualname",
+        ),
+        ("celery:default", "resolved", {"queue:celery:default"}, "exact_qualname"),
+        ("mealie.recipe", "resolved", {"log:mealie.recipe"}, "exact_name"),
+        (
+            "categories",
+            "ambiguous",
+            {"mod:categories", "table:categories"},
+            "exact_name",
+        ),
+    ],
+)
+def test_review_qualified_resources_and_bare_module_competition(
+    tmp_path: Path, query: str, status: str, ids: set[str], strategy: str
+) -> None:
+    out = tmp_path / "out"
+    nodes = [
+        Node(
+            id="fn:pkg.tasks.add", kind="function", name="add", qualname="pkg.tasks.add"
+        ),
+        Node(
+            id="worker:celery:pkg.tasks.only",
+            kind="worker_task",
+            name="only",
+            qualname="pkg.tasks.only",
+        ),
+        Node(
+            id="worker:celery:pkg.tasks.add",
+            kind="worker_task",
+            name="add",
+            qualname="pkg.tasks.add",
+        ),
+        Node(
+            id="queue:celery:default",
+            kind="queue",
+            name="default",
+            qualname="celery:default",
+        ),
+        Node(
+            id="log:mealie.recipe",
+            kind="log_sink",
+            name="mealie.recipe",
+            qualname="mealie.recipe",
+        ),
+        Node(
+            id="mod:categories", kind="module", name="categories", qualname="categories"
+        ),
+        Node(
+            id="table:categories",
+            kind="table",
+            name="categories",
+            qualname="categories",
+        ),
+    ]
+    GraphStoreWriter(out).write(
+        IndexMetadata(
+            index_version="qualified-resources",
+            repo_root=str(tmp_path),
+            source_roots=["."],
+        ),
+        files=[],
+        nodes=nodes,
+        edges=[],
+        warnings=[],
+    )
+    result = QueryEngine(out).symbol(query)["target_resolution"]
+    assert result["status"] == status
+    assert result["strategy"] == strategy
+    actual = (
+        result["resolved_ids"]
+        if status == "resolved"
+        else [item["id"] for item in result["candidates"]]
+    )
+    assert set(actual) == ids
+
+
+@pytest.mark.parametrize("resource_count", [7, 10])
+def test_all_resource_kinds_keep_their_order_before_nonresource_matches(
+    tmp_path: Path, resource_count: int
+) -> None:
+    kinds = [
+        "table",
+        "queue",
+        "worker_task",
+        "mcp_tool",
+        "log_sink",
+        "cli_command",
+        "config",
+    ]
+    resources = [
+        Node(
+            id=f"{kinds[i % 7]}:{i}:shared",
+            kind=kinds[i % 7],
+            name="shared",
+            qualname="shared",
+        )
+        for i in range(resource_count)
+    ]
+    definitions = [
+        Node(
+            id=f"fn:pkg.m{i}.shared",
+            kind="function",
+            name="shared",
+            qualname=f"pkg.m{i}.shared",
+        )
+        for i in range(12)
+    ]
+    out = tmp_path / "out"
+    GraphStoreWriter(out).write(
+        IndexMetadata(
+            index_version="resource-order", repo_root=str(tmp_path), source_roots=["."]
+        ),
+        files=[],
+        nodes=resources + definitions,
+        edges=[],
+        warnings=[],
+    )
+    result = QueryEngine(out).symbol("shared")["target_resolution"]
+    expected = sorted(resources, key=lambda node: (node.kind, node.id)) + sorted(
+        definitions, key=lambda node: node.id
+    )
+    assert [item["id"] for item in result["candidates"]] == [
+        node.id for node in expected[:8]
+    ]
+    assert result["candidates_truncated"] is True

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from arcgraph.adapters.sqlalchemy_adapter import SQLAlchemyAdapter
+from arcgraph.adapters.sqlalchemy_adapter import SQLAlchemyAdapter, _is_migration_file
 from arcgraph.core.schemas import FileRecord, Node
 
 
@@ -60,10 +60,12 @@ def test_migration_snapshots_do_not_define_tables(tmp_path: Path, marker: str) -
         },
     )
     assert [(node.id, node.path) for node in result.nodes] == [
-        ("table:categories", "pkg/models.py")
+        ("table:categories", "pkg/models.py"),
+        ("table:categories", "pkg/schema_history/helpers.py"),
     ]
     assert [(edge.source, edge.target, edge.kind) for edge in result.edges] == [
-        ("class:pkg.models.Category", "table:categories", "maps_to")
+        ("class:pkg.models.Category", "table:categories", "maps_to"),
+        ("class:pkg.schema_history.helpers.Category", "table:categories", "maps_to"),
     ]
 
 
@@ -107,6 +109,7 @@ def test_migration_markers_outside_repository_do_not_hide_source(
         ("import sqlalchemy as sa", "sa.Table", "sa.ForeignKey"),
         ("from sqlalchemy import Table, ForeignKey", "Table", "ForeignKey"),
         ("from sqlalchemy import Table as T, ForeignKey as FK", "T", "FK"),
+        ("from sqlalchemy.sql.schema import Table, ForeignKey", "Table", "ForeignKey"),
     ],
 )
 def test_module_table_declarations_and_literal_foreign_keys(
@@ -201,3 +204,103 @@ def test_foreign_table_without_a_declaration_has_no_invented_location(
     assert [(edge.source, edge.target, edge.kind) for edge in result.edges] == [
         ("table:links", "table:public.users", "references")
     ]
+
+
+@pytest.mark.parametrize("directory", ["", "pkg", "svc/db"])
+@pytest.mark.parametrize("marker", ["env.py", "alembic.ini"])
+def test_migration_marker_only_excludes_files_under_versions(
+    tmp_path: Path, directory: str, marker: str
+) -> None:
+    history = tmp_path / directory
+    (history / "versions").mkdir(parents=True)
+    (history / marker).write_text("", encoding="utf-8")
+    prefix = directory + "/" if directory else ""
+    result = _analyze(
+        tmp_path,
+        {
+            prefix + "models.py": 'class Source:\n    __tablename__ = "source"\n',
+            prefix + "versions/old.py": 'class Old:\n    __tablename__ = "old"\n',
+        },
+    )
+    assert [(node.id, node.path) for node in result.nodes] == [
+        ("table:source", prefix + "models.py")
+    ]
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["pkg/../models.py", "pkg/../pkg/../models.py", "alembic/versions/../../models.py"],
+)
+def test_migration_ancestor_checks_normalize_dot_dot_without_leaving_repo(
+    tmp_path: Path, path: str
+) -> None:
+    (tmp_path / "versions").mkdir()
+    (tmp_path / "env.py").write_text("", encoding="utf-8")
+    result = _analyze(
+        tmp_path / "repo", {path: 'class Source:\n    __tablename__ = "source"\n'}
+    )
+    assert [node.id for node in result.nodes] == ["table:source"]
+
+
+def test_normalized_absolute_path_and_relative_dot_dot_stay_in_repository(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "versions").mkdir()
+    (tmp_path / "env.py").write_text("", encoding="utf-8")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    record = FileRecord(
+        path="pkg/../models.py",
+        abs_path=str(repo / "models.py"),
+        source_root=".",
+        module="models",
+        file_hash="fixture",
+        line_count=1,
+    )
+    assert _is_migration_file(record) is False
+
+
+@pytest.mark.parametrize(
+    "assignment",
+    ['links = Table("links", metadata)', 'links: Table = Table("links", metadata)'],
+)
+def test_sql_schema_table_alias_and_annotated_assignments(
+    tmp_path: Path, assignment: str
+) -> None:
+    result = _analyze(
+        tmp_path,
+        {"models.py": "from sqlalchemy.sql.schema import Table\n" + assignment + "\n"},
+    )
+    assert [node.id for node in result.nodes] == ["table:links"]
+    assert result.diagnostics == []
+
+
+def test_main_table_alias_with_annotated_assignment(tmp_path: Path) -> None:
+    result = _analyze(
+        tmp_path,
+        {
+            "models.py": 'import sqlalchemy as sa\nlinks: sa.Table = sa.Table("links", metadata)\n'
+        },
+    )
+    assert [node.id for node in result.nodes] == ["table:links"]
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        'links = sa.Table("links", metadata).alias("named")',
+        'links = sa.sql.expression.Table("links", metadata)',
+        'sa.Table("links", metadata)',
+    ],
+)
+def test_unsupported_sqlalchemy_table_forms_are_diagnosed(
+    tmp_path: Path, declaration: str
+) -> None:
+    result = _analyze(
+        tmp_path, {"models.py": "import sqlalchemy as sa\n" + declaration + "\n"}
+    )
+    assert result.nodes == []
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].kind == "adapter_quality_warning"
+    assert "Table" in result.diagnostics[0].message
+    assert "line 2" in result.diagnostics[0].message

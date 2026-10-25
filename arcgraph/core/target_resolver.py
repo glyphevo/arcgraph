@@ -35,7 +35,8 @@ _ROUTE_METHODS = _CONCRETE_ROUTE_METHODS | frozenset(_WILDCARD_ROUTE_METHODS)
 
 # Adapter audit: SQLAlchemy/Django tables, ARQ queues, Celery tasks, MCP tools,
 # logging sinks, Typer/Click commands, and Pydantic environment resources.
-# These display qualnames are resource names, not Python qualified definitions.
+# Only bare display qualnames are excluded; qualified task/queue names remain
+# eligible for exact_qualname (review F1). C198 pins exact-name resources at 8.
 RESOURCE_QUALNAME_KINDS = (
     "table",
     "queue",
@@ -188,15 +189,33 @@ class TargetResolver:
         ):
             return self._unresolved(conn, normalized, module_path=True)
 
+        display_resource = (
+            "kind IN ("
+            + ",".join("?" for _ in RESOURCE_QUALNAME_KINDS)
+            + ") AND (qualname = name OR "
+            "(instr(qualname, '.') = 0 AND instr(qualname, ':') = 0))"
+        )
+        bare_resource = (
+            self._rows(
+                conn,
+                f"({display_resource}) AND name = ?",
+                (*RESOURCE_QUALNAME_KINDS, normalized),
+                limit=1,
+            )
+            if "." not in normalized and ":" not in normalized
+            else []
+        )
         exact_qualname = self._rows(
             conn,
-            "kind NOT IN ('external_symbol', 'protocol_symbol', "
-            + ",".join("?" for _ in RESOURCE_QUALNAME_KINDS)
+            "kind NOT IN ('external_symbol', 'protocol_symbol') AND NOT ("
+            + display_resource
             + ") AND qualname = ?",
             (*RESOURCE_QUALNAME_KINDS, normalized),
             limit=self.candidate_limit + 1,
         )
-        if exact_qualname:
+        # A bare module/function qualname must not bypass a competing display
+        # resource, including through the normalized-id retry below.
+        if exact_qualname and not bare_resource:
             return self._unique_or_ambiguous(
                 normalized, "exact_qualname", exact_qualname
             )
@@ -209,7 +228,7 @@ class TargetResolver:
             tuple(normalized_ids),
             limit=self.candidate_limit + 1,
         )
-        if normalized_rows:
+        if normalized_rows and not bare_resource:
             return self._unique_or_ambiguous(
                 normalized, "normalized_node_id", normalized_rows
             )
@@ -220,27 +239,29 @@ class TargetResolver:
             if path_rows:
                 return self._resolved(normalized, "exact_path", path_rows)
 
-        # A resource's bare display name now joins the ordinary definitions.
-        # Reserve one additional slot for that newly competing resource while
-        # leaving the bound for other ambiguous queries unchanged.
-        resource_name = self._rows(
+        # Fetch resources separately so those beyond the ordinary sorted
+        # window can still be pinned before truncation. Both reads stay bounded.
+        resource_names = self._rows(
             conn,
             "kind IN ("
             + ",".join("?" for _ in RESOURCE_QUALNAME_KINDS)
             + ") AND name = ?",
             (*RESOURCE_QUALNAME_KINDS, normalized),
-            limit=1,
+            limit=self.candidate_limit + 1,
         )
-        name_limit = self.candidate_limit + bool(resource_name)
         exact_name = self._rows(
             conn,
             "kind NOT IN ('external_symbol', 'protocol_symbol') AND name = ?",
             (normalized,),
-            limit=name_limit + 1,
+            limit=self.candidate_limit + 1,
         )
         if exact_name:
+            resource_ids = {row["id"] for row in resource_names}
             return self._unique_or_ambiguous(
-                normalized, "exact_name", exact_name, candidate_limit=name_limit
+                normalized,
+                "exact_name",
+                resource_names
+                + [row for row in exact_name if row["id"] not in resource_ids],
             )
 
         suffix_rows = self._rows(
@@ -361,19 +382,23 @@ class TargetResolver:
         query: str,
         strategy: str,
         rows: list[dict[str, Any]],
-        *,
-        candidate_limit: int | None = None,
     ) -> TargetResolution:
         if len(rows) == 1:
             return self._resolved(query, strategy, rows)
-        limit = self.candidate_limit if candidate_limit is None else candidate_limit
-        bounded = rows[:limit]
+        resources = [
+            row
+            for row in rows
+            if row["kind"] in RESOURCE_QUALNAME_KINDS and row["name"] == query
+        ]
+        resource_ids = {row["id"] for row in resources}
+        ordered = resources + [row for row in rows if row["id"] not in resource_ids]
+        bounded = ordered[: self.candidate_limit]
         return TargetResolution(
             query=query,
             status="ambiguous",
             strategy=strategy,
             candidates=tuple(self._candidate(row) for row in bounded),
-            candidates_truncated=len(rows) > limit,
+            candidates_truncated=len(rows) > self.candidate_limit,
         )
 
     def _resolved(

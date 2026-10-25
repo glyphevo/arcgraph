@@ -283,6 +283,17 @@ separately, before or instead of this chain. See
 [docs/change-preflight.md](https://github.com/glyphevo/arcgraph/blob/main/docs/change-preflight.md) for the full precedence
 and its exceptions.
 
+Resource display names do not take priority as exact qualified names when
+qualname equals name or contains neither `.` nor `:`. Bare resource names
+compete with same-name definitions, including bare module names.
+Qualified resource names such as `pkg.tasks.add` and `celery:default` keep
+exact-qualified-name matching when distinct from the display name.
+In ambiguous results, resources whose name exactly matches the query are
+pinned before truncation, in their existing order; the remaining candidates
+fill the remaining slots in their existing order. The default candidate limit remains 8,
+and `candidates_truncated` reports omitted matches. Use a node ID, such as
+`table:users`, to select a resource directly.
+
 `callers`, `callees`, and `impact` return a bounded, agent-safe payload by
 default and report what they dropped in `truncation`. Use `--max-results` and
 `--detail-level` to widen it. `--raw` returns the unbounded QueryEngine debug
