@@ -2029,13 +2029,13 @@ class _TypeContext:
             else None
         )
         index = self._shared_context or _TypeContextIndex(nodes)
-        self._nodes_by_path = index.nodes_by_path
+        self._nodes_by_path: dict[str | None, list[Node]] = index.nodes_by_path
         self.lexical = LexicalScopes(self._nodes_by_path.get(file_record.path, []), {})
         self._decorator_scopes = {file_record.path: self.lexical}
         self.aliases = self._import_aliases(tree.body)
-        self.classes_by_id = index.classes_by_id
+        self.classes_by_id: dict[str, Node] = index.classes_by_id
         self.export_nodes = index.export_nodes
-        self.classes_by_name = index.classes_by_name
+        self.classes_by_name: dict[str, list[Node]] = index.classes_by_name
         self.return_types_by_function_name: dict[str, list[_ResolvedType]] = {}
         self.return_types_by_function_qualname: dict[str, _ResolvedType] = {}
         self.return_types_by_method: dict[tuple[str, str], _ResolvedType] = {}
