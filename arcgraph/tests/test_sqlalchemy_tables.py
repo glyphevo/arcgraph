@@ -99,3 +99,105 @@ def test_migration_markers_outside_repository_do_not_hide_source(
         {"models.py": 'class Source:\n    __tablename__ = "source"\n'},
     )
     assert [node.id for node in result.nodes] == ["table:source"]
+
+
+@pytest.mark.parametrize(
+    "imports,table,fk",
+    [
+        ("import sqlalchemy as sa", "sa.Table", "sa.ForeignKey"),
+        ("from sqlalchemy import Table, ForeignKey", "Table", "ForeignKey"),
+        ("from sqlalchemy import Table as T, ForeignKey as FK", "T", "FK"),
+    ],
+)
+def test_module_table_declarations_and_literal_foreign_keys(
+    tmp_path: Path, imports: str, table: str, fk: str
+) -> None:
+    result = _analyze(
+        tmp_path,
+        {
+            "pkg/models.py": (
+                imports + "\n"
+                'class User:\n    __tablename__ = "users"\n'
+                f'links = {table}("links", Base.metadata,\n'
+                f'    Column("user_id", {fk}("users.id")),\n'
+                f'    Column("owner_id", {fk}("users.id")),\n'
+                f'    Column("dynamic", {fk}(target)),\n'
+                f'    Column("plain", {fk}("not_a_column")))\n'
+            )
+        },
+    )
+    by_id = {node.id: node for node in result.nodes}
+    assert set(by_id) == {"table:links", "table:users"}
+    link = by_id["table:links"]
+    assert link.qualname == "links"
+    assert link.path == "pkg/models.py"
+    assert (link.start_line, link.end_line) == (4, 8)
+    assert link.properties == {
+        "orm": "sqlalchemy",
+        "table_name": "links",
+        "declaration": "table",
+    }
+    references = [edge for edge in result.edges if edge.kind == "references"]
+    assert [(edge.source, edge.target) for edge in references] == [
+        ("table:links", "table:users"),
+        ("table:links", "table:users"),
+    ]
+    assert [edge.evidence[0].start_line for edge in references] == [5, 6]
+    assert all(edge.evidence[0].kind == "sqlalchemy_resource" for edge in references)
+
+
+def test_dynamic_table_names_are_skipped_with_a_diagnostic(tmp_path: Path) -> None:
+    result = _analyze(
+        tmp_path,
+        {"models.py": "from sqlalchemy import Table\nlinks = Table(name, metadata)\n"},
+    )
+    assert result.nodes == []
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].path == "models.py"
+    assert "literal" in result.diagnostics[0].message
+    assert "line 2" in result.diagnostics[0].message
+
+
+def test_table_recognition_excludes_other_apis_nested_calls_and_migrations(
+    tmp_path: Path,
+) -> None:
+    result = _analyze(
+        tmp_path,
+        {
+            "models.py": (
+                "from other import Table\n"
+                'fake = Table("fake", metadata)\n'
+                "import sqlalchemy as sa\n"
+                'def build():\n    return sa.Table("nested", metadata)\n'
+                'class Container:\n    nested = sa.Table("class_table", metadata)\n'
+            ),
+            "alembic/versions/old.py": (
+                'import sqlalchemy as sa\nold = sa.Table("old", metadata)\n'
+                'op.create_table("old_op")\n'
+            ),
+        },
+    )
+    assert result.nodes == []
+    assert result.edges == []
+    assert result.diagnostics == []
+
+
+def test_foreign_table_without_a_declaration_has_no_invented_location(
+    tmp_path: Path,
+) -> None:
+    result = _analyze(
+        tmp_path,
+        {
+            "models.py": (
+                "from sqlalchemy import Table, ForeignKey\n"
+                'links = Table("links", metadata, Column(ForeignKey("public.users.id")))\n'
+            )
+        },
+    )
+    by_id = {node.id: node for node in result.nodes}
+    target = by_id["table:public.users"]
+    assert target.path is None
+    assert target.properties["resolution_status"] == "unresolved"
+    assert [(edge.source, edge.target, edge.kind) for edge in result.edges] == [
+        ("table:links", "table:public.users", "references")
+    ]

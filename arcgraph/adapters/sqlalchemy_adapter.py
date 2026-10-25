@@ -16,10 +16,11 @@ from arcgraph.adapters.common import (
     import_aliases,
     iter_symbol_defs,
     literal_str,
+    resolve_alias,
     symbol_id_for_def,
 )
 from arcgraph.core.ids import table_id
-from arcgraph.core.schemas import Edge, Evidence, FileRecord, Node
+from arcgraph.core.schemas import BuildWarning, Edge, Evidence, FileRecord, Node
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,13 @@ class SQLAlchemyAdapter(SemanticAdapter):
     """Extract SQLAlchemy tables and conservative read/write edges."""
 
     name = "sqlalchemy"
-    capabilities = ("resource:table", "edge:maps_to", "edge:reads", "edge:writes")
+    capabilities = (
+        "resource:table",
+        "edge:maps_to",
+        "edge:reads",
+        "edge:writes",
+        "edge:references",
+    )
     required_facts = ("class", "function", "method")
 
     READ_FUNCTIONS = {"select", "select_from"}
@@ -78,6 +85,7 @@ class SQLAlchemyAdapter(SemanticAdapter):
             if tree is None or _is_migration_file(file_record):
                 continue
             imports = import_aliases(file_record, tree, module_names)
+            self._module_tables(file_record, tree, imports, analysis)
             for class_stmt in [
                 item for item in tree.body if isinstance(item, ast.ClassDef)
             ]:
@@ -116,6 +124,31 @@ class SQLAlchemyAdapter(SemanticAdapter):
                         )
                     )
 
+        # A literal foreign key identifies a resource even if its declaration
+        # is outside the indexed source. Keep that location explicitly unknown.
+        known_tables = {
+            node.id for node in [*nodes, *analysis.nodes] if node.kind == "table"
+        }
+        for edge in analysis.edges:
+            if edge.kind != "references" or edge.target in known_tables:
+                continue
+            name = edge.target.removeprefix("table:")
+            analysis.nodes.append(
+                Node(
+                    id=edge.target,
+                    kind="table",
+                    name=name,
+                    qualname=name,
+                    properties={
+                        "orm": "sqlalchemy",
+                        "table_name": name,
+                        "resolution_status": "unresolved",
+                        "external_reference": True,
+                    },
+                )
+            )
+            known_tables.add(edge.target)
+
         for file_record in files:
             tree = parsed_files.get(file_record.path)
             if tree is None:
@@ -141,6 +174,73 @@ class SQLAlchemyAdapter(SemanticAdapter):
         analysis.nodes.sort(key=lambda node: node.id)
         analysis.edges.sort(key=lambda edge: (edge.source, edge.target, edge.kind))
         return analysis
+
+    def _module_tables(
+        self,
+        file_record: FileRecord,
+        tree: ast.Module,
+        imports: ImportAliases,
+        analysis: AdapterAnalysis,
+    ) -> None:
+        for stmt in tree.body:
+            if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, ast.Call):
+                continue
+            call = stmt.value
+            if resolve_alias(call_name(call.func), imports) != "sqlalchemy.Table":
+                continue
+            name = literal_str(call.args[0]) if call.args else None
+            if name is None:
+                analysis.diagnostics.append(
+                    BuildWarning(
+                        kind="adapter_quality_warning",
+                        path=file_record.path,
+                        message=(
+                            f"SQLAlchemy Table at line {stmt.lineno} skipped: "
+                            "the first argument must be a string literal."
+                        ),
+                    )
+                )
+                continue
+            source = table_id(name)
+            analysis.nodes.append(
+                Node(
+                    id=source,
+                    kind="table",
+                    name=name,
+                    qualname=name,
+                    path=file_record.path,
+                    start_line=stmt.lineno,
+                    end_line=getattr(stmt, "end_lineno", stmt.lineno),
+                    properties={
+                        "orm": "sqlalchemy",
+                        "table_name": name,
+                        "declaration": "table",
+                    },
+                )
+            )
+            for item in ast.walk(call):
+                if not isinstance(item, ast.Call) or not item.args:
+                    continue
+                if (
+                    resolve_alias(call_name(item.func), imports)
+                    != "sqlalchemy.ForeignKey"
+                ):
+                    continue
+                target = literal_str(item.args[0])
+                if target is None or "." not in target:
+                    continue
+                table, column = target.rsplit(".", 1)
+                if table and column:
+                    analysis.edges.append(
+                        self._edge(
+                            source,
+                            table_id(table),
+                            "references",
+                            file_record,
+                            item,
+                            f"ForeignKey({target!r})",
+                        )
+                    )
 
     def _tables_from_context(self, nodes: list[Node]) -> dict[str, TableFact]:
         facts: dict[str, TableFact] = {}
