@@ -95,6 +95,8 @@ aliases are recognized. The first argument must be a string literal; dynamic
 names are skipped with a diagnostic. Literal `ForeignKey("table.column")`
 arguments create `references` edges to the named table. A referenced table
 without an indexed declaration has an unresolved node with no source location.
+Foreign-key edges are framework facts; they do not supply a SCIP precise-reference
+backend. Imported precise-reference evidence remains separate from these facts.
 Table declarations inside migration directories are
 excluded, so historical schema snapshots cannot replace source model tables or
 add migration-model `maps_to` edges. A migration directory contains `versions/`

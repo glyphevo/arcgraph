@@ -142,6 +142,25 @@ def _route_query_aliases(query: str) -> list[str]:
     return route_query_aliases(query)
 
 
+def _without_sqlalchemy_reference_evidence(
+    edges: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Foreign keys are graph facts, not evidence from a precise backend."""
+    result = []
+    for edge in edges:
+        evidence = edge.get("evidence", [])
+        retained = [
+            item
+            for item in evidence
+            if not isinstance(item, dict) or item.get("kind") != "sqlalchemy_resource"
+        ]
+        if len(retained) == len(evidence):
+            result.append(edge)
+        elif retained:
+            result.append({**edge, "evidence": retained})
+    return result
+
+
 def _scip_reference_locations(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
     locations: dict[tuple[Any, ...], dict[str, Any]] = {}
     for edge in edges:
@@ -1823,7 +1842,9 @@ class QueryEngine:
             )
             target_ids = list(resolution.resolved_ids)
             nodes = self._nodes_by_ids(conn, target_ids)
-            scip_edges = self._edges_for_targets_kinds(conn, target_ids, ["references"])
+            scip_edges = _without_sqlalchemy_reference_evidence(
+                self._edges_for_targets_kinds(conn, target_ids, ["references"])
+            )
         freshness = self._freshness().model_dump(mode="json")
         if not target_ids or not nodes:
             return {
