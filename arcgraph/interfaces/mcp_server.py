@@ -11,6 +11,11 @@ import time
 from typing import Any
 
 from arcgraph import __version__
+from arcgraph.interfaces.cli_mcp import (
+    DEFAULT_MCP_SERVER_NAME,
+    DEFAULT_MCP_TRANSPORT as DEFAULT_MCP_TRANSPORT,
+    add_mcp_server_args,
+)
 from arcgraph.interfaces.agent_capabilities import mcp_capability_names
 from arcgraph.interfaces.local_state import local_state_paths_alias
 from arcgraph.interfaces.metrics import MCPMetricsRecorder
@@ -25,8 +30,6 @@ from arcgraph.interfaces.trial_feedback import (
     TrialFeedbackStore,
 )
 
-DEFAULT_MCP_SERVER_NAME = "ArcGraph"
-DEFAULT_MCP_TRANSPORT = "stdio"
 MCP_DISTRIBUTION_NAME = "mcp"
 MCP_VERSION_REQUIREMENT = ">=2.0.0,<3.0.0"
 METRICS_WRITE_BOUND_SECONDS = 1.0
@@ -53,76 +56,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_mcp_server_args(parser)
     return parser
-
-
-def add_mcp_server_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--repo-root",
-        default=".",
-        help="Repository root to expose through the MCP analysis facade.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="output/arcgraph",
-        help="ArcGraph output directory. Relative paths are resolved under repo root.",
-    )
-    parser.add_argument(
-        "--repo-id",
-        default="default",
-        help="MCP repo id to register for this server.",
-    )
-    parser.add_argument(
-        "--allowed-root",
-        action="append",
-        default=[],
-        help=(
-            "Allowed filesystem root. Can be repeated. Defaults to the resolved "
-            "repo root."
-        ),
-    )
-    parser.add_argument(
-        "--name",
-        default=DEFAULT_MCP_SERVER_NAME,
-        help="MCP server name reported to the host runtime.",
-    )
-    parser.add_argument(
-        "--transport",
-        default=DEFAULT_MCP_TRANSPORT,
-        choices=[DEFAULT_MCP_TRANSPORT],
-        help="MCP transport. Only stdio is supported.",
-    )
-    parser.add_argument(
-        "--expose-source-snippets",
-        action="store_true",
-        help=(
-            "Allow source snippets when a tool request explicitly asks for them. "
-            "Disabled by default."
-        ),
-    )
-    parser.add_argument(
-        "--trusted-runner-registry",
-        help=(
-            "Operator-controlled trusted-runner JSON registry outside the analyzed "
-            "repository. Omit for the fail-closed default of no trusted runners."
-        ),
-    )
-    parser.add_argument(
-        "--metrics-log",
-        dest="mcp_metrics_log",
-        help=(
-            "Optional local JSONL path for privacy-bounded per-tool MCP metrics. "
-            "Disabled by default and must differ from --feedback-log."
-        ),
-    )
-    parser.add_argument(
-        "--feedback-log",
-        dest="mcp_feedback_log",
-        help=(
-            "Optional absolute local JSONL path for privacy-bounded Agent trial "
-            "feedback. It must differ from --metrics-log; the feedback tool is "
-            "not registered when omitted."
-        ),
-    )
 
 
 def create_tool_group(

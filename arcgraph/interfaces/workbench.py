@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from arcgraph.providers.context_provider import ContextProvider
 
 from arcgraph.core.force_graph_export import FORCE_GRAPH_SCHEMA, FORCE_GRAPH_VERSION
 from arcgraph.core.query_engine import QueryEngine
@@ -18,8 +21,6 @@ from arcgraph.core.utils import (
     replace_text_file,
     strip_source_snippets,
 )
-from arcgraph.interfaces.ci import run_ci_checks
-from arcgraph.providers.context_provider import ContextProvider
 
 WORKBENCH_STATUS_SCHEMA = "ArcGraphWorkbenchStatus"
 WORKBENCH_STATUS_VERSION = 1
@@ -53,6 +54,7 @@ class WorkbenchAuditOptions:
 
 def build_workbench_status(query_engine: QueryEngine) -> dict[str, Any]:
     """Build the status payload consumed by the local visual workbench."""
+    from arcgraph.interfaces.ci import run_ci_checks
 
     workspace = query_engine.workspace_status()
     ci = run_ci_checks(query_engine)
@@ -147,6 +149,8 @@ def build_workbench_audit_index(
     graph_payload: dict[str, Any],
     options: WorkbenchAuditOptions,
 ) -> dict[str, Any]:
+    from arcgraph.providers.context_provider import ContextProvider
+
     if not options.include:
         return _empty_audit_index(enabled=False, options=options)
 

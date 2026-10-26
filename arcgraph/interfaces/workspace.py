@@ -12,8 +12,6 @@ from typing import Any
 
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
 from arcgraph.core.schemas import ContextRequest, SCHEMA_VERSION
-from arcgraph.interfaces.ci import run_ci_checks
-from arcgraph.providers.context_provider import ContextProvider
 
 WORKSPACE_STATUS_SCHEMA = "ArcGraphWorkspaceStatus"
 WORKSPACE_STATUS_VERSION = 1
@@ -1173,6 +1171,8 @@ def _workspace_repo_context(
     target: str,
     detail_level: str,
 ) -> dict[str, Any]:
+    from arcgraph.providers.context_provider import ContextProvider
+
     repo_id = _string_or_none(candidate.get("repo_id"))
     base = {
         "repo_id": repo_id,
@@ -1431,6 +1431,8 @@ def _string_or_none(value: Any) -> str | None:
 
 
 def _ci_summary(engine: QueryEngine) -> dict[str, Any]:
+    from arcgraph.interfaces.ci import run_ci_checks
+
     try:
         ci = run_ci_checks(engine)
     except Exception as exc:  # pragma: no cover - defensive status payload

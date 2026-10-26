@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import sys
@@ -26,7 +27,6 @@ from arcgraph.interfaces.human_output import (
     format_init_human,
 )
 from arcgraph.core.target_resolver import is_entrypoint_target
-from arcgraph.change.errors import ChangeSafetyError
 from arcgraph.core.query_engine import QueryEngine, SchemaVersionError
 from arcgraph.core.project_environment import (
     ProjectEnvironment,
@@ -297,6 +297,8 @@ _CLI_ERROR_CODES: dict[type[BaseException], str] = {
 
 
 def _cli_error_code(exc: BaseException) -> str:
+    from arcgraph.change.errors import ChangeSafetyError
+
     if isinstance(exc, ChangeSafetyError):
         return str(exc.to_payload()["code"])
     for exc_type, code in _CLI_ERROR_CODES.items():
@@ -382,3 +384,32 @@ def _emit_cli_payload(
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
         print_json(payload)
+
+
+def _exit_on_broken_pipe() -> int:
+    """Detach stdout and report the conventional SIGPIPE exit status."""
+
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except (OSError, ValueError):
+        pass
+    return 141
+
+
+def _top_level_command(argv: list[str]) -> str | None:
+    options_with_values = {"--repo-root", "--output-dir", "--metrics-log"}
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in options_with_values:
+            index += 2
+            continue
+        if any(token.startswith(f"{option}=") for option in options_with_values):
+            index += 1
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        return token
+    return None

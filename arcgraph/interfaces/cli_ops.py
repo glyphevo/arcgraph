@@ -8,7 +8,17 @@ import signal
 from pathlib import Path
 from typing import Any
 
-from arcgraph.interfaces.ops import sync_index, watch_index
+
+def sync_index(**kwargs):
+    from arcgraph.interfaces.ops import sync_index as run_sync_index
+
+    return run_sync_index(**kwargs)
+
+
+def watch_index(**kwargs):
+    from arcgraph.interfaces.ops import watch_index as run_watch_index
+
+    return run_watch_index(**kwargs)
 
 
 def handle_sync(args: argparse.Namespace) -> dict[str, Any]:

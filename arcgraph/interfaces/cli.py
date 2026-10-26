@@ -10,38 +10,17 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from arcgraph.core.schemas import ContextRequest
+    from arcgraph.core.scanner import ResolvedSourceRoots
+    from arcgraph.core.scanner import SourceRoot
 
 from arcgraph import __version__
-from arcgraph.change.errors import ChangeSafetyError
-from arcgraph.pipeline.indexer import ArcGraphIndexer
-from arcgraph.pipeline.external_protocol import summarize_toolchain_status
-from arcgraph.core.evidence_manifest import (
-    evidence_health_check_status,
-    evidence_plan,
-    evidence_status,
-    load_live_evidence_manifest,
-    write_evidence_sidecar,
-)
-from arcgraph.core.metadata import current_commit
-from arcgraph.core.ids import route_id
-from arcgraph.core.query_engine import (
-    QueryEngine,
-    SchemaVersionError,
-)
-from arcgraph.core.schemas import ContextRequest
+from arcgraph.core.query_engine import SchemaVersionError
 from arcgraph.core.target_resolver import is_entrypoint_target, parse_route_target
-from arcgraph.pipeline.reindexer import ArcGraphReindexer
-from arcgraph.core.scanner import (
-    LEGACY_SOURCE_ROOTS,
-    ResolvedSourceRoots,
-    SourceRoot,
-    SourceRootDetection,
-    detect_source_roots,
-    infer_source_roots,
-)
 from arcgraph.core.unresolved_classification import UNRESOLVED_CATEGORIES
-from arcgraph.interfaces.ci import evidence_requirement_summary, run_ci_checks
 from arcgraph.interfaces.agent_help import (
     HELP_SURFACES,
     HELP_TOPICS,
@@ -67,37 +46,8 @@ from arcgraph.interfaces.local_state import (
     PrivateLocalStateError,
     local_state_paths_alias,
 )
-from arcgraph.interfaces.mcp_server import add_mcp_server_args, serve as serve_mcp
-from arcgraph.interfaces.ops import (
-    prune_output,
-    rebuild_index,
-    stale_alert,
-)
-from arcgraph.interfaces.precision import (
-    convert_scip_index_to_json,
-    generate_pyright_json,
-    generate_scip_python_json,
-)
-from arcgraph.interfaces.project_probe import (
-    detect_project_languages,
-    source_file_counts,
-)
+from arcgraph.interfaces.cli_mcp import add_mcp_server_args
 from arcgraph.interfaces.stdio_encoding import use_utf8_stdio
-from arcgraph.interfaces.reports import (
-    classify_unresolved_records,
-    render_ci_markdown,
-    render_impact_markdown,
-    render_metrics_dashboard_html,
-    render_pr_markdown,
-    render_static_html_report,
-    render_unresolved_classification_markdown,
-)
-from arcgraph.interfaces.trace import (
-    import_har_network,
-    import_otel_spans,
-    import_runtime_trace,
-    run_runtime_trace,
-)
 from arcgraph.version_info import version_info
 from arcgraph.interfaces.trial_feedback import (
     DISTINCT_METRICS_FEEDBACK_LOGS_MESSAGE,
@@ -132,6 +82,8 @@ from arcgraph.interfaces.cli_support import (  # noqa: F401
     _emit_cli_payload,
     write_json_output,
     _print_cli_error_payload,
+    _exit_on_broken_pipe,
+    _top_level_command,
 )
 from arcgraph.interfaces.client_setup import add_setup_parser
 from arcgraph.interfaces.cli_trial import (  # noqa: F401
@@ -172,8 +124,6 @@ from arcgraph.core.payload_policy import (
     TARGET_SCOPED_CLI_COMMANDS,
     apply_target_payload_contract,
 )
-from arcgraph.providers.context_provider import ContextProvider
-from arcgraph.semantic.runtime import semantic_core_enabled
 
 
 def _scope_payload_capabilities(payload: dict[str, Any]) -> dict[str, Any]:
@@ -285,16 +235,6 @@ def main(argv: list[str] | None = None) -> int:
         # shutdown cannot re-raise on flush, and report the conventional
         # SIGPIPE status.
         return _exit_on_broken_pipe()
-    except ChangeSafetyError as exc:
-        status = "error"
-        error = str(exc)
-        exit_code = 1 if getattr(args, "command", None) == "change" else 2
-        if getattr(args, "command", None) == "change":
-            payload = _change_error_payload(args, exc)
-            print_json(payload)
-        else:
-            print(f"ArcGraph: {exc}", file=sys.stderr)
-            _print_cli_error_payload(args, exc)
     except (FileNotFoundError, RuntimeError, SchemaVersionError) as exc:
         status = "error"
         error = str(exc)
@@ -357,18 +297,9 @@ def main(argv: list[str] | None = None) -> int:
     return exit_code
 
 
-def _exit_on_broken_pipe() -> int:
-    """Detach stdout and report the conventional SIGPIPE exit status."""
-
-    try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
-    except (OSError, ValueError):
-        pass
-    return 141
-
-
 def build_parser() -> argparse.ArgumentParser:
+    from arcgraph.interfaces.reports import render_ci_markdown, render_impact_markdown
+
     parser = _ArcGraphArgumentParser(
         prog="arcgraph", description="Build and query a local ArcGraph index."
     )
@@ -1483,6 +1414,14 @@ def _resolve_source_roots(
 
     Priority: --root (explicit) > --legacy-roots > auto-detect.
     """
+    from arcgraph.core.scanner import (
+        LEGACY_SOURCE_ROOTS,
+        ResolvedSourceRoots,
+        SourceRootDetection,
+        detect_source_roots,
+        infer_source_roots,
+    )
+
     has_root = bool(getattr(args, "root", None))
     has_legacy = getattr(args, "legacy_roots", False)
 
@@ -1512,6 +1451,8 @@ def _resolve_source_roots(
 
 
 def handle_init(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.core.scanner import detect_source_roots
+
     repo_root = Path(args.repo_root).resolve()
     pyproject_path = repo_root / "pyproject.toml"
     resolved = detect_source_roots(repo_root)
@@ -1592,6 +1533,20 @@ def handle_init(args: argparse.Namespace) -> dict[str, Any]:
 
 def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
     """Run environment and index health checks."""
+    from arcgraph.interfaces.project_probe import (
+        detect_project_languages,
+        source_file_counts,
+    )
+    from arcgraph.core.scanner import detect_source_roots
+    from arcgraph.core.query_engine import QueryEngine
+    from arcgraph.core.metadata import current_commit
+    from arcgraph.core.evidence_manifest import (
+        evidence_health_check_status,
+        evidence_status,
+        load_live_evidence_manifest,
+    )
+    from arcgraph.pipeline.external_protocol import summarize_toolchain_status
+
     import shutil
 
     repo_root = Path(args.repo_root).resolve()
@@ -1944,6 +1899,9 @@ def handle_doctor(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_build(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.semantic.runtime import semantic_core_enabled
+    from arcgraph.pipeline.indexer import ArcGraphIndexer
+
     repo_root = Path(args.repo_root).resolve()
     semantic_core_enabled(repo_root)
     output_dir = (repo_root / args.output_dir).resolve()
@@ -1970,6 +1928,8 @@ def handle_build(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_reindex(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.pipeline.reindexer import ArcGraphReindexer
+
     if not args.changed:
         raise RuntimeError("Phase 3 only supports ArcGraph reindex --changed")
     repo_root = Path(args.repo_root).resolve()
@@ -2001,6 +1961,8 @@ def handle_ci(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_ci_payload(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.ci import run_ci_checks
+
     _import_runtime_trace_for_ci(args)
     return run_ci_checks(
         query_engine(args),
@@ -2032,6 +1994,8 @@ def _agent_payload_request(args: argparse.Namespace) -> ContextRequest:
     defaults rather than pinning them here, so the schema stays the single
     source of truth for payload bounds.
     """
+    from arcgraph.core.schemas import ContextRequest
+
     fields: dict[str, Any] = {"targets": [args.target], "profile": args.profile}
     for attr, _flag in _SHAPING_OPTIONS:
         value = getattr(args, attr)
@@ -2060,6 +2024,8 @@ def _reject_raw_shaping(args: argparse.Namespace) -> None:
 
 
 def handle_callers(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.providers.context_provider import ContextProvider
+
     if args.raw:
         _reject_raw_shaping(args)
         return query_engine(args).callers(args.target, profile=args.profile)
@@ -2068,6 +2034,8 @@ def handle_callers(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_callees(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.providers.context_provider import ContextProvider
+
     if args.raw:
         _reject_raw_shaping(args)
         return query_engine(args).callees(args.target, profile=args.profile)
@@ -2076,6 +2044,8 @@ def handle_callees(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_impact(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.providers.context_provider import ContextProvider
+
     if args.raw:
         _reject_raw_shaping(args)
         return query_engine(args).impact(
@@ -2096,6 +2066,9 @@ def handle_impact(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_report_pr(args: argparse.Namespace) -> dict[str, Any] | str:
+    from arcgraph.interfaces.reports import render_pr_markdown
+    from arcgraph.interfaces.ci import run_ci_checks
+
     repo_root = Path(args.repo_root).resolve()
     changed_files = args.changed_file or _infer_changed_files(repo_root)
     _import_runtime_trace_for_ci(args)
@@ -2125,6 +2098,9 @@ def handle_report_pr(args: argparse.Namespace) -> dict[str, Any] | str:
 
 
 def handle_report_html(args: argparse.Namespace) -> dict[str, Any] | str:
+    from arcgraph.interfaces.reports import render_static_html_report
+    from arcgraph.interfaces.ci import run_ci_checks
+
     engine = query_engine(args)
     query_target = _normalized_report_target(args.target)
     impact = engine.impact(
@@ -2169,6 +2145,8 @@ def handle_report_html(args: argparse.Namespace) -> dict[str, Any] | str:
 
 
 def handle_report_metrics_html(args: argparse.Namespace) -> dict[str, Any] | str:
+    from arcgraph.interfaces.reports import render_metrics_dashboard_html
+
     metrics_path = Path(args.path)
     try:
         metrics = summarize_metrics(metrics_path, limit=args.limit)
@@ -2190,6 +2168,11 @@ def handle_report_metrics_html(args: argparse.Namespace) -> dict[str, Any] | str
 
 
 def handle_report_unresolved(args: argparse.Namespace) -> dict[str, Any] | str:
+    from arcgraph.interfaces.reports import (
+        classify_unresolved_records,
+        render_unresolved_classification_markdown,
+    )
+
     payload = query_engine(args).unresolved(args.target, limit=args.limit)
     classification = classify_unresolved_records(payload)
     markdown = render_unresolved_classification_markdown(payload)
@@ -2218,6 +2201,9 @@ def handle_report_unresolved(args: argparse.Namespace) -> dict[str, Any] | str:
 
 
 def handle_context(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.core.schemas import ContextRequest
+    from arcgraph.providers.context_provider import ContextProvider
+
     request = ContextRequest(
         task=args.task,
         targets=args.target,
@@ -2230,6 +2216,9 @@ def handle_context(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_explain(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.core.schemas import ContextRequest
+    from arcgraph.providers.context_provider import ContextProvider
+
     request = ContextRequest(
         task=args.task,
         targets=args.target,
@@ -2242,6 +2231,8 @@ def handle_explain(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_ops_rebuild(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.ops import rebuild_index
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     resolved = _resolve_source_roots(args, repo_root)
@@ -2260,10 +2251,14 @@ def handle_ops_rebuild(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_ops_stale_alert(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.ops import stale_alert
+
     return stale_alert(query_engine(args), fail_on_stale=args.fail_on_stale)
 
 
 def handle_ops_prune(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.ops import prune_output
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     return prune_output(
@@ -2275,6 +2270,8 @@ def handle_ops_prune(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_trace_import(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.trace import import_runtime_trace
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     return import_runtime_trace(
@@ -2288,6 +2285,8 @@ def handle_trace_import(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_trace_import_otel(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.trace import import_otel_spans
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     return import_otel_spans(
@@ -2301,6 +2300,8 @@ def handle_trace_import_otel(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_trace_import_har(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.trace import import_har_network
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     return import_har_network(
@@ -2342,6 +2343,8 @@ def _add_ci_runtime_trace_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _import_runtime_trace_for_ci(args: argparse.Namespace) -> None:
+    from arcgraph.interfaces.trace import import_runtime_trace
+
     trace_path = getattr(args, "runtime_trace", None)
     if not trace_path:
         return
@@ -2358,6 +2361,8 @@ def _import_runtime_trace_for_ci(args: argparse.Namespace) -> None:
 
 
 def handle_trace_run(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.trace import run_runtime_trace
+
     repo_root = Path(args.repo_root).resolve()
     resolved = _resolve_source_roots(args, repo_root)
     pytest_args = list(args.pytest_args or [])
@@ -2375,6 +2380,9 @@ def handle_trace_run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_precision_scip_json(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.precision import convert_scip_index_to_json
+    from arcgraph.core.metadata import current_commit
+
     repo_root = Path(args.repo_root).resolve()
     resolved = _resolve_source_roots(args, repo_root)
     return convert_scip_index_to_json(
@@ -2388,6 +2396,9 @@ def handle_precision_scip_json(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_precision_scip_python(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.precision import generate_scip_python_json
+    from arcgraph.core.metadata import current_commit
+
     repo_root = Path(args.repo_root).resolve()
     resolved = _resolve_source_roots(args, repo_root)
     return generate_scip_python_json(
@@ -2407,6 +2418,9 @@ def handle_precision_scip_python(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_precision_pyright(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.interfaces.precision import generate_pyright_json
+    from arcgraph.core.metadata import current_commit
+
     repo_root = Path(args.repo_root).resolve()
     resolved = _resolve_source_roots(args, repo_root)
     return generate_pyright_json(
@@ -2423,6 +2437,9 @@ def handle_precision_pyright(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_evidence_status(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.core.metadata import current_commit
+    from arcgraph.core.evidence_manifest import evidence_status
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     current = _current_index_or_empty(args)
@@ -2441,6 +2458,10 @@ def handle_evidence_status(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_evidence_plan(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.core.metadata import current_commit
+    from arcgraph.core.evidence_manifest import evidence_plan
+    from arcgraph.interfaces.ci import evidence_requirement_summary
+
     repo_root = Path(args.repo_root).resolve()
     output_dir = (repo_root / args.output_dir).resolve()
     current = _current_index_or_empty(args)
@@ -2461,6 +2482,9 @@ def handle_evidence_plan(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_evidence_stamp(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.core.metadata import current_commit
+    from arcgraph.core.evidence_manifest import write_evidence_sidecar
+
     repo_root = Path(args.repo_root).resolve()
     return write_evidence_sidecar(
         repo_root=repo_root,
@@ -2540,30 +2564,16 @@ def _metrics_report_error_payload(
     }
 
 
-def _top_level_command(argv: list[str]) -> str | None:
-    options_with_values = {"--repo-root", "--output-dir", "--metrics-log"}
-    index = 0
-    while index < len(argv):
-        token = argv[index]
-        if token in options_with_values:
-            index += 2
-            continue
-        if any(token.startswith(f"{option}=") for option in options_with_values):
-            index += 1
-            continue
-        if token.startswith("-"):
-            index += 1
-            continue
-        return token
-    return None
-
-
 def handle_mcp_serve(args: argparse.Namespace) -> None:
+    from arcgraph.interfaces.mcp_server import serve as serve_mcp
+
     serve_mcp(args)
     return None
 
 
 def _detect_source_root_paths(repo_root: Path) -> list[str]:
+    from arcgraph.core.scanner import detect_source_roots
+
     return [root.path for root in detect_source_roots(repo_root).roots]
 
 
@@ -2663,6 +2673,8 @@ def _is_entrypoint_target(target: str) -> bool:
 
 
 def _normalized_report_target(target: str) -> str:
+    from arcgraph.core.ids import route_id
+
     if target.startswith("mcp:"):
         return f"mcp_tool:{target.split(':', 1)[1]}"
     parsed = parse_route_target(target)

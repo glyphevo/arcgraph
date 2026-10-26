@@ -12,25 +12,19 @@ import argparse
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from arcgraph.change.contracts import (
-    CHANGE_CONTRACT_VERSION,
-    ChangeIntent,
-    ChangeTarget,
-    EvidencePurgeEvent,
-    VerificationEvidence,
-    canonical_digest,
-)
-from arcgraph.change.errors import ChangeSafetyError
-from arcgraph.change.evidence import redact_sensitive_text
-from arcgraph.change.service import ChangeSafetyService
-from arcgraph.change.trusted_runners import TrustedRunnerRegistry
-from arcgraph.change.verdicts import verdict_is_blocking
+if TYPE_CHECKING:
+    from arcgraph.change.contracts import ChangeTarget
+    from arcgraph.change.contracts import VerificationEvidence
+    from arcgraph.change.service import ChangeSafetyService
+
 from arcgraph.core.schemas import SCHEMA_VERSION
 
 
 def handle_change_plan(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.change.contracts import ChangeIntent
+
     repo_id = _change_repo_id(args)
     task = args.task.strip()
     if not task:
@@ -267,6 +261,8 @@ def handle_change_evidence_show(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_change_evidence_purge(args: argparse.Namespace) -> dict[str, Any]:
+    from arcgraph.change.contracts import EvidencePurgeEvent, canonical_digest
+
     service = _change_service(args)
     record = service.get_evidence(args.plan_id, args.evidence_id)
     if record.plan_revision != args.revision:
@@ -333,6 +329,9 @@ def _change_output_dir(args: argparse.Namespace) -> Path:
 
 
 def _change_service(args: argparse.Namespace) -> ChangeSafetyService:
+    from arcgraph.change.trusted_runners import TrustedRunnerRegistry
+    from arcgraph.change.service import ChangeSafetyService
+
     repo_root = _change_repo_root(args)
     registry_value = getattr(args, "trusted_runner_registry", None)
     registry = (
@@ -354,6 +353,8 @@ def _change_target(
     repo_id: str,
     resolution_policy: str,
 ) -> ChangeTarget:
+    from arcgraph.change.contracts import ChangeTarget
+
     kind, separator, target_value = value.partition(":")
     if not separator or kind not in {"symbol", "path", "route", "resource", "contract"}:
         raise ValueError(
@@ -411,6 +412,9 @@ def _change_payload(
     data: dict[str, Any],
     verdict: str | None = None,
 ) -> dict[str, Any]:
+    from arcgraph.change.verdicts import verdict_is_blocking
+    from arcgraph.change.contracts import CHANGE_CONTRACT_VERSION
+
     blocked = verdict is not None and verdict_is_blocking(verdict)  # type: ignore[arg-type]
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -440,6 +444,10 @@ def _change_error_payload(
     args: argparse.Namespace,
     exc: Exception,
 ) -> dict[str, Any]:
+    from arcgraph.change.evidence import redact_sensitive_text
+    from arcgraph.change.errors import ChangeSafetyError
+    from arcgraph.change.contracts import CHANGE_CONTRACT_VERSION
+
     if isinstance(exc, ChangeSafetyError):
         detail = exc.to_payload()
         error_code = detail["code"]
