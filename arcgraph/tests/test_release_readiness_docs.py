@@ -981,8 +981,8 @@ def test_release_checklist_docs_cover_full_gate() -> None:
     assert "python scripts/arcgraph.py ci" in checklist
     assert "python scripts/arcgraph_release_gate.py" in checklist
     assert "python scripts/arcgraph_release_candidate_check.py" in checklist
-    assert "v0.2.1-smoke.json" in checklist
-    assert "--sdist dist/arcgraph-0.2.1.tar.gz" in checklist
+    assert "v0.3.0-smoke.json" in checklist
+    assert "--sdist dist/arcgraph-0.3.0.tar.gz" in checklist
     assert "`clean-rebuild-identical` check" in checklist
     assert "clones that HEAD into a fresh directory" in checklist
     assert "identical bytes as the two files given" in checklist
@@ -1226,7 +1226,7 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     previous_notes = (REPO_ROOT / "docs" / "release_notes" / "v0.1.0.md").read_text(
         encoding="utf-8"
     )
-    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.2.1.md").read_text(
+    notes = (REPO_ROOT / "docs" / "release_notes" / "v0.3.0.md").read_text(
         encoding="utf-8"
     )
     guide = (REPO_ROOT / "docs" / "external-trial-guide.md").read_text(encoding="utf-8")
@@ -1240,18 +1240,18 @@ def test_current_candidate_identity_notes_and_trial_guide_are_consistent() -> No
     )
     built_in = render_docs("release-checklist") + render_docs("package-readiness")
 
-    assert pyproject["project"]["version"] == "0.2.1"
+    assert pyproject["project"]["version"] == "0.3.0"
     assert "Development Status :: 4 - Beta" in pyproject["project"]["classifiers"]
     for text in (readme, notes_index, strategy, notes, guide, built_in):
-        assert re.search(r"0\.2\.1(?!rc|\d)", text)
+        assert re.search(r"0\.3\.0(?!rc|\d)", text)
     assert "arcgraph_external_trial_bundle.py" in readme
     assert "arcgraph_external_trial_bundle.py" in strategy
     assert "--artifact-dir" in package_docs
     assert "--artifact-dir" in render_docs("package-readiness")
     assert "Change Preflight" in previous_notes
     assert "comparison projection to `1.2`" in previous_notes
-    assert guide.count("arcgraph-0.2.1-py3-none-any.whl[mcp]") == 2
-    assert "arcgraph 0.2.1\n" in guide
+    assert guide.count("arcgraph-0.3.0-py3-none-any.whl[mcp]") == 2
+    assert "arcgraph 0.3.0\n" in guide
     assert "arcgraph version --json" in guide
     assert "trial setup --client claude --dry-run" in guide
     assert "remote-ci.json" in guide
