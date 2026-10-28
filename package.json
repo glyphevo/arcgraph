@@ -1,7 +1,7 @@
 {
   "name": "arcgraph",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TypeScript parser dependency for ArcGraph development and tests.",
   "license": "Apache-2.0",
   "repository": {
