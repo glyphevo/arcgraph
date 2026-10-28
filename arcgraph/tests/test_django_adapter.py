@@ -128,7 +128,7 @@ urlpatterns = [
     assert edge.confidence == "unresolved"
     assert edge.resolution.status == "unresolved"
     assert placeholder.properties["external_reference"] is True
-    assert placeholder.properties["expression"] == "include('external_app.urls')"
+    assert placeholder.properties["included_module"] == "external_app.urls"
 
 
 def test_repeated_unresolved_include_never_self_promotes_to_resolved() -> None:
@@ -539,6 +539,7 @@ def test_include_named_module_missing_node_gets_unresolved_placeholder() -> None
     )
     placeholder = next(n for n in analysis.nodes if n.id == "mod:myapp.api.urls")
     assert placeholder.properties["resolution_status"] == "unresolved"
+    assert placeholder.properties["expression"] == "include('myapp.api.urls')"
     assert (
         next(e for e in analysis.edges if e.kind == "includes_router").resolution.status
         == "unresolved"
@@ -594,4 +595,17 @@ def test_dangling_adapter_edge_is_persisted_as_a_build_warning(
         "kind": "invokes",
         "adapter": "django",
         "diagnostic_lifecycle_status": "new",
+    }
+
+
+def test_existing_unresolved_include_placeholder_keeps_original_properties() -> None:
+    fr = _file()
+    source = 'from django.urls import path, include\nurlpatterns = [path("api/", include("external_app.urls"))]\n'
+    analysis = DjangoAdapter().analyze([fr], {fr.path: _parse(source)}, [], set())
+    placeholder = next(n for n in analysis.nodes if n.id == "mod:external_app.urls")
+    assert placeholder.properties == {
+        "adapter": "django",
+        "external_reference": True,
+        "resolution_status": "unresolved",
+        "included_module": "external_app.urls",
     }

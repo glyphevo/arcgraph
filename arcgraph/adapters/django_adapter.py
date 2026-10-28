@@ -380,7 +380,11 @@ class DjangoAdapter(SemanticAdapter):
                                     "external_reference": True,
                                     "resolution_status": "unresolved",
                                     "included_module": included,
-                                    "expression": ast.unparse(view_arg),
+                                    **(
+                                        {"expression": ast.unparse(view_arg)}
+                                        if included in module_names
+                                        else {}
+                                    ),
                                 },
                             )
                             analysis.nodes.append(placeholder)
