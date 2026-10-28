@@ -52,7 +52,7 @@ def rebase_scip_documents(payload, repo_root):
                 continue
             relative = Path(path.replace("\\", "/"))
             target = (root / relative).resolve()
-            if relative.is_absolute() or not target.is_relative_to(root):
+            if relative.is_absolute() or not target.is_relative_to(repo):
                 raise ValueError("SCIP document path escapes its project root")
             doc[field] = target.relative_to(repo).as_posix()
         documents.append(doc)

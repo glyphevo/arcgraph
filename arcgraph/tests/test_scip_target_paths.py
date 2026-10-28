@@ -77,7 +77,7 @@ def test_converter_rebases_before_merging_target_documents(tmp_path, monkeypatch
     "root,path",
     [
         ("outside", "service.py"),
-        ("inside", "../service.py"),
+        ("inside", "../../service.py"),
         ("remote", "service.py"),
         ("outside", "back-inside"),
     ],
@@ -123,3 +123,42 @@ def test_multiple_targets_do_not_collapse_equal_relative_paths(tmp_path, monkeyp
         "pkg/service.py",
         "scripts/service.py",
     }
+
+
+def test_repository_internal_sibling_document_rebases(tmp_path):
+    from arcgraph.analyzers.precision_positions import rebase_scip_documents
+
+    index = payload((tmp_path / "pkg").as_uri(), path="../scripts/semantic_shadow.py")
+    result = rebase_scip_documents(index, tmp_path)
+    assert result["documents"][0]["relative_path"] == "scripts/semantic_shadow.py"
+    assert result["metadata"]["project_root"] == tmp_path.as_uri()
+
+
+def test_document_outside_repository_is_still_rejected(tmp_path):
+    from arcgraph.analyzers.precision_positions import rebase_scip_documents
+
+    index = payload((tmp_path / "pkg").as_uri(), path="../../outside.py")
+    with pytest.raises(ValueError, match="SCIP document path escapes its project root"):
+        rebase_scip_documents(index, tmp_path)
+
+
+def test_multiple_targets_deduplicate_same_rebased_document(tmp_path, monkeypatch):
+    def index(**kwargs):
+        (tmp_path / "index.scip").write_text(kwargs["target_only"][0], encoding="utf-8")
+
+    def decode(**kwargs):
+        target = kwargs["scip_index"].read_text(encoding="utf-8")
+        path = "../scripts/shared.py" if target == "pkg" else "shared.py"
+        return payload((tmp_path / target).as_uri(), path=path)
+
+    monkeypatch.setattr(precision, "_run_scip_python_index", index)
+    monkeypatch.setattr(precision, "_run_scip_print_json", decode)
+    result = precision.generate_scip_python_json(
+        repo_root=tmp_path,
+        output_path="index.json",
+        target_only=["pkg", "scripts"],
+        commit_sha="test",
+    )
+    data = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    assert result["documents"] == 1
+    assert [doc["relative_path"] for doc in data["documents"]] == ["scripts/shared.py"]
