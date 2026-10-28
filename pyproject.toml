@@ -105,6 +105,8 @@ python_files = ["test_*.py"]
 [tool.black]
 line-length = 88
 target-version = ["py311", "py312", "py313", "py314"]
+# This reproduction fixture must retain the external report's original bytes.
+extend-exclude = '''^/arcgraph/tests/fixtures/django_url_patterns/manage\.py$'''
 
 [tool.ruff]
 line-length = 88

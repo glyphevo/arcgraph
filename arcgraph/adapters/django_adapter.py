@@ -362,7 +362,7 @@ class DjangoAdapter(SemanticAdapter):
                     if included:
                         target_id = f"mod:{included}"
                         existing_target = node_index.by_id.get(target_id)
-                        resolved_module = included in module_names or (
+                        resolved_module = (
                             existing_target is not None
                             and existing_target.properties.get("resolution_status")
                             != "unresolved"
@@ -380,6 +380,7 @@ class DjangoAdapter(SemanticAdapter):
                                     "external_reference": True,
                                     "resolution_status": "unresolved",
                                     "included_module": included,
+                                    "expression": ast.unparse(view_arg),
                                 },
                             )
                             analysis.nodes.append(placeholder)
@@ -462,6 +463,26 @@ class DjangoAdapter(SemanticAdapter):
         )
 
         if handler_id:
+            if handler_id not in node_index.by_id:
+                qualname = handler_id.split(":", 1)[1]
+                placeholder = Node(
+                    id=handler_id,
+                    kind="class" if handler_id.startswith("class:") else "function",
+                    name=qualname.rsplit(".", 1)[-1],
+                    qualname=qualname,
+                    properties={
+                        "adapter": self.name,
+                        "external_reference": True,
+                        "resolution_status": "unresolved",
+                        "expression": ast.unparse(view_arg),
+                    },
+                )
+                analysis.nodes.append(placeholder)
+                node_index.by_id[handler_id] = placeholder
+            unresolved = (
+                node_index.by_id[handler_id].properties.get("resolution_status")
+                == "unresolved"
+            )
             analysis.edges.append(
                 self._edge(
                     node_id,
@@ -470,6 +491,14 @@ class DjangoAdapter(SemanticAdapter):
                     file_record,
                     node,
                     f"path({pattern!r}) -> {view_name}",
+                    confidence="unresolved" if unresolved else "confirmed",
+                    resolution=(
+                        FactResolution(
+                            status="unresolved", strategy="django_url_target"
+                        )
+                        if unresolved
+                        else None
+                    ),
                 )
             )
 

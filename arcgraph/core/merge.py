@@ -32,6 +32,26 @@ from arcgraph.core.schemas import (
     evidence_key,
 )
 
+ADAPTER_EVIDENCE_KINDS = {
+    "django_framework": "django",
+    "fastapi_route": "fastapi",
+    "sqlalchemy_resource": "sqlalchemy",
+    "celery_task": "celery",
+    "arq_worker": "arq",
+    "mcp_tool_registration": "mcp",
+    "pytest_adapter": "pytest",
+    "python_logging": "logging",
+    "pydantic_model": "pydantic",
+    "pydantic_field": "pydantic",
+    "pydantic_settings": "pydantic",
+    "cli_command": "typer_click",
+    "cli_option": "typer_click",
+    "service_container_factory": "service_container",
+    "typed_service_parameter": "service_container",
+    "typed_service_call": "service_container",
+    "service_container_call": "service_container",
+}
+
 
 @dataclass(slots=True)
 class MergeArtifacts:
@@ -80,12 +100,57 @@ class EvidenceMergeEngine:
             project_name=metadata.project_name,
             project_version=metadata.project_version,
         )
+        # Dedupe merges evidence and cannot preserve an evidence-free producer.
+        # Check those edges before any adapter evidence can mask their origin.
+        node_ids = {node.id for node in merged_nodes}
+        strict_dangling = [
+            edge
+            for edge in edges
+            if (edge.source not in node_ids or edge.target not in node_ids)
+            and (
+                not edge.evidence
+                or any(e.kind not in ADAPTER_EVIDENCE_KINDS for e in edge.evidence)
+            )
+        ]
+        self._validate_edge_endpoints(merged_nodes, strict_dangling)
         merged_edges = (
             self.dedupe_edges(edges, preserve_semantic_conflicts=True)
             if metadata.toolchain_status.get("semantic_core", {}).get("status")
             in ("active", "partial")
             else self.dedupe_edges(edges)
         )
+        retained_edges = []
+        for edge in merged_edges:
+            if (
+                (edge.source not in node_ids or edge.target not in node_ids)
+                and edge.evidence
+                and all(e.kind in ADAPTER_EVIDENCE_KINDS for e in edge.evidence)
+            ):
+                evidence = edge.evidence[0]
+                adapters = sorted(
+                    {ADAPTER_EVIDENCE_KINDS[e.kind] for e in edge.evidence}
+                )
+                details = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "kind": edge.kind,
+                    "adapter": ", ".join(adapters),
+                    "start_line": evidence.start_line,
+                    "semantic_role": edge.semantic_role,
+                }
+                message = "Dropped dangling adapter edge: " + json.dumps(
+                    details, sort_keys=True, separators=(",", ":")
+                )
+                warnings.append(
+                    BuildWarning(
+                        kind="adapter_dangling_edge",
+                        message=message,
+                        path=evidence.path,
+                    )
+                )
+            else:
+                retained_edges.append(edge)
+        merged_edges = retained_edges
         self._validate_edge_endpoints(merged_nodes, merged_edges)
         context = AnalysisPassContext(
             metadata=metadata,
@@ -98,8 +163,20 @@ class EvidenceMergeEngine:
             full_rebuild=full_rebuild,
         )
         pass_results = self.dispatcher.run(context)
+        adapter_diagnostics = self._adapter_dangling_diagnostics(metadata, warnings)
         diagnostics = [
-            *pass_results.diagnostics,
+            *(
+                d
+                for d in pass_results.diagnostics
+                if not (
+                    d.diagnostic_kind == "adapter_dangling_edge"
+                    and any(
+                        d.message == item.message and d.path == item.path
+                        for item in adapter_diagnostics
+                    )
+                )
+            ),
+            *adapter_diagnostics,
             *(extra_diagnostics or []),
             *self._conflict_diagnostics(metadata, merged_edges),
             *unresolved_callsite_diagnostics(
@@ -127,6 +204,49 @@ class EvidenceMergeEngine:
             schema_migrations=schema_migration_records(metadata),
             pass_metrics=pass_results.metrics,
         )
+
+    def _adapter_dangling_diagnostics(
+        self, metadata: IndexMetadata, warnings: list[BuildWarning]
+    ) -> list[SemanticDiagnostic]:
+        """Reconstruct dropped-edge diagnostics from retained build warnings."""
+        result = []
+        prefix = "Dropped dangling adapter edge: "
+        for warning in warnings:
+            if (
+                warning.kind != "adapter_dangling_edge"
+                or not warning.message.startswith(prefix)
+            ):
+                continue
+            try:
+                details = json.loads(warning.message[len(prefix) :])
+                properties = {
+                    key: details[key] for key in ("source", "target", "kind", "adapter")
+                }
+                start_line = details["start_line"]
+            except (ValueError, TypeError, KeyError):
+                continue
+            result.append(
+                SemanticDiagnostic(
+                    diagnostic_id=diagnostic_id(
+                        self.repo_id,
+                        "adapter_dangling_edge",
+                        warning.path,
+                        warning.message,
+                        metadata.index_version,
+                    ),
+                    repo_id=self.repo_id,
+                    index_version=metadata.index_version,
+                    diagnostic_kind="adapter_dangling_edge",
+                    message=warning.message,
+                    path=warning.path,
+                    start_line=start_line,
+                    frontend_name="platform-merge",
+                    first_seen_index=metadata.index_version,
+                    last_seen_index=metadata.index_version,
+                    properties=properties,
+                )
+            )
+        return result
 
     @staticmethod
     def _validate_edge_endpoints(nodes: list[Node], edges: list[Edge]) -> None:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 
+import pytest
+
 from arcgraph.adapters.django_adapter import DjangoAdapter
 from arcgraph.core.schemas import FileRecord, Node
 
@@ -96,7 +98,8 @@ urlpatterns = [
 """
     fr = _file()
     tree = _parse(source)
-    analysis = adapter.analyze([fr], {fr.path: tree}, [], {"myapp.api.urls"})
+    module = Node(id="mod:myapp.api.urls", kind="module", name="urls")
+    analysis = adapter.analyze([fr], {fr.path: tree}, [module], {"myapp.api.urls"})
 
     inc_edges = [e for e in analysis.edges if e.kind == "includes_router"]
     assert len(inc_edges) == 1
@@ -125,6 +128,7 @@ urlpatterns = [
     assert edge.confidence == "unresolved"
     assert edge.resolution.status == "unresolved"
     assert placeholder.properties["external_reference"] is True
+    assert placeholder.properties["expression"] == "include('external_app.urls')"
 
 
 def test_repeated_unresolved_include_never_self_promotes_to_resolved() -> None:
@@ -463,3 +467,131 @@ def list_users(request):
     assert (
         len(orm_edges) == 0
     ), f"Expected no ORM edges for ambiguous unresolvable model, got {orm_edges}"
+
+
+@pytest.mark.parametrize(
+    "target, expression, kind",
+    [
+        ("class:django.views.generic.RedirectView", "RedirectView.as_view()", "class"),
+        ("fn:django.contrib.admin.site.urls", "admin.site.urls", "function"),
+        ("fn:myapp.urls.login_required", "login_required(view)", "function"),
+    ],
+)
+def test_unresolved_url_targets_are_materialized(target, expression, kind) -> None:
+    source = """from django.urls import path
+from django.views.generic import RedirectView
+from django.contrib import admin
+from django.contrib.auth.decorators import login_required
+urlpatterns = [path("", RedirectView.as_view()), path("admin/", admin.site.urls), path("secret/", login_required(view))]
+"""
+    fr = _file()
+    analysis = DjangoAdapter().analyze([fr], {fr.path: _parse(source)}, [], set())
+    placeholders = {
+        n.id: n
+        for n in analysis.nodes
+        if n.properties.get("external_reference") is True
+    }
+    node = placeholders[target]
+    assert node.kind == kind
+    assert node.properties["adapter"] == "django"
+    assert node.properties["resolution_status"] == "unresolved"
+    assert node.properties["expression"] == expression
+
+
+def test_django_repro_build_via_cli(tmp_path, capsys) -> None:
+    import json
+    from pathlib import Path
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.interfaces.cli import main
+
+    fixture = Path(__file__).parent / "fixtures" / "django_url_patterns"
+    output = tmp_path / "out"
+    assert (
+        main(["--repo-root", str(fixture), "--output-dir", str(output), "build"]) == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    reader = GraphStoreReader.from_build(output, payload["index_version"])
+    nodes = reader.read_nodes()
+    assert {node.properties["path"] for node in nodes if node.kind == "route"} >= {
+        "/",
+        "/admin/",
+        "/secret/",
+        "/home/",
+    }
+    assert (
+        len(
+            [
+                node
+                for node in nodes
+                if node.properties.get("adapter") == "django"
+                and node.properties.get("external_reference") is True
+            ]
+        )
+        == 3
+    )
+
+
+def test_include_named_module_missing_node_gets_unresolved_placeholder() -> None:
+    fr = _file()
+    source = 'from django.urls import path, include\nurlpatterns = [path("api/", include("myapp.api.urls"))]\n'
+    analysis = DjangoAdapter().analyze(
+        [fr], {fr.path: _parse(source)}, [], {"myapp.api.urls"}
+    )
+    placeholder = next(n for n in analysis.nodes if n.id == "mod:myapp.api.urls")
+    assert placeholder.properties["resolution_status"] == "unresolved"
+    assert (
+        next(e for e in analysis.edges if e.kind == "includes_router").resolution.status
+        == "unresolved"
+    )
+
+
+def test_dangling_adapter_edge_is_persisted_as_a_build_warning(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    import json
+    from pathlib import Path
+    from arcgraph.core.graph_store import GraphStoreReader
+    from arcgraph.core.schemas import Edge, Evidence
+    from arcgraph.interfaces.cli import main
+
+    original = DjangoAdapter.analyze
+
+    def with_dangling(self, *args, **kwargs):
+        analysis = original(self, *args, **kwargs)
+        analysis.edges.append(
+            Edge(
+                source="route:ANY:/",
+                target="fn:missing",
+                kind="invokes",
+                evidence=[
+                    Evidence(kind="django_framework", path="app/urls.py", start_line=9)
+                ],
+            )
+        )
+        return analysis
+
+    monkeypatch.setattr(DjangoAdapter, "analyze", with_dangling)
+    fixture = Path(__file__).parent / "fixtures" / "django_url_patterns"
+    output = tmp_path / "out"
+    assert (
+        main(["--repo-root", str(fixture), "--output-dir", str(output), "build"]) == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    reader = GraphStoreReader.from_build(output, payload["index_version"])
+    warnings = reader.read_warnings()
+    assert payload["warning_count"] == len(warnings)
+    assert sum(w.kind == "adapter_dangling_edge" for w in warnings) == 1
+    diagnostics = [
+        d
+        for d in reader.read_diagnostics()
+        if d.diagnostic_kind == "adapter_dangling_edge"
+    ]
+    assert len(diagnostics) == 1
+    assert diagnostics[0].start_line == 9
+    assert diagnostics[0].properties == {
+        "source": "route:ANY:/",
+        "target": "fn:missing",
+        "kind": "invokes",
+        "adapter": "django",
+        "diagnostic_lifecycle_status": "new",
+    }

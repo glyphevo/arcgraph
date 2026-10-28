@@ -706,3 +706,86 @@ def test_identical_node_duplicates_do_not_repeat_canonical_serialization(monkeyp
     monkeypatch.setattr(Node, "model_dump", count)
     assert EvidenceMergeEngine.dedupe_nodes(copies) == [node]
     assert calls == 0
+
+
+def test_adapter_dangling_edge_becomes_warning_and_diagnostic(tmp_path: Path) -> None:
+    metadata = IndexMetadata(
+        index_version="test", repo_root=str(tmp_path), source_roots=["src"]
+    )
+    source = Node(id="route:ANY:/", kind="route", name="route")
+    edge = Edge(
+        source=source.id,
+        target="fn:missing",
+        kind="invokes",
+        evidence=[Evidence(kind="django_framework", path="urls.py", start_line=4)],
+    )
+    warnings = []
+    artifacts = EvidenceMergeEngine(
+        tmp_path, dispatcher=python_compat_pass_dispatcher()
+    ).merge_graph(metadata, [source], [edge], warnings)
+    assert artifacts.edges == []
+    assert len(warnings) == 1 and warnings[0].kind == "adapter_dangling_edge"
+    diagnostic = next(
+        d for d in artifacts.diagnostics if d.diagnostic_kind == "adapter_dangling_edge"
+    )
+    assert diagnostic.path == "urls.py" and diagnostic.start_line == 4
+    assert diagnostic.properties["source"] == source.id
+    assert diagnostic.properties["target"] == "fn:missing"
+    assert diagnostic.properties["kind"] == "invokes"
+    assert diagnostic.properties["adapter"] == "django"
+
+
+def test_mixed_adapter_and_frontend_dangling_edge_still_fails(tmp_path: Path) -> None:
+    metadata = IndexMetadata(
+        index_version="test", repo_root=str(tmp_path), source_roots=[]
+    )
+    source = Node(id="fn:source", kind="function", name="source")
+    edge = Edge(
+        source=source.id,
+        target="fn:missing",
+        kind="calls",
+        evidence=[Evidence(kind="django_framework"), Evidence(kind="python_ast")],
+    )
+    with pytest.raises(GraphIntegrityError, match="dangling edge endpoint"):
+        EvidenceMergeEngine(tmp_path).merge_graph(metadata, [source], [edge], [])
+
+
+def test_adapter_dedupe_cannot_hide_an_unattributed_dangling_edge(
+    tmp_path: Path,
+) -> None:
+    metadata = IndexMetadata(
+        index_version="test", repo_root=str(tmp_path), source_roots=[]
+    )
+    source = Node(id="fn:source", kind="function", name="source")
+    plain = Edge(source=source.id, target="fn:missing", kind="calls")
+    adapter = plain.model_copy(update={"evidence": [Evidence(kind="django_framework")]})
+    with pytest.raises(GraphIntegrityError, match="dangling edge endpoint"):
+        EvidenceMergeEngine(tmp_path).merge_graph(
+            metadata, [source], [plain, adapter], []
+        )
+
+
+def test_retained_adapter_warning_preserves_diagnostic_fields(tmp_path: Path) -> None:
+    metadata = IndexMetadata(
+        index_version="test", repo_root=str(tmp_path), source_roots=[]
+    )
+    source = Node(id="fn:source", kind="function", name="source")
+    edge = Edge(
+        source=source.id,
+        target="fn:missing",
+        kind="calls",
+        evidence=[Evidence(kind="django_framework", path="urls.py", start_line=4)],
+    )
+    warnings = []
+    engine = EvidenceMergeEngine(tmp_path, dispatcher=python_compat_pass_dispatcher())
+    first = engine.merge_graph(metadata, [source], [edge], warnings)
+    second = engine.merge_graph(metadata, [source], [], warnings)
+    initial = next(
+        d for d in first.diagnostics if d.diagnostic_kind == "adapter_dangling_edge"
+    )
+    retained = next(
+        d for d in second.diagnostics if d.diagnostic_kind == "adapter_dangling_edge"
+    )
+    assert retained.path == initial.path == "urls.py"
+    assert retained.start_line == initial.start_line == 4
+    assert retained.properties == initial.properties
