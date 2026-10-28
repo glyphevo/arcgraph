@@ -2774,3 +2774,79 @@ def test_edge_reads_batch_past_the_real_sqlite_variable_limit(
     # The public surfaces that bind these lists still answer.
     assert engine.impact("src/huge.py")["status"] == "available"
     assert engine.callers("src/huge.py")["status"] in {"available", "partial"}
+
+
+def test_tests_prefer_direct_test_coverage_and_fall_back_to_module(
+    tmp_path: Path,
+) -> None:
+    from arcgraph.core.schemas import Evidence
+
+    target = Node(
+        id="fn:pkg.service.target",
+        kind="function",
+        name="target",
+        qualname="pkg.service.target",
+        path="src/pkg/service.py",
+    )
+    module = Node(
+        id="mod:pkg.service",
+        kind="module",
+        name="service",
+        qualname="pkg.service",
+        path="src/pkg/service.py",
+    )
+    aggregate = Node(id="coverage:run", kind="coverage", name="run")
+    test_nodes = [
+        Node(
+            id=f"test:case{i}",
+            kind="test_case",
+            name=f"case{i}",
+            path=f"tests/test_case{i}.py",
+        )
+        for i in range(3)
+    ]
+    module_edges = [
+        Edge(source=node.id, target=module.id, kind="covers") for node in test_nodes
+    ]
+    imports = [
+        Edge(
+            source=node.id,
+            target=module.id,
+            kind="imports",
+            evidence=[Evidence(kind="python_import", path=node.path)],
+        )
+        for node in test_nodes
+    ]
+
+    def query(name: str, direct: bool):
+        out = tmp_path / name
+        metadata = IndexMetadata(
+            index_version=name,
+            repo_root=str(tmp_path),
+            source_roots=["src", "tests"],
+            capabilities={"coverage": "available"},
+        )
+        edges = [
+            *module_edges,
+            *imports,
+            Edge(source=aggregate.id, target=target.id, kind="covers"),
+        ]
+        if direct:
+            edges.append(Edge(source=test_nodes[0].id, target=target.id, kind="covers"))
+        GraphStoreWriter(out).write(
+            metadata, [], [target, module, aggregate, *test_nodes], edges, []
+        )
+        return QueryEngine(out).tests(target.id)
+
+    direct = query("direct", True)
+    fallback = query("fallback", False)
+    assert set(direct) == set(fallback)
+    assert [item["path"] for item in direct["candidates"]] == ["tests/test_case0.py"]
+    assert "runtime coverage covers target" in direct["candidates"][0]["reason"]
+    assert [item["path"] for item in fallback["candidates"]] == [
+        f"tests/test_case{i}.py" for i in range(3)
+    ]
+    assert all(
+        "runtime coverage covers target module" in item["reason"]
+        for item in fallback["candidates"]
+    )

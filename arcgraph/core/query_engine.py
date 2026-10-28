@@ -1604,10 +1604,24 @@ class QueryEngine:
             candidates = self._test_candidates(
                 conn, query, target_module_ids, target_ids
             )
-            coverage_edges = self._coverage_edges_for_targets(
-                conn, target_ids, target_module_ids
+            direct_edges = self._edges_for_targets(conn, target_ids, "covers")
+            direct_candidates = self._coverage_test_candidates(
+                conn, direct_edges, target_ids
             )
-            coverage_candidates = self._coverage_test_candidates(conn, coverage_edges)
+            if direct_candidates:
+                coverage_edges = direct_edges
+                coverage_candidates = direct_candidates
+                direct_paths = {candidate["path"] for candidate in direct_candidates}
+                candidates = [
+                    item for item in candidates if item["path"] in direct_paths
+                ]
+            else:
+                coverage_edges = self._coverage_edges_for_targets(
+                    conn, target_ids, target_module_ids
+                )
+                coverage_candidates = self._coverage_test_candidates(
+                    conn, coverage_edges, target_ids
+                )
             candidates = self._merge_test_candidates(candidates, coverage_candidates)
             test_gaps = self._test_gaps(
                 target_ids=target_ids,
@@ -2600,17 +2614,26 @@ class QueryEngine:
         return self._edges_for_targets(conn, target_set, "covers")
 
     def _coverage_test_candidates(
-        self, conn: Any, coverage_edges: list[dict[str, Any]]
+        self, conn: Any, coverage_edges: list[dict[str, Any]], target_ids: list[str]
     ) -> list[dict[str, Any]]:
         candidates: dict[str, dict[str, Any]] = {}
         source_ids = sorted({edge["source"] for edge in coverage_edges})
-        for node in self._nodes_by_ids(conn, source_ids):
-            path = node.get("path")
+        nodes = {node["id"]: node for node in self._nodes_by_ids(conn, source_ids)}
+        target_set = set(target_ids)
+        for edge in coverage_edges:
+            path = nodes.get(edge["source"], {}).get("path")
             if not self._is_test_path(path):
+                continue
+            direct = edge["target"] in target_set
+            if path in candidates and not direct:
                 continue
             candidates[path] = {
                 "path": path,
-                "reason": "runtime coverage covers target",
+                "reason": (
+                    "runtime coverage covers target"
+                    if direct
+                    else "runtime coverage covers target module"
+                ),
                 "evidence": "coverage",
             }
         return sorted(candidates.values(), key=lambda item: item["path"])
