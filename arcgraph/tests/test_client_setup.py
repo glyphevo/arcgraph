@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import stat
 import tomllib
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -190,10 +189,27 @@ def test_invalid_timeout_has_no_effect(tmp_path, timeout):
 def _fake_reparse_tag(monkeypatch, directory, tag):
     real_lstat = os.lstat
 
+    class _ReparsePointStat:
+        """The real lstat result with the mode and reparse tag replaced.
+
+        The patch applies to the global ``os.lstat``; any other field the test
+        runner or coverage reads must stay real.
+        """
+
+        st_mode = stat.S_IFDIR | 0o755
+
+        def __init__(self, real):
+            self._real = real
+            self.st_reparse_tag = tag
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
     def lstat(path, *args, **kwargs):
+        real = real_lstat(path, *args, **kwargs)
         if os.path.abspath(os.fspath(path)) == os.path.abspath(directory):
-            return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_reparse_tag=tag)
-        return real_lstat(path, *args, **kwargs)
+            return _ReparsePointStat(real)
+        return real
 
     monkeypatch.setattr(os, "lstat", lstat)
 

@@ -7,7 +7,6 @@ from pathlib import Path
 import stat
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -231,13 +230,24 @@ def test_created_path_sync_stops_at_a_private_namespace_root(
     synced_inodes: list[tuple[int, int]] = []
     max_parent_opens = 64
 
-    def private_directory_fstat(fd: int) -> SimpleNamespace:
-        directory_stat = real_fstat(fd)
-        return SimpleNamespace(
-            st_mode=stat.S_IFDIR | 0o700,
-            st_dev=directory_stat.st_dev,
-            st_ino=directory_stat.st_ino,
-        )
+    class _PrivateDirectoryStat:
+        """The real stat result with only the mode replaced.
+
+        The patch applies to the global ``os.fstat``, so the test runner's own
+        descriptors are stat'ed through it too (pytest 9.2 reads ``st_size`` of
+        its capture files); every field other than ``st_mode`` must stay real.
+        """
+
+        st_mode = stat.S_IFDIR | 0o700
+
+        def __init__(self, real: os.stat_result) -> None:
+            self._real = real
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._real, name)
+
+    def private_directory_fstat(fd: int) -> _PrivateDirectoryStat:
+        return _PrivateDirectoryStat(real_fstat(fd))
 
     def bounded_open(
         path: str,
